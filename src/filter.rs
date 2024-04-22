@@ -167,6 +167,8 @@ where
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= 256);
     let n_buckets = bucket_ranges.len();
 
+    debug!("debug modification test");
+
     if bucket_ranges.len() > 1 {
         debug!(
             "{} sequences, {} kmers, {} passes",
