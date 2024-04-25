@@ -53,6 +53,7 @@ impl<D> KmerSummarizer<D, u16> for CountFilter {
     fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16) {
         let mut all_exts = Exts::empty();
         let mut count = 0u16;
+        debug!("in summarizer (cf) item length is: {:?}", items.try_len());
         for (_, exts, _) in items {
             count = count.saturating_add(1);
             all_exts = all_exts.add(exts);
@@ -86,6 +87,8 @@ impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+
+        debug!("in summarizer (cfs) item length is: {:?}", items.try_len());
 
         let mut nobs = 0;
         for (_, exts, d) in items {
@@ -158,16 +161,17 @@ where
     let slices = kmer_mem / max_mem + 1;
     let sz = 256 / slices + 1;
 
+    debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+
     let mut bucket_ranges = Vec::with_capacity(slices);
     let mut start = 0;
     while start < 256 {
         bucket_ranges.push(start..start + sz);
         start += sz;
     }
+    debug!("start: {}, bucket_ranges: {:?}, len br: {}", start, bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= 256);
     let n_buckets = bucket_ranges.len();
-
-    debug!("debug modification test");
 
     if bucket_ranges.len() > 1 {
         debug!(
@@ -177,6 +181,8 @@ where
             bucket_ranges.len()
         );
     }
+
+    debug!("n of seqs: {}", seqs.len());
 
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
@@ -203,8 +209,11 @@ where
                 }
             }
         }
+        
+        debug!("no of kmer buckets: {}", kmer_buckets.len());
 
         for mut kmer_vec in kmer_buckets {
+            debug!("kmers in this bucket: {}", kmer_vec.len());
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
