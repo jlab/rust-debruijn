@@ -9,6 +9,7 @@ use std::ops::Deref;
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
+use serde_json::de;
 
 use crate::Dir;
 use crate::Exts;
@@ -53,7 +54,6 @@ impl<D> KmerSummarizer<D, u16> for CountFilter {
     fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16) {
         let mut all_exts = Exts::empty();
         let mut count = 0u16;
-        debug!("in summarizer (cf) item length is: {:?}", items.try_len());
         for (_, exts, _) in items {
             count = count.saturating_add(1);
             all_exts = all_exts.add(exts);
@@ -88,8 +88,6 @@ impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
 
-        debug!("in summarizer (cfs) item length is: {:?}", items.try_len());
-
         let mut nobs = 0;
         for (_, exts, d) in items {
             out_data.push(d);
@@ -99,7 +97,9 @@ impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
 
         out_data.sort();
         out_data.dedup();
+        //debug!("count filter set out data len: {}", out_data.len());
         (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
+        
     }
 }
 
