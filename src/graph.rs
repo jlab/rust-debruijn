@@ -132,6 +132,7 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             }
             BoomHashMap::new_parallel(kmers, indices)
         };
+        debug!("finish graph loops: 2x {}", self.len());
 
         DebruijnGraph {
             base: self,

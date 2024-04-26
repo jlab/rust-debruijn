@@ -2,9 +2,11 @@
 
 //! Create compressed DeBruijn graphs from uncompressed DeBruijn graphs, or a collection of disjoint DeBruijn graphs.
 use bit_set::BitSet;
+use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use crate::dna_string::DnaString;
 use crate::graph::{BaseGraph, DebruijnGraph};
@@ -488,8 +490,10 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
     ) -> (Exts, D) {
         let seed: K = *self.index.get_key(seed_id).expect("Index out of bound");
         edge_seq.clear();
+        let mut counter1 = 0;
         for i in 0..K::k() {
             edge_seq.push_back(seed.get(i));
+            counter1 += 1;
         }
 
         let mut node_data = self.get_kmer_data(&seed).1.clone();
@@ -536,7 +540,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             Some(&(_, Dir::Left)) => r_ext.complement(),
             Some(&(_, Dir::Right)) => r_ext,
         };
-
+        
+        debug!("iterations for loops in build node: {} and 2x {}", counter1, path.len());
         (Exts::from_single_dirs(left_extend, right_extend), node_data)
     }
 
@@ -547,6 +552,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         spec: &S,
         index: &BoomHashMap2<K, Exts, D>,
     ) -> BaseGraph<K, D> {
+        let now = Instant::now();
+        
         let n_kmers = index.len();
         let mut available_kmers = BitSet::with_capacity(n_kmers);
         for i in 0..n_kmers {
@@ -571,6 +578,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         // Node sequences will get assembled here
         let mut edge_seq_buf = VecDeque::new();
 
+        debug!("n of kmers: {}", n_kmers);
+
         for kmer_counter in 0..n_kmers {
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
@@ -593,7 +602,7 @@ pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>
     CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index)
 }
 
-/// Take a BoomHash Object and build a compressed DeBruijn graph.
+/// Take (make??) a BoomHash (?????) Object and build a compressed DeBruijn graph.
 #[inline(never)]
 pub fn compress_kmers<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
     stranded: bool,

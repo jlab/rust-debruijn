@@ -25,6 +25,7 @@
 //! let first_kmer: Kmer16 = slice1.get_kmer(0);
 //! assert_eq!(first_kmer, Kmer16::from_ascii(b"CACGTATGACAGATAG"))
 
+use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::cmp::min;
@@ -818,6 +819,7 @@ impl PackedDnaStringSet {
             length += 1;
         }
         self.length.push(length as u32);
+        debug!("add to sequence for loop {:?} iterations (pr seq len)", length);
     }
 }
 
