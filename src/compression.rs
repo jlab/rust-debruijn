@@ -490,10 +490,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
     ) -> (Exts, D) {
         let seed: K = *self.index.get_key(seed_id).expect("Index out of bound");
         edge_seq.clear();
-        let mut counter1 = 0;
         for i in 0..K::k() {
             edge_seq.push_back(seed.get(i));
-            counter1 += 1;
         }
 
         let mut node_data = self.get_kmer_data(&seed).1.clone();
@@ -522,12 +520,14 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         let r_ext = self.extend_kmer(seed, Dir::Right, path);
 
+        let mut counter = 0;
         // Add on the right path
         for &(next_kmer, dir) in path.iter() {
             let kmer = match dir {
                 Dir::Left => next_kmer.rc(),
                 Dir::Right => next_kmer,
             };
+            counter += 1;
 
             edge_seq.push_back(kmer.get(K::k() - 1));
 
@@ -540,8 +540,9 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             Some(&(_, Dir::Left)) => r_ext.complement(),
             Some(&(_, Dir::Right)) => r_ext,
         };
+
+        debug!("path in build node length {}", counter);
         
-        debug!("iterations for loops in build node: {} and 2x {}", counter1, path.len());
         (Exts::from_single_dirs(left_extend, right_extend), node_data)
     }
 
