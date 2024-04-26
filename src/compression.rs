@@ -541,7 +541,7 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             Some(&(_, Dir::Right)) => r_ext,
         };
 
-        debug!("path in build node length {}", counter);
+        //debug!("path in build node length {}", counter);
         
         (Exts::from_single_dirs(left_extend, right_extend), node_data)
     }

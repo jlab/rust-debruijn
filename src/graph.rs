@@ -534,6 +534,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
+        debug!("large to dot loop: {}", self.len());
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(
