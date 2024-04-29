@@ -88,7 +88,51 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
 
-        let mut nobs = 0;
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d);
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+        out_data.dedup();
+
+        
+        //debug!("count filter set out data len: {}", out_data.len());
+        (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
+        
+    }
+}
+
+/// A simple KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. The metadata returned about a Kmer
+/// is a vector of the unique data values observed for that kmer.
+pub struct CountFilterComb<D> {
+    min_kmer_obs: usize,
+    phantom: PhantomData<D>,
+}
+
+impl<D> CountFilterComb<D> {
+    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
+    /// at least `min_kmer_obs` times.
+    /// data is ([vec with tags], count)
+    pub fn new(min_kmer_obs: usize) -> CountFilterSet<D> {
+        CountFilterSet {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
+}
+
+impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
         for (_, exts, d) in items {
             out_data.push(d);
             all_exts = all_exts.add(exts);
@@ -104,30 +148,9 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
         debug!("nobs: {}", nobs);
         debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data));
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
+        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs))
         
     }
-}
-
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
-pub struct CountFilterComb<D> {
-    _min_kmer_obs: usize,
-    phantom: PhantomData<D>,
-}
-
-impl<D> CountFilterComb<D> {
-    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
-    /// at least `min_kmer_obs` times.
-    /// data is ([vec with tags], count)
-    pub fn new(min_kmer_obs: usize) -> CountFilterSet<D> {
-        CountFilterSet {
-            min_kmer_obs,
-            phantom: PhantomData,
-        }
-    }
-
 }
 
 
