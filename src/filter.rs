@@ -117,8 +117,8 @@ impl<D> CountFilterComb<D> {
     /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     /// data is ([vec with tags], count)
-    pub fn new(min_kmer_obs: usize) -> CountFilterSet<D> {
-        CountFilterSet {
+    pub fn new(min_kmer_obs: usize) -> CountFilterComb<D> {
+        CountFilterComb {
             min_kmer_obs,
             phantom: PhantomData,
         }
