@@ -82,7 +82,7 @@ impl<D> CountFilterSet<D> {
     }
 }
 
-impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
+impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
     fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>) {
         let mut all_exts = Exts::empty();
 
@@ -95,13 +95,43 @@ impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
             nobs += 1;
         }
 
+        debug!("out_data pre sorting: {:?}", out_data);
+
         out_data.sort();
         out_data.dedup();
+
+        debug!("out_data post sorting: {:?}", out_data);
+        debug!("nobs: {}", nobs);
+        debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data));
         //debug!("count filter set out data len: {}", out_data.len());
         (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
         
     }
 }
+
+/// A simple KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. The metadata returned about a Kmer
+/// is a vector of the unique data values observed for that kmer.
+pub struct CountFilterComb<D> {
+    _min_kmer_obs: usize,
+    phantom: PhantomData<D>,
+}
+
+impl<D> CountFilterComb<D> {
+    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
+    /// at least `min_kmer_obs` times.
+    /// data is ([vec with tags], count)
+    pub fn new(min_kmer_obs: usize) -> CountFilterSet<D> {
+        CountFilterSet {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
+}
+
+
+
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
 /// their extensions, and summarize associated label/'color' data. The input
