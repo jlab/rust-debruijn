@@ -843,7 +843,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// returns 2D Vec with node_ids grouped according to the clusters they form
-    fn clusters(&self) -> () {
+    pub fn clusters(&self) -> () {
         let mut clusters: Vec<Vec<usize>> = Vec::new();
 
         for i in 0..self.len() {
@@ -851,6 +851,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let mut connected: Vec<usize> = Vec::new();
             let l_edges = self.get_node(i).l_edges();
             let r_edges = self.get_node(i).r_edges();
+
+            println!("l: {:?}, r: {:?}", l_edges, r_edges);
             for vec in clusters.iter() {
 
 
