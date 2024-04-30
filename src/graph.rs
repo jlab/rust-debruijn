@@ -3,6 +3,7 @@
 //! Containers for path-compressed De Bruijn graphs
 
 use bit_set::BitSet;
+use log::log_enabled;
 use log::{debug, trace};
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -849,14 +850,46 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..self.len() {
 
             let mut connected: Vec<usize> = Vec::new();
+            let mut found: bool = false;
             let l_edges = self.get_node(i).l_edges();
             let r_edges = self.get_node(i).r_edges();
 
             println!("l: {:?}, r: {:?}", l_edges, r_edges);
+            
             for vec in clusters.iter() {
+                let mut j = 0;
+                for (edge, _, _) in l_edges.iter() {
+                    if vec.contains(edge) {
+                        connected.push(j);
+                        continue;
+                    }
+                    j += 1;
+                }
+                j = 0;
+                for (edge, _, _) in r_edges.iter() {
+                    if vec.contains(edge) {
+                        connected.push(j);
+                        continue;
+                    }
+                    j += 1;
+                }
 
-
+                if !found {
+                    if vec.contains(&i) {
+                        found = true;
+                        connected.push(i);
+                    }
+                }
+                    
             }
+
+            if !found {
+                clusters[connected[1]].push(i);
+            }
+
+            println!("{:?}", connected);
+
+            
             // get left egdes + right edges
             // check if any of edges already in cluster
             // if multiple combine to one (all edges + current node)
