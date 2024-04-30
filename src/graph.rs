@@ -841,6 +841,28 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         new_states
     }
+
+    /// returns 2D Vec with node_ids grouped according to the clusters they form
+    fn clusters(&self) -> () {
+        let mut clusters: Vec<Vec<usize>> = Vec::new();
+
+        for i in 0..self.len() {
+
+            let mut connected: Vec<usize> = Vec::new();
+            let l_edges = self.get_node(i).l_edges();
+            let r_edges = self.get_node(i).r_edges();
+            for vec in clusters.iter() {
+
+
+            }
+            // get left egdes + right edges
+            // check if any of edges already in cluster
+            // if multiple combine to one (all edges + current node)
+            // if not already present, add current node to cluster
+        }
+
+    }
+
 }
 
 #[derive(Debug, Eq, PartialEq)]
