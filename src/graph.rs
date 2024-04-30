@@ -884,7 +884,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
 
             if !found {
-                clusters[connected[1]].push(i);
+                
+                clusters.push(vec![i]);
             }
 
             println!("{:?}", connected);
