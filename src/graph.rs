@@ -843,9 +843,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         new_states
     }
 
-    /// returns 2D Vec with node_ids grouped according to the clusters they form
-    pub fn clusters(&self) -> () {
-        let mut clusters: Vec<Vec<usize>> = Vec::new();
+    /// returns 2D Vec with node_ids grouped according to the connected components they form
+    pub fn components(&self) -> () {
+        let mut components: Vec<Vec<usize>> = Vec::new();
 
         for i in 0..self.len() {
 
@@ -854,9 +854,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let l_edges = self.get_node(i).l_edges();
             let r_edges = self.get_node(i).r_edges();
 
-            println!("l: {:?}, r: {:?}", l_edges, r_edges);
+            println!("node: {}, l: {:?}, r: {:?}", i,  l_edges, r_edges);
             
-            for vec in clusters.iter() {
+            for vec in components.iter() {
                 let mut j = 0;
                 for (edge, _, _) in l_edges.iter() {
                     if vec.contains(edge) {
@@ -880,21 +880,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                         connected.push(i);
                     }
                 }
+                // add edges to component
                     
             }
 
             if !found {
-                
-                clusters.push(vec![i]);
+                components.push(vec![i]);
             }
+            
+            // TODO combine components
 
             println!("{:?}", connected);
 
             
-            // get left egdes + right edges
-            // check if any of edges already in cluster
-            // if multiple combine to one (all edges + current node)
-            // if not already present, add current node to cluster
         }
 
     }
