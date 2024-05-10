@@ -890,38 +890,43 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     }
 
-    pub fn components_r(&self) -> () {
-        let mut components: Vec<usize> = Vec::with_capacity(self.len());
+
+    /// recursively detects which nodes form separate graph components
+    /// returns 2D vector with node ids per component
+    pub fn components_r(&self) -> Vec<Vec<usize>> {
+        let mut components: Vec<Vec<usize>> = Vec::with_capacity(self.len());
         let mut visited: Vec<bool> = Vec::with_capacity(self.len());
 
-        for i in 0..visited.len() {
-            visited[i] = false;
+        for i in 0..self.len() {
+            visited.push(false);
         }
 
         for i in 0..self.len() {
             if !visited[i] {
-
+                let mut comp: Vec<usize> = Vec::new();
+                (visited, comp) = self.component(&visited, i, &comp);
+                components.push(comp);
             }
         }
 
+        components
+
     }
 
-    fn component<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) -> (&mut Vec<bool>, &mut Vec<usize>) {
+    fn component<'a>(&'a self, visited: &'a Vec<bool>, i: usize, comp: &'a Vec<usize>) -> (Vec<bool>, Vec<usize>) {
+        let mut visited = visited.clone();
+        let mut comp = comp.clone();
+        
         visited[i] = true;
         comp.push(i);
         let mut edges = self.find_edges(i, Dir::Left);
         let mut r_edges = self.find_edges(i, Dir::Right);
-        let mut x: Vec<bool> = Vec::new();
-        let mut y: Vec<usize> = Vec::new();
 
         edges.append(&mut r_edges);
-        let mut result: (&mut Vec<bool>, &mut Vec<usize>);
 
         for (edge, _, _) in edges.iter() {
             if !visited[*edge] {
-                let (a, b) = self.component(visited, *edge, comp);
-                let mut visited = a;
-                let mut comp = b;
+                (visited, comp) = self.component(&visited, *edge, &comp);
             }
         }
 

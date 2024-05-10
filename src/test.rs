@@ -560,6 +560,7 @@ mod tests {
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
         let graph2 = graph.finish();
         graph2.print();
+        println!("components: {:?}", graph2.components_r());
 
         // Now try to clean the tips.
         let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
