@@ -3,13 +3,14 @@
 //! Containers for path-compressed De Bruijn graphs
 
 use bit_set::BitSet;
+use itertools::Itertools;
 use log::log_enabled;
 use log::{debug, trace};
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::f32;
 use std::fmt::{self, Debug};
@@ -844,56 +845,87 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// returns 2D Vec with node_ids grouped according to the connected components they form
-    pub fn components(&self) -> () {
-        let mut components: Vec<Vec<usize>> = Vec::new();
+    pub fn components_i(&self) -> () {
+        let mut components: Vec<usize> = Vec::with_capacity(self.len());
+        //let mut connected: HashMap<usize, usize> = HashMap::with_capacity(self.len());
+        let mut connected: Vec<usize> = Vec::new();
+
+        for i in 0..self.len() {
+            connected.insert(i, i);
+        }
+
+        let mut new_component: usize = 0;
 
         for i in 0..self.len() {
 
-            let mut connected: Vec<usize> = Vec::new();
-            let mut found: bool = false;
             let l_edges = self.get_node(i).l_edges();
             let r_edges = self.get_node(i).r_edges();
 
             println!("node: {}, l: {:?}, r: {:?}", i,  l_edges, r_edges);
-            
-            for vec in components.iter() {
-                let mut j = 0;
-                for (edge, _, _) in l_edges.iter() {
-                    if vec.contains(edge) {
-                        connected.push(j);
-                        continue;
-                    }
-                    j += 1;
-                }
-                j = 0;
-                for (edge, _, _) in r_edges.iter() {
-                    if vec.contains(edge) {
-                        connected.push(j);
-                        continue;
-                    }
-                    j += 1;
-                }
 
-                if !found {
-                    if vec.contains(&i) {
-                        found = true;
-                        connected.push(i);
-                    }
-                }
-                // add edges to component
-                    
+            let mut edges = HashMap::new();
+
+            for (edge, _, _) in l_edges.iter() {
+                if edge < &i {edges.insert(edge, components[*edge]);}
             }
 
-            if !found {
-                components.push(vec![i]);
+            for (edge, _, _) in r_edges.iter() {
+                if edge < &i {edges.insert(edge, components[*edge]);}
             }
+
+            if edges.len() == 0 {
+
+                components[i] = new_component;
+                connected.push(new_component);
+                new_component += 1;
+                
+            } else {
             
-            // TODO combine components
+                let min_edge = *edges.keys().min().expect("no min element in edges");
+                components[i] = min_edge.clone();
 
-            println!("{:?}", connected);
-
+            }
             
         }
+
+    }
+
+    pub fn components_r(&self) -> () {
+        let mut components: Vec<usize> = Vec::with_capacity(self.len());
+        let mut visited: Vec<bool> = Vec::with_capacity(self.len());
+
+        for i in 0..visited.len() {
+            visited[i] = false;
+        }
+
+        for i in 0..self.len() {
+            if !visited[i] {
+
+            }
+        }
+
+    }
+
+    fn component<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) -> (&mut Vec<bool>, &mut Vec<usize>) {
+        visited[i] = true;
+        comp.push(i);
+        let mut edges = self.find_edges(i, Dir::Left);
+        let mut r_edges = self.find_edges(i, Dir::Right);
+        let mut x: Vec<bool> = Vec::new();
+        let mut y: Vec<usize> = Vec::new();
+
+        edges.append(&mut r_edges);
+        let mut result: (&mut Vec<bool>, &mut Vec<usize>);
+
+        for (edge, _, _) in edges.iter() {
+            if !visited[*edge] {
+                let (a, b) = self.component(visited, *edge, comp);
+                let mut visited = a;
+                let mut comp = b;
+            }
+        }
+
+        (visited, comp)
 
     }
 
