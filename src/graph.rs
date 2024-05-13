@@ -470,6 +470,113 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Vec::from_iter(path)
     }
 
+
+    /// Find the highest-scoring, unambiguous path in the graph. Each node get a score
+    /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
+    /// paths will be terminated if there are multiple valid paths emanating from a node.
+    /// Returns vec with path for each component
+    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> Vec<Vec<(usize, Dir)>>
+    where
+        F: Fn(&D) -> f32,
+        F2: Fn(&D) -> bool,
+    {
+        if self.is_empty() {
+            let vec: Vec<Vec<(usize, Dir)>> = Vec::new();
+            return vec;
+        }
+
+        let mut paths: Vec<Vec<(usize, Dir)>> = Vec::new();
+        let components = self.components_r();
+
+        for j in 0..components.len() {
+
+            let current_comp = &components[j];
+            
+
+            let mut best_node = current_comp[0];
+            let mut best_score = f32::MIN;
+            for i in 0..current_comp.len() {
+                let node = self.get_node(current_comp[i]);
+                let node_score = score(node.data());
+
+                if node_score > best_score {
+                    best_node = current_comp[i];
+                    best_score = node_score;
+                }
+            }
+
+            let oscore = |state| match state {
+                None => 0.0,
+                Some((id, _)) => score(self.get_node(id).data()),
+            };
+
+            let osolid_path = |state| match state {
+                None => false,
+                Some((id, _)) => solid_path(self.get_node(id).data()),
+            };
+
+            // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
+            // already put into the path
+            let mut used_nodes = HashSet::new();
+            let mut path = VecDeque::new();
+
+            // Start w/ initial state
+            used_nodes.insert(best_node);
+            path.push_front((best_node, Dir::Left));
+
+            for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
+                let &(start_node, dir, do_flip) = init;
+                let mut current = (start_node, dir);
+                debug!("start: {:?}", current);
+
+                loop {
+                    let mut next = None;
+                    let (cur_id, incoming_dir) = current;
+                    let node = self.get_node(cur_id);
+                    let edges = node.edges(incoming_dir.flip());
+                    debug!("{:?}", node);
+
+                    let mut solid_paths = 0;
+                    for (id, dir, _) in edges {
+                        let cand = Some((id, dir));
+                        if osolid_path(cand) {
+                            solid_paths += 1;
+                        }
+
+                        if oscore(cand) > oscore(next) {
+                            next = cand;
+                        }
+                    }
+
+                    if solid_paths > 1 {
+                        break;
+                    }
+
+                    match next {
+                        Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
+                            if do_flip {
+                                path.push_front((next_id, next_incoming.flip()));
+                            } else {
+                                path.push_back((next_id, next_incoming));
+                            }
+
+                            used_nodes.insert(next_id);
+                            current = (next_id, next_incoming);
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            
+            debug!("path:{:?}", path);
+            paths.push(Vec::from_iter(path));
+        }
+
+        paths
+    
+    }
+
+
     /// Get the sequence of a path through the graph. The path is given as a sequence of node_id integers
     pub fn sequence_of_path<'a, I: 'a + Iterator<Item = &'a (usize, Dir)>>(
         &self,
