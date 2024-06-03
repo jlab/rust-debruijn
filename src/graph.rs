@@ -123,7 +123,9 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
+                
             }
+            println!("left kmers: {:?}", kmers);
             BoomHashMap::new_parallel(kmers, indices.clone())
         };
 
@@ -132,6 +134,7 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
             }
+            println!("right kmers: {:?}", kmers);
             BoomHashMap::new_parallel(kmers, indices)
         };
         debug!("finish graph loops: 2x {}", self.len());
@@ -598,6 +601,27 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         seq
+    }
+
+    pub fn path_statistics<'a>(
+        &self,
+        path: Vec<(usize, Dir)>,
+        csv: bool,
+    ) {
+        let mut counts: HashMap<&str, f32> = HashMap::new();
+        let mut stats: HashMap<&str, f32> = HashMap::new();
+        let len  = path.len();
+
+        if csv {
+            for i in 0..path.len() {
+                let (tags, _) = self.get_node(i).data();
+            }
+            
+
+        } else {
+
+        }
+
     }
 
     fn node_to_dot<F: Fn(&D) -> String>(
