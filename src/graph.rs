@@ -603,7 +603,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    pub fn path_statistics<'a>(
+    /* pub fn path_statistics<'a>(
         &self,
         path: Vec<(usize, Dir)>,
         csv: bool,
@@ -622,7 +622,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         }
 
-    }
+    } */
 
     fn node_to_dot<F: Fn(&D) -> String>(
         &self,
