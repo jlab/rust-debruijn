@@ -125,7 +125,7 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
                 
             }
-            println!("left kmers: {:?}", kmers);
+            
             BoomHashMap::new_parallel(kmers, indices.clone())
         };
 
@@ -134,7 +134,7 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
             }
-            println!("right kmers: {:?}", kmers);
+            
             BoomHashMap::new_parallel(kmers, indices)
         };
         debug!("finish graph loops: 2x {}", self.len());
@@ -156,6 +156,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
             }
+            println!("left kmers: {:?}", kmers);
             BoomHashMap::new(kmers, indices.clone())
         };
 
@@ -164,6 +165,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
             }
+            println!("right kmers: {:?}", kmers);
             BoomHashMap::new(kmers, indices)
         };
 
