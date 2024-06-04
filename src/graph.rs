@@ -153,19 +153,25 @@ impl<K: Kmer, D> BaseGraph<K, D> {
 
         let left_order = {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
+            let mut sequences: Vec<String> = Vec::new();
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
+                sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
             println!("left kmers: {:?}", kmers);
+            println!("left seqs: {:?}", kmers);
             BoomHashMap::new(kmers, indices.clone())
         };
 
         let right_order = {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
+            let mut sequences: Vec<String> = Vec::new();
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
+                sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
             println!("right kmers: {:?}", kmers);
+            println!("right seqs: {:?}", kmers);
             BoomHashMap::new(kmers, indices)
         };
 
@@ -174,6 +180,10 @@ impl<K: Kmer, D> BaseGraph<K, D> {
             left_order,
             right_order,
         }
+    }
+
+    pub fn remove_duplicate_kmers(self) {
+        
     }
 }
 
