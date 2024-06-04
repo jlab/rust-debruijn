@@ -137,7 +137,7 @@ mod tests {
     use crate::clean_graph::CleanGraph;
     use crate::compression::{compress_graph, compress_kmers_with_hash, SimpleCompress};
     use crate::graph::BaseGraph;
-    use crate::DnaBytes;
+    use crate::{DnaBytes, Mer};
     use crate::{Dir, Exts, Kmer};
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
@@ -547,6 +547,7 @@ mod tests {
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean);
         let graph1 = graph.finish();
         graph1.print();
+        println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
         let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
@@ -560,6 +561,15 @@ mod tests {
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
         let graph2 = graph.finish();
         graph2.print();
+        println!("components: {:?}", graph2.components_r());
+        let max_path = graph2.max_path(|d| *d as f32, |_| true);
+        println!("one graph: {:?}", max_path); 
+        let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
+        println!("all graphs: {:?}", max_path_c); 
+        for i in 0..graph2.len() {
+            println!("node {}: {}", i,  graph2.get_node(i).sequence());
+            println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
+        }
 
         // Now try to clean the tips.
         let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
