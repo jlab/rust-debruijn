@@ -159,7 +159,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
             println!("left kmers: {:?}", kmers);
-            println!("left seqs: {:?}", kmers);
+            println!("left seqs: {:?}", sequences);
             BoomHashMap::new(kmers, indices.clone())
         };
 
@@ -171,7 +171,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
             println!("right kmers: {:?}", kmers);
-            println!("right seqs: {:?}", kmers);
+            println!("right seqs: {:?}", sequences);
             BoomHashMap::new(kmers, indices)
         };
 
