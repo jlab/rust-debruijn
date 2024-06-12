@@ -615,27 +615,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    /* pub fn path_statistics<'a>(
-        &self,
-        path: Vec<(usize, Dir)>,
-        csv: bool,
-    ) {
-        let mut counts: HashMap<&str, f32> = HashMap::new();
-        let mut stats: HashMap<&str, f32> = HashMap::new();
-        let len  = path.len();
-
-        if csv {
-            for i in 0..path.len() {
-                let (tags, _) = self.get_node(i).data();
-            }
-            
-
-        } else {
-
-        }
-
-    } */
-
     fn node_to_dot<F: Fn(&D) -> String>(
         &self,
         node: &Node<'_, K, D>,

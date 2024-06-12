@@ -6,7 +6,6 @@ use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::time::Instant;
 
 use crate::dna_string::DnaString;
 use crate::graph::{BaseGraph, DebruijnGraph};
@@ -330,7 +329,7 @@ where
 
         // We will have some hanging exts due to
         let mut dbg = graph.finish();
-        dbg.fix_exts(None);
+        dbg.fix_exts(None); // ????
         debug_assert!(dbg.is_compressed(compression) == None);
         dbg
     }
@@ -385,6 +384,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         // metadata of start kmer
         let (exts, ref kmer_data) = self.get_kmer_data(&kmer);
 
+        // kmer is marked terminal if it has not one extension in one direction (if clear path always 1) 
+        // or if the graph is not stranded and the kmer is a palindrome
         if exts.num_ext_dir(dir) != 1 || (!self.stranded && kmer.is_palindrome()) {
             ExtMode::Terminal(exts.single_dir(dir))
         } else {
@@ -394,7 +395,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             let mut next_kmer = kmer.extend(ext_base, dir);
 
             let mut do_flip = false;
-
+            
+            // decide if direction needs to be changed (how?????????) turn kmer into rc
             if !self.stranded {
                 let flip_rc = next_kmer.min_rc_flip();
                 do_flip = flip_rc.1;
@@ -456,6 +458,7 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         let final_exts: Exts; // must get set below
 
+        // get id of kmer and remove from available kmers
         let id = self.get_kmer_id(&kmer).expect("should have this kmer");
         let _ = self.available_kmers.remove(id);
 
@@ -482,7 +485,7 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
     /// Build the edge surrounding a kmer
     #[inline(never)]
-    fn build_node(
+    fn  build_node(
         &mut self,
         seed_id: usize,
         path: &mut Vec<(K, Dir)>,
@@ -496,7 +499,9 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         let mut node_data = self.get_kmer_data(&seed).1.clone();
 
+        // Unique path from seed kmer with Dir Left is built
         let l_ext = self.extend_kmer(seed, Dir::Left, path);
+
 
         // Add on the left path
         for &(next_kmer, dir) in path.iter() {
@@ -518,16 +523,16 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             Some(&(_, Dir::Right)) => l_ext.complement(),
         };
 
+
+        // Unique path from seed kmer with Dir Left is built
         let r_ext = self.extend_kmer(seed, Dir::Right, path);
 
-        let mut counter = 0;
         // Add on the right path
         for &(next_kmer, dir) in path.iter() {
             let kmer = match dir {
                 Dir::Left => next_kmer.rc(),
                 Dir::Right => next_kmer,
             };
-            counter += 1;
 
             edge_seq.push_back(kmer.get(K::k() - 1));
 
@@ -540,8 +545,6 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             Some(&(_, Dir::Left)) => r_ext.complement(),
             Some(&(_, Dir::Right)) => r_ext,
         };
-
-        //debug!("path in build node length {}", counter);
         
         (Exts::from_single_dirs(left_extend, right_extend), node_data)
     }
@@ -553,7 +556,8 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         spec: &S,
         index: &BoomHashMap2<K, Exts, D>,
     ) -> BaseGraph<K, D> {
-        let now = Instant::now();
+
+        //println!("index: {:?}", index);
         
         let n_kmers = index.len();
         let mut available_kmers = BitSet::with_capacity(n_kmers);
@@ -570,6 +574,9 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             index,
         };
 
+        /* println!("--comp av kmers: {:?}", comp.available_kmers);
+        println!("--comp index: {:?}", comp.index); */
+
         // Path-compressed De Bruijn graph will be created here
         let mut graph = BaseGraph::new(stranded);
 
@@ -581,17 +588,28 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         debug!("n of kmers: {}", n_kmers);
 
+        /* println!("path_buf: {:?}", path_buf);
+        println!("edge_seq_buf: {:?}", edge_seq_buf); */
+
         for kmer_counter in 0..n_kmers {
+            //println!("kmer_counter: {}", kmer_counter);
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
+                //let node_data2: D = node_data.clone(); 
                 graph.add(&edge_seq_buf, node_exts, node_data);
+                /* println!("path_buf: {:?}", path_buf);
+                println!("edge_seq_buf: {:?}", edge_seq_buf);
+                println!("node_exts: {:?}", node_exts);
+                println!("node_data: {:?}", node_data2);
+                println!("graph: {:?}", graph); */
             }
         }
 
         graph
     }
 }
+
 
 /// Take a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
@@ -603,7 +621,7 @@ pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>
     CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index)
 }
 
-/// Take (make??) a BoomHash (?????) Object and build a compressed DeBruijn graph.
+/// Take (make) a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
 pub fn compress_kmers<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
     stranded: bool,
@@ -666,4 +684,27 @@ pub fn compress_kmers_no_exts<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
 
     let index = BoomHashMap2::new(keys, exts, data);
     CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, &index)
+}
+
+/// assumes stranded = false
+pub fn uncrompressed_graph<K: Kmer, D: Clone + Debug>(
+    index: &BoomHashMap2<K, Exts, D>,
+) -> BaseGraph<K, D> {
+
+    let mut graph: BaseGraph<K, D> = BaseGraph::new(false);
+    let mut kmer_seq: VecDeque<u8> = VecDeque::with_capacity(K::k());
+
+    //let n_kmers = index.len();
+
+    for (kmer, exts, data) in index.into_iter() {
+        kmer_seq.clear();
+        for i in 0..K::k() {
+            kmer_seq.push_back(kmer.get(i));
+        }
+        let data2 = data.clone();
+        graph.add(&kmer_seq, *exts, data2);
+
+
+    }
+    graph
 }
