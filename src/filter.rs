@@ -1,15 +1,18 @@
 // Copyright 2017 10x Genomics
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
+use std::collections::btree_map::Range;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
+use std::sync::Mutex;
 
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
 use serde_json::de;
+use rayon::prelude::*;
 
 use crate::Dir;
 use crate::Exts;
@@ -192,7 +195,193 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone, DS, S: KmerSummarizer<D1, DS>>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS> +  Send>(
+    seqs: &[(V, Exts, D1)],
+    //summarizer: &dyn Deref<Target = S>,
+    summarizer: S,
+    stranded: bool,
+    report_all_kmers: bool,
+    memory_size: usize,
+) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
+where
+    DS: Debug,
+{
+    let rc_norm = !stranded;
+
+    let shared_summarizer = Mutex::new(summarizer);
+
+    //println!("sequence input: {:?}", seqs);
+
+    // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
+    let input_kmers: usize = seqs
+        .iter()
+        .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
+        .sum();
+    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
+    let max_mem = memory_size * 10_usize.pow(9);
+    let slices = kmer_mem / max_mem + 1;
+    let sz = 256 / slices + 1;
+
+    debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+
+    let mut bucket_ranges = Vec::with_capacity(slices);
+    let mut start = 0;
+    while start < 256 {
+        bucket_ranges.push(start..start + sz);
+        start += sz;
+    }
+    debug!("start: {}, bucket_ranges: {:?}, len br: {}", start, bucket_ranges, bucket_ranges.len());
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= 256);
+    let n_buckets = bucket_ranges.len();
+
+    if bucket_ranges.len() > 1 {
+        debug!(
+            "{} sequences, {} kmers, {} passes",
+            seqs.len(),
+            input_kmers,
+            bucket_ranges.len()
+        );
+    }
+
+    debug!("n of seqs: {}", seqs.len());
+
+    let mut shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>> = Mutex::new(vec![vec![]; n_buckets]);
+    println!("data_out empty: {:?}", shared_data.lock());
+
+    /* let mut all_kmers = Vec::new();
+    let mut valid_kmers = Vec::new();
+    let mut valid_exts = Vec::new();
+    let mut valid_data = Vec::new(); */
+
+
+
+    // parallel start
+
+    bucket_ranges.into_par_iter().enumerate().for_each(&|(i, bucket_range): (usize, std::ops::Range<usize>)| {
+
+        debug!("Processing bucket {} of {}", i, n_buckets);
+
+        let mut all_kmers = Vec::new();
+        let mut valid_kmers = Vec::new();
+        let mut valid_exts = Vec::new();
+        let mut valid_data = Vec::new();
+
+        let mut kmer_buckets = vec![Vec::new(); 256];
+
+        for &(ref seq, seq_exts, ref d) in seqs {
+            for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+                //println!("kmer: {:?}, exts: {:?}", kmer, exts);
+                let (min_kmer, flip_exts) = if rc_norm {
+                    let (min_kmer, flip) = kmer.min_rc_flip();
+                    let flip_exts = if flip { exts.rc() } else { exts };
+                    (min_kmer, flip_exts)
+                } else {
+                    (kmer, exts)
+                };
+                let bucket = bucket(min_kmer);
+
+                if bucket >= bucket_range.start && bucket < bucket_range.end {
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
+                }
+            }
+        }
+        
+        debug!("no of kmer buckets: {}", kmer_buckets.len());
+
+        for mut kmer_vec in kmer_buckets {
+            debug!("kmers in this bucket: {}", kmer_vec.len());
+            //println!("kmers in this bucket: {:?}", kmer_vec);
+            kmer_vec.sort_by_key(|elt| elt.0);
+
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
+                let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
+                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
+                if report_all_kmers {
+                    all_kmers.push(kmer);
+                }
+                if is_valid {
+                    valid_kmers.push(kmer);
+                    valid_exts.push(exts);
+                    valid_data.push(summary_data);
+                }
+            }
+        }
+
+        //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
+
+        let mut data_out = shared_data.lock().expect("unlock shared filter data");
+
+        data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
+    });
+    // parallel end
+
+    /* debug!(
+        "Unique kmers: {}, All kmers (if returned): {}",
+        valid_kmers.len(),
+        all_kmers.len(),
+    ); */
+
+    let data_out = shared_data.lock().expect("final unlock shared filter data");
+
+    let mut all_kmers = Vec::new();
+    let mut valid_kmers = Vec::new();
+    let mut valid_exts = Vec::new();
+    let mut valid_data = Vec::new();
+
+    println!("data_out: {:?}", data_out);
+
+    for bucket in data_out.iter() {
+        all_kmers.append(&mut bucket[0].0.clone());
+        valid_kmers.append(&mut bucket[0].1.clone());
+        valid_exts.append(&mut bucket[0].2.clone());
+        valid_data.append(&mut bucket[0].3.clone());
+    } 
+    
+    println!("data_out2: {:?}", data_out);
+
+    (
+        BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
+        all_kmers,
+    )
+}
+
+/// Process DNA sequences into kmers and determine the set of valid kmers,
+/// their extensions, and summarize associated label/'color' data. The input
+/// sequences are converted to kmers of type `K`, and like kmers are grouped together.
+/// All instances of each kmer, along with their label data are passed to
+/// `summarizer`, an implementation of the `KmerSummarizer` which decides if
+/// the kmer is 'valid' by an arbitrary predicate of the kmer data, and
+/// summarizes the the individual label into a single label data structure
+/// for the kmer. Care is taken to keep the memory consumption small.
+/// Less than 4G of temporary memory should be allocated to hold intermediate kmers.
+///
+///
+/// # Arguments
+///
+/// * `seqs` a slice of (sequence, extensions, data) tuples. Each tuple
+///   represents an input sequence. The input sequence must implement `Vmer<K`> The data slot is an arbitrary data
+///   structure labeling the input sequence.
+///   If complete sequences are passed in, the extensions entry should be
+///   set to `Exts::empty()`.
+///   In sharded DBG construction (for example when minimizer-based partitioning
+///   of the input strings), the input sequence is a sub-string of the original input string.
+///   In this case the extensions of the sub-string in the original string
+///   should be passed in the extensions.
+/// * `summarizer` is an implementation of `KmerSummarizer<D1,DS>` that decides
+///   whether a kmer is valid (e.g. based on the number of observation of the kmer),
+///   and summarizes the data about the individual kmer observations. See `CountFilter`
+///   and `CountFilterSet` for examples.
+/// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
+///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
+///   to the lexicographic minimum of the kmer and it's reverse complement.
+/// * `report_all_kmers`: if true returns the vector of all the observed kmers and performs the
+///   kmer based filtering
+/// * `memory_size`: gives the size bound on the memory in GB to use and automatically determines
+///   the number of passes needed.
+/// # Returns
+/// BoomHashMap2 Object, check rust-boomphf for details
+#[inline(never)]
+pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D1, DS>>(
     seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
@@ -203,6 +392,8 @@ where
     DS: Debug,
 {
     let rc_norm = !stranded;
+
+    //println!("sequence input: {:?}", seqs);
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -248,6 +439,7 @@ where
 
         for &(ref seq, seq_exts, ref d) in seqs {
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+                //println!("kmer: {:?}, exts: {:?}", kmer, exts);
                 let (min_kmer, flip_exts) = if rc_norm {
                     let (min_kmer, flip) = kmer.min_rc_flip();
                     let flip_exts = if flip { exts.rc() } else { exts };
@@ -267,6 +459,7 @@ where
 
         for mut kmer_vec in kmer_buckets {
             debug!("kmers in this bucket: {}", kmer_vec.len());
+            //println!("kmers in this bucket: {:?}", kmer_vec);
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {

@@ -20,6 +20,7 @@ smallvec = "1"
 bit-set = "0.5.1"
 itertools = ">=0.7"
 log = "0.4"
+rayon = "1.10.0"
 
 [dev-dependencies]
 pretty_assertions = "1.3"

@@ -223,6 +223,7 @@ pub trait Kmer: Mer + Sized + Copy + PartialEq + PartialOrd + Eq + Ord + Hash {
     /// Return the minimum of the kmer and it's reverse complement, and a flag indicating if sequence was flipped
     fn min_rc_flip(&self) -> (Self, bool) {
         let rc = self.rc();
+        //println!("kmer flip: self: {:?}, rc: {:?}, t/f: {}", self, rc, (*self < rc));
         if *self < rc {
             (*self, false)
         } else {
