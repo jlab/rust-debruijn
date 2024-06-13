@@ -198,6 +198,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
 pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS> +  Send>(
     seqs: &[(V, Exts, D1)],
     //summarizer: &dyn Deref<Target = S>,
+    // summarizer without wrapper, why wrapper???
     summarizer: S,
     stranded: bool,
     report_all_kmers: bool,
@@ -220,6 +221,7 @@ where
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
+    //let slices = 4;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
@@ -246,7 +248,7 @@ where
     debug!("n of seqs: {}", seqs.len());
 
     let mut shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>> = Mutex::new(vec![vec![]; n_buckets]);
-    println!("data_out empty: {:?}", shared_data.lock());
+    debug!("data_out empty: {:?}", shared_data.lock());
 
     /* let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
@@ -328,7 +330,7 @@ where
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
 
-    println!("data_out: {:?}", data_out);
+    debug!("data_out: {:?}", data_out);
 
     for bucket in data_out.iter() {
         all_kmers.append(&mut bucket[0].0.clone());
@@ -337,7 +339,7 @@ where
         valid_data.append(&mut bucket[0].3.clone());
     } 
     
-    println!("data_out2: {:?}", data_out);
+    debug!("data_out2: {:?}", data_out);
 
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
