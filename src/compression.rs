@@ -687,7 +687,7 @@ pub fn compress_kmers_no_exts<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
 }
 
 /// assumes stranded = false
-pub fn uncrompressed_graph<K: Kmer, D: Clone + Debug>(
+pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
     index: &BoomHashMap2<K, Exts, D>,
 ) -> BaseGraph<K, D> {
 

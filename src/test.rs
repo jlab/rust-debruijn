@@ -135,7 +135,7 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 mod tests {
 
     use crate::clean_graph::CleanGraph;
-    use crate::compression::{compress_graph, compress_kmers_with_hash, uncrompressed_graph, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, SimpleCompress};
     use crate::graph::BaseGraph;
     use crate::{DnaBytes, Mer};
     use crate::{Dir, Exts, Kmer};
@@ -580,7 +580,7 @@ mod tests {
             println!("node {}: {}", i,  graph2.get_node(i).sequence());
             println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
         } */
-        let u_graph: BaseGraph<K, u16> = uncrompressed_graph(&valid_kmers_errs);
+        let u_graph: BaseGraph<K, u16> = uncompressed_graph(&valid_kmers_errs);
         let u_graph2 = u_graph.finish();
         //println!("uncompressed graph: {:?}", u_graph2);
         //u_graph2.print();

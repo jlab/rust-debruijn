@@ -309,6 +309,8 @@ where
             }
         }
 
+        debug!("processed bucket {i}");
+
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
 
         let mut data_out = shared_data.lock().expect("unlock shared filter data");
