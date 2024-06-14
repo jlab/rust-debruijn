@@ -535,6 +535,11 @@ mod tests {
             all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), ()));
         }
 
+
+        // initialize global thread pool with x threads
+        let num_threads = 4;
+        rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
+
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
             &clean_seqs,

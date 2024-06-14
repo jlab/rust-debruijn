@@ -1,6 +1,7 @@
 // Copyright 2017 10x Genomics
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
+use core::slice;
 use std::collections::btree_map::Range;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -220,8 +221,8 @@ where
         .sum();
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     let max_mem = memory_size * 10_usize.pow(9);
-    let slices = kmer_mem / max_mem + 1;
-    //let slices = 4;
+    let slices_seq = kmer_mem / max_mem + 1;
+    let slices = slices_seq * rayon::current_num_threads();
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
@@ -261,7 +262,7 @@ where
 
     bucket_ranges.into_par_iter().enumerate().for_each(&|(i, bucket_range): (usize, std::ops::Range<usize>)| {
 
-        debug!("Processing bucket {} of {}", i, n_buckets);
+        println!("Processing bucket {} of {}", i, n_buckets);
 
         let mut all_kmers = Vec::new();
         let mut valid_kmers = Vec::new();
@@ -309,7 +310,7 @@ where
             }
         }
 
-        debug!("processed bucket {i}");
+        println!("processed bucket {i}");
 
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
 
