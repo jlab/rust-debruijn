@@ -262,7 +262,7 @@ where
 
     bucket_ranges.into_par_iter().enumerate().for_each(&|(i, bucket_range): (usize, std::ops::Range<usize>)| {
 
-        println!("Processing bucket {} of {}", i, n_buckets);
+        debug!("Processing bucket {} of {}", i, n_buckets);
 
         let mut all_kmers = Vec::new();
         let mut valid_kmers = Vec::new();
@@ -310,7 +310,7 @@ where
             }
         }
 
-        println!("processed bucket {i}");
+        debug!("processed bucket {i}");
 
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
 
