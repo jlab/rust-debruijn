@@ -564,7 +564,7 @@ mod tests {
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            filter::CountFilter::new(2),
+            Box::new(filter::CountFilter::new(2)),
             stranded,
             false,
             4,

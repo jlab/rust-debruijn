@@ -200,7 +200,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + 
     seqs: &[(V, Exts, D1)],
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
-    summarizer: S,
+    summarizer: Box<S>,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
