@@ -130,31 +130,27 @@ impl<D> CountFilterComb<D> {
 
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
+impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, u32)> for CountFilterComb<D> {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, u32)) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
 
-        println!("out_data_size: {}", items.size_hint().0);
-
-        let mut nobs = 0i32;
+        let mut nobs = 0u32;
         for (_, exts, d) in items {
             out_data.push(d); // uses a shit ton of heap memory
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
 
-        debug!("out_data pre sorting: {:?}", out_data);
+        debug!("odl {:?}", out_data.len());
 
         out_data.sort();
         out_data.dedup();
 
-        debug!("out_data post sorting: {:?}", out_data);
+        /* debug!("out_data post sorting: {:?}", out_data);
         debug!("nobs: {}", nobs);
-        debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data));
-
-        println!("out_data: {:?}", out_data);
+        debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
         //debug!("count filter set out data len: {}", out_data.len());
         (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs))
         
@@ -459,7 +455,7 @@ where
                 let bucket = bucket(min_kmer);
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone())); // also shit ton of heap memory
                 }
             }
         }
@@ -479,7 +475,7 @@ where
                 if is_valid {
                     valid_kmers.push(kmer);
                     valid_exts.push(exts);
-                    valid_data.push(summary_data);
+                    valid_data.push(summary_data); // also lots of memory // but below limit/in the end amount around limit
                 }
             }
         }

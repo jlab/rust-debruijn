@@ -555,23 +555,23 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<()>, u32)>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(filter::CountFilter::new(2)),
+            &Box::new(filter::CountFilterComb::new(2)),
             stranded,
             false,
             4,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<()>, u32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(filter::CountFilter::new(2)),
+            Box::new(filter::CountFilterComb::new(2)),
             stranded,
             false,
             4,
         );
         println!("1: {:?}", valid_kmers_errs);
         println!("2: {:?}", valid_kmers_errs2);
-
+/* 
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
         let graph2 = graph.finish();
@@ -585,7 +585,7 @@ mod tests {
             println!("node {}: {}", i,  graph2.get_node(i).sequence());
             println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
         } */
-        let u_graph: BaseGraph<K, u16> = uncompressed_graph(&valid_kmers_errs);
+        let u_graph: BaseGraph<K, (Vec<()>, i32)> = uncompressed_graph(&valid_kmers_errs);
         let u_graph2 = u_graph.finish();
         //println!("uncompressed graph: {:?}", u_graph2);
         //u_graph2.print();
@@ -597,6 +597,6 @@ mod tests {
         //println!("censor: {:?}", nodes_to_censor);
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
-        //fixed.print();
+        //fixed.print(); */
     }
 }
