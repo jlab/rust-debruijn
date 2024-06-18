@@ -130,13 +130,13 @@ impl<D> CountFilterComb<D> {
 
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, u32)> for CountFilterComb<D> {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, u32)) {
+impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
 
-        let mut nobs = 0u32;
+        let mut nobs = 0i32;
         for (_, exts, d) in items {
             out_data.push(d); // uses a shit ton of heap memory
             all_exts = all_exts.add(exts);

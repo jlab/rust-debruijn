@@ -555,14 +555,14 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<()>, u32)>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<()>, i32)>, _) = filter::filter_kmers(
             &all_seqs,
             &Box::new(filter::CountFilterComb::new(2)),
             stranded,
             false,
             4,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<()>, u32)>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<()>, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(filter::CountFilterComb::new(2)),
             stranded,
