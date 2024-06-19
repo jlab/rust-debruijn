@@ -413,7 +413,7 @@ where
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
-    let slices = 257;
+    //let slices = 257;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
