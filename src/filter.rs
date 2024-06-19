@@ -36,7 +36,7 @@ pub trait KmerSummarizer<DI, DO> {
     /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
-    fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO);
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
@@ -131,19 +131,24 @@ impl<D> CountFilterComb<D> {
 }
 
 impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+        let mut kmer: K = Kmer::empty();
 
         let mut nobs = 0i32;
-        for (_, exts, d) in items {
+        for (k, exts, d) in items {
+            kmer = k;
             out_data.push(d); // uses a shit ton of heap memory
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
 
-        debug!("odl {:?}", out_data.len());
+        if out_data.len() > 9999 {debug!(
+            "odl {:?}
+            kmer: {:?}", out_data.len(), kmer
+        )}
 
         out_data.sort();
         out_data.dedup();
@@ -408,6 +413,7 @@ where
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
+    let slices = 257;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
