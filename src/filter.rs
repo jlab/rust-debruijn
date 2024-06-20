@@ -137,6 +137,9 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+        if out_data.len() > 9999 {
+            debug!("od size hint: {:?}", items.size_hint());
+        }
         let mut kmer: K = Kmer::empty();
 
         let mut nobs = 0i32;
@@ -146,6 +149,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
+        
 
         if out_data.len() > 9999 {debug!(
             "odl {:?}
@@ -416,6 +420,8 @@ where
     debug!("size of kmer, unit: {}", mem::size_of::<(K, D1)>());
     debug!("size of K: {}, size of Exts: {}, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
+    debug!("max data size: {}", mem::size_of::<[D; 20000]>());
+
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
     //let slices = 257;
