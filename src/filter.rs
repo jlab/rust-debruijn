@@ -2,6 +2,8 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 use core::slice;
+use std::any::Any;
+use std::any::TypeId;
 use std::collections::btree_map::Range;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -412,7 +414,8 @@ where
         .sum();
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     debug!("size of kmer, unit: {}", mem::size_of::<(K, D1)>());
-    debug!("size of K: {}, size of D1: {}", mem::size_of::<K>(), mem::size_of::<D1>());
+    debug!("size of K: {}, size of Exts: {}, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
+    debug!("type D1: {}", std::any::type_name::<D1>());
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
     //let slices = 257;

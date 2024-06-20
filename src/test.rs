@@ -522,8 +522,8 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), ()));
-                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), ()));
+                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), 3u8));
+                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), 3u8));
             }
 
             let junk = random_dna(5);
@@ -531,8 +531,8 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), ()));
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), ()));
+            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
+            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
         }
 
 
@@ -555,14 +555,14 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<()>, i32)>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<u8>, i32)>, _) = filter::filter_kmers(
             &all_seqs,
             &Box::new(filter::CountFilterComb::new(2)),
             stranded,
             false,
             4,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<()>, i32)>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<u8>, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(filter::CountFilterComb::new(2)),
             stranded,
