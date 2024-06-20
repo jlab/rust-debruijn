@@ -420,7 +420,7 @@ where
     debug!("size of kmer, unit: {}", mem::size_of::<(K, D1)>());
     debug!("size of K: {}, size of Exts: {}, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
-    debug!("max data size: {}", mem::size_of::<[D; 20000]>());
+    debug!("max data size: {}", mem::size_of::<[D1; 20000]>());
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
