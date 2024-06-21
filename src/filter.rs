@@ -31,14 +31,14 @@ fn bucket<K: Kmer>(kmer: K) -> usize {
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
-pub trait KmerSummarizer<DI, DO> {
+pub trait KmerSummarizer<DI, DO, T> {
     /// The input `items` is an iterator over kmer observations. Input observation
     /// is a tuple of (kmer, extensions, data). The summarize function inspects the
     /// data and returns a tuple indicating:
     /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO, usize);
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO, T);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
@@ -56,8 +56,8 @@ impl CountFilter {
     }
 }
 
-impl<D> KmerSummarizer<D, u16> for CountFilter {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16, usize) {
+impl<D> KmerSummarizer<D, u16, (usize, usize)> for CountFilter {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16, (usize, usize)) {
         let mut all_exts = Exts::empty();
         let mut count = 0u16;
         for (_, exts, _) in items {
@@ -65,7 +65,7 @@ impl<D> KmerSummarizer<D, u16> for CountFilter {
             all_exts = all_exts.add(exts);
         }
 
-        (count as usize >= self.min_kmer_obs, all_exts, count, 0)
+        (count as usize >= self.min_kmer_obs, all_exts, count, (0, 0))
     }
 }
 
@@ -88,8 +88,8 @@ impl<D> CountFilterSet<D> {
     }
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>, usize) {
+impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, (usize, usize)> for CountFilterSet<D> {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>, (usize, usize)) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
@@ -106,9 +106,11 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
         out_data.sort();
         out_data.dedup();
 
+        let act: usize = out_data.len();
+
         
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, out_data, max)
+        (nobs as usize >= self.min_kmer_obs, all_exts, out_data, (max, act))
         
     }
 }
@@ -136,8 +138,8 @@ impl<D> CountFilterComb<D> {
 
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32), usize) {
+impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32), (usize, usize)> for CountFilterComb<D> {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32), (usize, usize)) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
@@ -167,11 +169,13 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
         out_data.sort();
         out_data.dedup();
 
+        let act: usize = out_data.len();
+
         /* debug!("out_data post sorting: {:?}", out_data);
         debug!("nobs: {}", nobs);
         debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs), max)
+        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs), (max, act))
         
     }
 }
@@ -215,7 +219,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS> +  Send>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
     seqs: &[(V, Exts, D1)],
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
@@ -405,7 +409,7 @@ where
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D1, DS>>(
+pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D1, DS, (usize, usize)>>(
     seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
@@ -459,6 +463,7 @@ where
     debug!("n of seqs: {}", seqs.len());
 
     let mut data_lengths: usize = 0;
+    let mut actual_data_lengths: usize = 0;
 
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
@@ -497,8 +502,9 @@ where
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let (is_valid, exts, summary_data, max) = summarizer.summarize(kmer_obs_iter);
+                let (is_valid, exts, summary_data, (max, act)) = summarizer.summarize(kmer_obs_iter);
                 data_lengths += max;
+                actual_data_lengths += act;
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -517,9 +523,10 @@ where
         valid_kmers.len(),
         all_kmers.len(),
     );
+
     debug!("size of valid kmers: {}B
         size of valid exts: {}B
-        size of valid data: {}B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
+        size of valid data: {}B + {}B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data), actual_data_lengths);
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
