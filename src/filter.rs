@@ -38,7 +38,7 @@ pub trait KmerSummarizer<DI, DO> {
     /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO);
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO, usize);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
@@ -57,7 +57,7 @@ impl CountFilter {
 }
 
 impl<D> KmerSummarizer<D, u16> for CountFilter {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16, usize) {
         let mut all_exts = Exts::empty();
         let mut count = 0u16;
         for (_, exts, _) in items {
@@ -65,7 +65,7 @@ impl<D> KmerSummarizer<D, u16> for CountFilter {
             all_exts = all_exts.add(exts);
         }
 
-        (count as usize >= self.min_kmer_obs, all_exts, count)
+        (count as usize >= self.min_kmer_obs, all_exts, count, 0)
     }
 }
 
@@ -89,7 +89,7 @@ impl<D> CountFilterSet<D> {
 }
 
 impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>, usize) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
@@ -101,12 +101,14 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
             nobs += 1;
         }
 
+        let max = out_data.len();
+
         out_data.sort();
         out_data.dedup();
 
         
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
+        (nobs as usize >= self.min_kmer_obs, all_exts, out_data, max)
         
     }
 }
@@ -116,6 +118,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
 /// is a vector of the unique data values observed for that kmer.
 pub struct CountFilterComb<D> {
     min_kmer_obs: usize,
+    pub sum_datas: u64,
     phantom: PhantomData<D>,
 }
 
@@ -126,6 +129,7 @@ impl<D> CountFilterComb<D> {
     pub fn new(min_kmer_obs: usize) -> CountFilterComb<D> {
         CountFilterComb {
             min_kmer_obs,
+            sum_datas: 0,
             phantom: PhantomData,
         }
     }
@@ -133,12 +137,12 @@ impl<D> CountFilterComb<D> {
 }
 
 impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32)) {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32), usize) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
         if out_data.len() > 9999 {
-            debug!("od size hint: {:?}", items.size_hint());
+            println!("od size hint: {:?}", items.size_hint());
         }
         let mut kmer: K = Kmer::empty();
 
@@ -153,8 +157,12 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
 
         if out_data.len() > 9999 {debug!(
             "odl {:?}
-            kmer: {:?}", out_data.len(), kmer
+            kmer: {:?}
+            size: {:?}B", out_data.len(), kmer, mem::size_of_val(&out_data)
+
         )}
+
+        let max = out_data.len();
 
         out_data.sort();
         out_data.dedup();
@@ -163,7 +171,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32)> for CountFilterComb<D> {
         debug!("nobs: {}", nobs);
         debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs))
+        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs), max)
         
     }
 }
@@ -309,7 +317,7 @@ where
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
+                let (is_valid, exts, summary_data, _) = summarizer.summarize(kmer_obs_iter);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -417,17 +425,17 @@ where
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
-    debug!("size of kmer, unit: {}", mem::size_of::<(K, D1)>());
-    debug!("size of K: {}, size of Exts: {}, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
+    debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
+    debug!("size of kmer, E, D: {}B", mem::size_of::<(K, Exts, D1)>());
+    debug!("size of K: {}B, size of Exts: {}B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
-    debug!("max data size: {}", mem::size_of::<[D1; 20000]>());
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
     //let slices = 257;
     let sz = 256 / slices + 1;
 
-    debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+    debug!("kmer_mem: {}B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
 
     let mut bucket_ranges = Vec::with_capacity(slices);
     let mut start = 0;
@@ -449,6 +457,8 @@ where
     }
 
     debug!("n of seqs: {}", seqs.len());
+
+    let mut data_lengths: usize = 0;
 
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
@@ -472,10 +482,11 @@ where
                 let bucket = bucket(min_kmer);
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone())); // also shit ton of heap memory
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone())); // also lots of heap memory
                 }
             }
         }
+        debug!("size of the bucket: {}B", mem::size_of_val(&kmer_buckets));
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
@@ -485,7 +496,8 @@ where
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
+                let (is_valid, exts, summary_data, max) = summarizer.summarize(kmer_obs_iter);
+                data_lengths += max;
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -496,6 +508,7 @@ where
                 }
             }
         }
+        debug!("sum data lengths after this bucket: {}", data_lengths);
     }
 
     debug!(
@@ -503,6 +516,9 @@ where
         valid_kmers.len(),
         all_kmers.len(),
     );
+    debug!("size of valid kmers: {}B
+        size of valid exts: {}B
+        size of valid data: {}B", mem::size_of_val(&valid_kmers), mem::size_of_val(&valid_exts), mem::size_of_val(&valid_data));
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
