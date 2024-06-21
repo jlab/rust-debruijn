@@ -160,7 +160,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32), (usize, usize)> for CountF
         if out_data.len() > 9999 {debug!(
             "odl {:?}
             kmer: {:?}
-            size: {:?}B", out_data.len(), kmer, mem::size_of_val(&out_data)
+            size: {:?}B", out_data.len(), kmer, mem::size_of_val(&*out_data)
 
         )}
 
@@ -493,6 +493,14 @@ where
         }
         debug!("size of the bucket: {}B
             len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
+        let mut bucket_elements: usize = 0;
+        for bucket in kmer_buckets.iter() {
+            bucket_elements += bucket.len();
+        }
+        debug!("overall elements in this bucket: {bucket_elements}");
+        debug!("bucket size guess (advanced version):
+            {} * 24B (ref vec) * {}
+            = {}", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), kmer_buckets.len() * 24 * mem::size_of::<(K, Exts, D1)>());
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
