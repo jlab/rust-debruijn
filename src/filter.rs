@@ -499,8 +499,8 @@ where
         }
         debug!("overall elements in this bucket: {bucket_elements}");
         debug!("bucket size guess (advanced version):
-            {} * 24B (ref vec) * {}
-            = {}", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), kmer_buckets.len() * 24 * mem::size_of::<(K, Exts, D1)>());
+            {} (len) * 24B (ref vec) + {}B (elements size) * {} (elements)
+            = {}B", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), bucket_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, D1)>() * bucket_elements));
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
