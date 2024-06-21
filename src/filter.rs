@@ -486,7 +486,8 @@ where
                 }
             }
         }
-        debug!("size of the bucket: {}B", mem::size_of_val(&kmer_buckets));
+        debug!("size of the bucket: {}B
+            len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
@@ -518,7 +519,7 @@ where
     );
     debug!("size of valid kmers: {}B
         size of valid exts: {}B
-        size of valid data: {}B", mem::size_of_val(&valid_kmers), mem::size_of_val(&valid_exts), mem::size_of_val(&valid_data));
+        size of valid data: {}B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
