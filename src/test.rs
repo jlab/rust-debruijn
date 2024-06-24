@@ -137,7 +137,7 @@ mod tests {
     use crate::clean_graph::CleanGraph;
     use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, SimpleCompress};
     use crate::graph::BaseGraph;
-    use crate::{DnaBytes, Mer};
+    use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
@@ -512,6 +512,9 @@ mod tests {
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
     fn test_tip_cleaning<K: Kmer + Sync + Send>(contigs: Vec<Vec<u8>>, stranded: bool) {
+
+        let mut rng = rand::thread_rng();
+        
         let mut clean_seqs = Vec::new();
         let mut all_seqs = Vec::new();
 
@@ -522,8 +525,8 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), 3u8));
-                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), 3u8));
+                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
+                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
             }
 
             let junk = random_dna(5);
@@ -555,14 +558,14 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Vec<u8>, i32)>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers(
             &all_seqs,
             &Box::new(filter::CountFilterComb::new(2)),
             stranded,
             false,
             4,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Vec<u8>, i32)>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(filter::CountFilterComb::new(2)),
             stranded,
@@ -598,5 +601,13 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
         //fixed.print(); */
+    }
+
+    #[test]
+    fn test_Tags() {
+        let tag = Tags::new(83u64);
+        println!("tag as u64: {}, tag as u8 vec: {:?}", tag.val, tag.to_u8_vec());
+        let vec = vec![0, 1, 4, 6];
+        println!("vec to tags: {:?}", Tags::from_u8_vec(vec).val);
     }
 }

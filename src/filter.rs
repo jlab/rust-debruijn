@@ -20,6 +20,7 @@ use rayon::prelude::*;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
+use crate::Tags;
 use crate::Vmer;
 
 fn bucket<K: Kmer>(kmer: K) -> usize {
@@ -118,17 +119,17 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, (usize, usize)> for CountFilterSe
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
 /// is a vector of the unique data values observed for that kmer.
-pub struct CountFilterComb<D> {
+pub struct CountFilterComb {
     min_kmer_obs: usize,
     pub sum_datas: u64,
-    phantom: PhantomData<D>,
+    phantom: PhantomData<u8>,
 }
 
-impl<D> CountFilterComb<D> {
+impl CountFilterComb {
     /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     /// data is ([vec with tags], count)
-    pub fn new(min_kmer_obs: usize) -> CountFilterComb<D> {
+    pub fn new(min_kmer_obs: usize) -> CountFilterComb {
         CountFilterComb {
             min_kmer_obs,
             sum_datas: 0,
@@ -138,11 +139,11 @@ impl<D> CountFilterComb<D> {
 
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32), (usize, usize)> for CountFilterComb<D> {
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, i32), (usize, usize)) {
+impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, (Tags, i32), (usize, usize)) {
         let mut all_exts = Exts::empty();
 
-        let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
         if out_data.len() > 9999 {
             println!("od size hint: {:?}", items.size_hint());
         }
@@ -175,7 +176,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, (Vec<D>, i32), (usize, usize)> for CountF
         debug!("nobs: {}", nobs);
         debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
         //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, nobs), (max, act))
+        (nobs as usize >= self.min_kmer_obs, all_exts, (Tags::from_u8_vec(out_data), nobs), (max, act))
         
     }
 }
@@ -532,9 +533,9 @@ where
         all_kmers.len(),
     );
 
-    debug!("size of valid kmers: {}B
-        size of valid exts: {}B
-        size of valid data: {}B + {}B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data), actual_data_lengths);
+    debug!("size of valid kmers: {} B
+        size of valid exts: {} B
+        size of valid data: {} B + {} B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data), actual_data_lengths);
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,

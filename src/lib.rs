@@ -28,6 +28,7 @@
 //! which expects bases encoded as the integers 0,1,2,3, and a separate form names 'ascii',
 //! which expects bases encoded as the ASCII letters A,C,G,T.
 
+use num_traits::{PrimInt, Unsigned};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
@@ -841,3 +842,70 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
         }
     }
 }
+
+/// Compress the tags to one u64 (8 bytes)
+#[derive(Clone)]
+pub struct Tags {
+    pub val: u64,
+}
+
+impl Tags {
+
+    /// Make 
+    pub fn new(val: u64) -> Self {
+        Tags { val }
+    }
+
+    /* pub fn empty() -> Self {
+        let val: T = 0;
+        Tags { val }
+    } */
+
+    pub fn from_u8_vec(vec: Vec<u8>) -> Self {
+        let mut x: u64 = 1;
+
+        for i in (1..vec.len()).rev() {
+            x <<= vec[i] - vec[i-1];
+            x += 1;
+        }
+
+        Tags { val: x }
+    }
+
+    pub fn to_u8_vec(&self) -> Vec<u8> {
+        let mut x = self.val;
+        let mut vec: Vec<u8> = Vec::new();
+
+        for i in 0..64 {
+            if x % 2 != 0 {
+                vec.push(i)
+            }
+            x >>= 1;
+        }
+
+        vec
+
+    }
+
+    pub fn to_string_vec(&self, str_keys: Vec<String>) -> Vec<String> {
+        let mut x = self.val;
+        let mut vec: Vec<String> = Vec::new();
+
+        for i in 0..64 {
+            if x % 2 != 0 {
+                vec.push(str_keys[i].clone())
+            }
+            x >>= 1;
+        }
+
+        vec    
+    }
+}
+
+impl fmt::Debug for Tags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.to_u8_vec())
+    }
+}
+
+
