@@ -844,7 +844,7 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
 }
 
 /// Compress the tags to one u64 (8 bytes)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Tags {
     pub val: u64,
 }
@@ -887,13 +887,16 @@ impl Tags {
 
     }
 
-    pub fn to_string_vec(&self, str_keys: Vec<String>) -> Vec<String> {
+    pub fn to_string_vec<'a>(&'a self, str_keys: Vec<&'a str>) -> Vec<&str> {
         let mut x = self.val;
-        let mut vec: Vec<String> = Vec::new();
+        let mut vec: Vec<&str> = Vec::new();
 
         for i in 0..64 {
             if x % 2 != 0 {
-                vec.push(str_keys[i].clone())
+                if i >= str_keys.len() {
+                    panic!("tried to access tag string that doesnt exist!")
+                }
+                vec.push(str_keys[i])
             }
             x >>= 1;
         }

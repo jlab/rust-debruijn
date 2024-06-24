@@ -604,10 +604,12 @@ mod tests {
     }
 
     #[test]
-    fn test_Tags() {
+    fn test_tags() {
         let tag = Tags::new(83u64);
         println!("tag as u64: {}, tag as u8 vec: {:?}", tag.val, tag.to_u8_vec());
         let vec = vec![0, 1, 4, 6];
         println!("vec to tags: {:?}", Tags::from_u8_vec(vec).val);
+        let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
+        println!("tags to string vec: {:?}", tag.to_string_vec(str_vec));
     }
 }
