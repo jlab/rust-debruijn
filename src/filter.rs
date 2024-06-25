@@ -144,10 +144,8 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-        if out_data.len() > 9999 {
-            println!("od size hint: {:?}", items.size_hint());
-        }
         let mut kmer: K = Kmer::empty();
+
 
         let mut nobs = 0i32;
         for (k, exts, d) in items {
@@ -157,6 +155,7 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
             nobs += 1;
         }
         
+        println!("tags from this bucket before sort/dedup: {:?}", out_data);
 
         if out_data.len() > 9999 {debug!(
             "odl {:?}
@@ -410,7 +409,7 @@ where
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D1, DS, (usize, usize)>>(
+pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS: Clone, S: KmerSummarizer<D1, DS, (usize, usize)>>(
     seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
@@ -422,7 +421,7 @@ where
 {
     let rc_norm = !stranded;
 
-    //println!("sequence input: {:?}", seqs);
+    println!("all reads as [(read, Exts, label)]: {:?}", seqs);
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -436,11 +435,19 @@ where
     debug!("type D1: {}", std::any::type_name::<D1>());
 
     let max_mem = memory_size * 10_usize.pow(9);
-    let slices = kmer_mem / max_mem + 1;
-    //let slices = 257;
+    //let slices = kmer_mem / max_mem + 1;
+    let slices = 2;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+
+    println!("no of all input kmers: {}", input_kmers);
+    println!("predicted memory per kmer: {}", mem::size_of::<(K, D1)>());
+    println!("predicted memory for all kmers: {}", kmer_mem);
+    println!("theoretically the next step is to calculate how many slices have to be made for them to fit inside the memory limit, for the example, slices = 2 is forced");
+    println!("slices: {}", slices);
+    println!("size of the so called \"bucket ranges\": 256 / slices + 1 {}", sz);
+
 
     let mut bucket_ranges = Vec::with_capacity(slices);
     let mut start = 0;
@@ -461,6 +468,8 @@ where
         );
     }
 
+    println!("the bucket ranges: {:?}", bucket_ranges);
+
     debug!("n of seqs: {}", seqs.len());
 
     let mut data_lengths: usize = 0;
@@ -471,11 +480,13 @@ where
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
-        debug!("Processing bucket {} of {}", i, n_buckets);
+        println!("Processing bucket {} of {}, with the range {:?}", i, n_buckets, bucket_range);
+        println!("now iterating through the reads");
 
         let mut kmer_buckets = vec![Vec::new(); 256];
 
         for &(ref seq, seq_exts, ref d) in seqs {
+            println!("sequence: {:?}, label: {:?}", seq, d);
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                 //println!("kmer: {:?}, exts: {:?}", kmer, exts);
                 let (min_kmer, flip_exts) = if rc_norm {
@@ -485,14 +496,20 @@ where
                 } else {
                     (kmer, exts)
                 };
+                println!("kmer: {:?}, kmer for bucket: (min of lexicographical comparison with reverse complement): {:?}", kmer, min_kmer);
+                
                 let bucket = bucket(min_kmer);
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone())); // also lots of heap memory
-                }
+                    println!("-> gets added to bucket {bucket} according to first four bases")
+                } else {println!("-> not inside current bucket range");}
             }
         }
-        debug!("size of the bucket: {}B
+
+        println!("buckets after first batch: {:?}", kmer_buckets);
+
+        debug!("size of the bucket: {} B
             len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
         let mut bucket_elements: usize = 0;
         for bucket in kmer_buckets.iter() {
@@ -506,6 +523,9 @@ where
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
         for mut kmer_vec in kmer_buckets {
+
+            println!("now processing bucket {:?}", kmer_vec);
+
             debug!("kmers in this bucket: {}", kmer_vec.len());
             //println!("kmers in this bucket: {:?}", kmer_vec);
             kmer_vec.sort_by_key(|elt| elt.0);
@@ -514,6 +534,9 @@ where
                 let (is_valid, exts, summary_data, (max, act)) = summarizer.summarize(kmer_obs_iter);
                 data_lengths += max;
                 actual_data_lengths += act;
+
+                println!("adding kmer: {:?}, exts: {:?}, labels (as u64) and count: {:?} to respective vectors", kmer, exts, summary_data);
+
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -527,6 +550,12 @@ where
         debug!("sum data lengths after this bucket: {}", data_lengths);
     }
 
+    println!("all valid kmers (count above 0 in this case): {:?}", valid_kmers);
+    println!("exts of kmers: {:?}", valid_exts);
+    println!("data of kmers (labels as u64, count): {:?}", valid_data);
+
+    
+
     debug!(
         "Unique kmers: {}, All kmers (if returned): {}",
         valid_kmers.len(),
@@ -536,6 +565,8 @@ where
     debug!("size of valid kmers: {} B
         size of valid exts: {} B
         size of valid data: {} B + {} B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data), actual_data_lengths);
+
+    println!("converted to hashmap: {:?}", BoomHashMap2::new(valid_kmers.clone(), valid_exts.clone(), valid_data.clone()));
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
