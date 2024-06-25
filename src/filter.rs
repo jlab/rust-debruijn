@@ -496,7 +496,7 @@ where
                 } else {
                     (kmer, exts)
                 };
-                println!("kmer: {:?}, kmer for bucket: (min of lexicographical comparison with reverse complement): {:?}", kmer, min_kmer);
+                println!("kmer: {:?}, kmer for bucket: (min of lexicographical comparison with reverse complement): {:?}, exts: {:?}, label: {:?}", kmer, min_kmer, flip_exts, d);
                 
                 let bucket = bucket(min_kmer);
 
@@ -507,7 +507,7 @@ where
             }
         }
 
-        println!("buckets after first batch: {:?}", kmer_buckets);
+        println!("buckets after this batch: {:?}", kmer_buckets);
 
         debug!("size of the bucket: {} B
             len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
@@ -535,7 +535,7 @@ where
                 data_lengths += max;
                 actual_data_lengths += act;
 
-                println!("adding kmer: {:?}, exts: {:?}, labels (as u64) and count: {:?} to respective vectors", kmer, exts, summary_data);
+                println!("adding kmer: {:?}, exts: {:?}, labels (as u8 vec) and count: {:?} to respective vectors", kmer, exts, summary_data);
 
                 if report_all_kmers {
                     all_kmers.push(kmer);
@@ -552,7 +552,7 @@ where
 
     println!("all valid kmers (count above 0 in this case): {:?}", valid_kmers);
     println!("exts of kmers: {:?}", valid_exts);
-    println!("data of kmers (labels as u64, count): {:?}", valid_data);
+    println!("data of kmers (labels as u8 vec, count): {:?}", valid_data);
 
     
 
