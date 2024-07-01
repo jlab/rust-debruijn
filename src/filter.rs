@@ -191,7 +191,7 @@ pub struct CountFilterStats {
 }
 
 impl CountFilterStats {
-    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
+    /// Construct a `CountFilterStats` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     /// data is (Tags: , count)
     pub fn new(min_kmer_obs: usize) -> CountFilterStats {
@@ -220,7 +220,6 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
-        
 
         if out_data.len() > 9999 {debug!(
             "odl {:?}
@@ -229,13 +228,15 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
 
         )}
 
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
         let max = out_data.len();
 
         out_data.sort();
+        println!("out_data sorted: {:?}", out_data);
 
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
         for i in 1..out_data.len() {
             if out_data[i] == out_data[i-1] {
                 tag_counter += 1;
@@ -244,18 +245,15 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
                 tag_counter = 1;
             }
         }
+        tag_counts.push(tag_counter);
 
-        
+        println!("tag_counts: {:?}", tag_counts);
+
         out_data.dedup();
 
         let act: usize = out_data.len();
 
-        /* debug!("out_data post sorting: {:?}", out_data);
-        debug!("nobs: {}", nobs);
-        debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
-        //debug!("count filter set out data len: {}", out_data.len());
-        (nobs as usize >= self.min_kmer_obs, all_exts, (Tags::from_u8_vec(out_data), tag_counts, nobs), (max, act))
-        
+        (nobs as usize >= self.min_kmer_obs, all_exts, (Tags::from_u8_vec(out_data), tag_counts, nobs), (max, act)) 
     }
 }
 
