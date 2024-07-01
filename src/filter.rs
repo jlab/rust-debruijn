@@ -231,7 +231,6 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
         let max = out_data.len();
 
         out_data.sort();
-        println!("out_data sorted: {:?}", out_data);
 
         let mut tag_counter = 1;
         let mut tag_counts: Vec<u32> = Vec::new();
@@ -246,8 +245,6 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
             }
         }
         tag_counts.push(tag_counter);
-
-        println!("tag_counts: {:?}", tag_counts);
 
         out_data.dedup();
 
