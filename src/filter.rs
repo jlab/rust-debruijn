@@ -128,7 +128,7 @@ pub struct CountFilterComb {
 impl CountFilterComb {
     /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
-    /// data is ([vec with tags], count)
+    /// data is (Tags u64 encoded, count)
     pub fn new(min_kmer_obs: usize) -> CountFilterComb {
         CountFilterComb {
             min_kmer_obs,
@@ -177,6 +177,84 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
         debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
         //debug!("count filter set out data len: {}", out_data.len());
         (nobs as usize >= self.min_kmer_obs, all_exts, (Tags::from_u8_vec(out_data), nobs), (max, act))
+        
+    }
+}
+
+
+/// A simple KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. The metadata returned about a Kmer
+/// is a vector of the unique data values observed for that kmer.
+pub struct CountFilterStats {
+    min_kmer_obs: usize,
+    phantom: PhantomData<u8>,
+}
+
+impl CountFilterStats {
+    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
+    /// at least `min_kmer_obs` times.
+    /// data is (Tags: , count)
+    pub fn new(min_kmer_obs: usize) -> CountFilterStats {
+        CountFilterStats {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
+}
+
+impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterStats {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, (Tags, Vec<u32>, i32), (usize, usize)) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+        if out_data.len() > 9999 {
+            println!("od size hint: {:?}", items.size_hint());
+        }
+        let mut kmer: K = Kmer::empty();
+
+        let mut nobs = 0i32;
+        for (k, exts, d) in items {
+            kmer = k;
+            out_data.push(d); // uses a shit ton of heap memory
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+        
+
+        if out_data.len() > 9999 {debug!(
+            "odl {:?}
+            kmer: {:?}
+            size: {:?}B", out_data.len(), kmer, mem::size_of_val(&*out_data)
+
+        )}
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        let max = out_data.len();
+
+        out_data.sort();
+
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+
+        
+        out_data.dedup();
+
+        let act: usize = out_data.len();
+
+        /* debug!("out_data post sorting: {:?}", out_data);
+        debug!("nobs: {}", nobs);
+        debug!("result: {:?}", (nobs as usize >= self.min_kmer_obs, all_exts, &out_data)); */
+        //debug!("count filter set out data len: {}", out_data.len());
+        (nobs as usize >= self.min_kmer_obs, all_exts, (Tags::from_u8_vec(out_data), tag_counts, nobs), (max, act))
         
     }
 }
@@ -323,6 +401,7 @@ where
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
                 let (is_valid, exts, summary_data, _) = summarizer.summarize(kmer_obs_iter);
+                //drop(summarizer);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -437,7 +516,6 @@ where
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
-    //let slices = 257;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
