@@ -3,8 +3,6 @@
 //! Containers for path-compressed De Bruijn graphs
 
 use bit_set::BitSet;
-use itertools::Itertools;
-use log::log_enabled;
 use log::{debug, trace};
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -1019,7 +1017,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut components: Vec<Vec<usize>> = Vec::with_capacity(self.len());
         let mut visited: Vec<bool> = Vec::with_capacity(self.len());
 
-        for i in 0..self.len() {
+        for _i in 0..self.len() {
             visited.push(false);
         }
 

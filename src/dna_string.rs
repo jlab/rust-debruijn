@@ -25,7 +25,6 @@
 //! let first_kmer: Kmer16 = slice1.get_kmer(0);
 //! assert_eq!(first_kmer, Kmer16::from_ascii(b"CACGTATGACAGATAG"))
 
-use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::cmp::min;

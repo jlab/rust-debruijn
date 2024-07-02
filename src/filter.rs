@@ -1,12 +1,8 @@
 // Copyright 2017 10x Genomics
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
-use core::slice;
-use std::any::Any;
-use std::any::TypeId;
-use std::collections::btree_map::Range;
+
 use std::fmt::Debug;
-use std::iter::Sum;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
@@ -15,7 +11,6 @@ use std::sync::Mutex;
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
-use serde_json::de;
 use rayon::prelude::*;
 
 use crate::Dir;
@@ -317,8 +312,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
 
     //let shared_summarizer = Mutex::new(summarizer);
 
-    //println!("sequence input: {:?}", seqs);
-
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
@@ -327,7 +320,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
     let kmer_mem = input_kmers * mem::size_of::<(K, u8)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
-    let slices = slices_seq * rayon::current_num_threads();
+    let slices = slices_seq;
+    //let slices = 2;
     let sz = 256 / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
@@ -353,26 +347,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
 
     debug!("n of seqs: {}", seqs.len());
 
-    let mut shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>> = Mutex::new(vec![vec![]; n_buckets]);
+    let shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>> = Mutex::new(vec![vec![]; n_buckets]); // wrap in Arc ???
     debug!("data_out empty: {:?}", shared_data.lock());
 
-    /* let mut all_kmers = Vec::new();
-    let mut valid_kmers = Vec::new();
-    let mut valid_exts = Vec::new();
-    let mut valid_data = Vec::new(); */
+    for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
-
-
-    // parallel start
-
-    bucket_ranges.into_par_iter().enumerate().for_each(&|(i, bucket_range): (usize, std::ops::Range<usize>)| {
-
-        debug!("Processing bucket {} of {}", i, n_buckets);
-
-        let mut all_kmers = Vec::new();
-        let mut valid_kmers = Vec::new();
-        let mut valid_exts = Vec::new();
-        let mut valid_data = Vec::new();
+        println!("Processing bucket {} of {}", i, n_buckets);
 
         let mut kmer_buckets = vec![Vec::new(); 256];
 
@@ -395,11 +375,16 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
         }
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
-
-        for mut kmer_vec in kmer_buckets {
-            debug!("kmers in this bucket: {}", kmer_vec.len());
-            //println!("kmers in this bucket: {:?}", kmer_vec);
+        
+        // parallel start
+        kmer_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
+            debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
             kmer_vec.sort_by_key(|elt| elt.0);
+
+            let mut all_kmers = Vec::new();
+            let mut valid_kmers = Vec::new();
+            let mut valid_exts = Vec::new();
+            let mut valid_data = Vec::new();
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 /* //let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
@@ -411,7 +396,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
                 }; */
                 let summarizer = CountFilterComb::new(min_kmer_obs);
                 let (is_valid, exts, summary_data, _) = summarizer.summarize(kmer_obs_iter);
-                //drop(summarizer);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -421,17 +405,16 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
                     valid_data.push(summary_data);
                 }
             }
-        }
+
+            let mut data_out = shared_data.lock().expect("unlock shared filter data");
+            data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
+
+        });
+        // parallel end
 
         debug!("processed bucket {i}");
-
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
-
-        let mut data_out = shared_data.lock().expect("unlock shared filter data");
-
-        data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
-    });
-    // parallel end
+    }
 
     /* debug!(
         "Unique kmers: {}, All kmers (if returned): {}",
@@ -449,10 +432,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
     debug!("data_out: {:?}", data_out);
 
     for bucket in data_out.iter() {
-        all_kmers.append(&mut bucket[0].0.clone());
-        valid_kmers.append(&mut bucket[0].1.clone());
-        valid_exts.append(&mut bucket[0].2.clone());
-        valid_data.append(&mut bucket[0].3.clone());
+        for element in bucket {
+            all_kmers.append(&mut element.0.clone());
+            valid_kmers.append(&mut element.1.clone());
+            valid_exts.append(&mut element.2.clone());
+            valid_data.append(&mut element.3.clone());
+        }
     } 
     
     debug!("data_out2: {:?}", data_out);
