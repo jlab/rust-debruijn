@@ -6,6 +6,7 @@ use std::any::Any;
 use std::any::TypeId;
 use std::collections::btree_map::Range;
 use std::fmt::Debug;
+use std::iter::Sum;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
@@ -254,6 +255,12 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
     }
 }
 
+pub enum Summarizer {
+    Count,
+    Tags,
+    CountNTags,
+    CountNCountTags,
+}
 
 
 
@@ -293,21 +300,22 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-    seqs: &[(V, Exts, D1)],
+//pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
+    seqs: &[(V, Exts, u8)],
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
-    summarizer: Box<S>,
+    //summarizer: Box<S>,
+    //summarizer: Summarizer,
+    min_kmer_obs: usize,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
-) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
-where
-    DS: Debug,
+) -> (BoomHashMap2<K, Exts, (Tags, i32)>, Vec<K>)
 {
     let rc_norm = !stranded;
 
-    let shared_summarizer = Mutex::new(summarizer);
+    //let shared_summarizer = Mutex::new(summarizer);
 
     //println!("sequence input: {:?}", seqs);
 
@@ -316,7 +324,7 @@ where
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
+    let kmer_mem = input_kmers * mem::size_of::<(K, u8)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
     let slices = slices_seq * rayon::current_num_threads();
@@ -345,7 +353,7 @@ where
 
     debug!("n of seqs: {}", seqs.len());
 
-    let mut shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>> = Mutex::new(vec![vec![]; n_buckets]);
+    let mut shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>> = Mutex::new(vec![vec![]; n_buckets]);
     debug!("data_out empty: {:?}", shared_data.lock());
 
     /* let mut all_kmers = Vec::new();
@@ -394,7 +402,14 @@ where
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
+                /* //let summarizer = shared_summarizer.lock().expect("unlock shared filter summarizer");
+                let summarizer = match summarizer {
+                    Summarizer::Count => CountFilter::new(min_kmer_obs),
+                    Summarizer::Tags => CountFilterSet::new(min_kmer_obs),
+                    Summarizer::CountNTags => CountFilterComb::new(min_kmer_obs),
+                    Summarizer::CountNCountTags => CountFilterStats::new(min_kmer_obs),
+                }; */
+                let summarizer = CountFilterComb::new(min_kmer_obs);
                 let (is_valid, exts, summary_data, _) = summarizer.summarize(kmer_obs_iter);
                 //drop(summarizer);
                 if report_all_kmers {
