@@ -352,7 +352,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
-        println!("Processing bucket {} of {}", i, n_buckets);
+        debug!("Processing bucket {} of {}", i, n_buckets);
 
         let mut kmer_buckets = vec![Vec::new(); 256];
 
