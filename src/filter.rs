@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use boomphf::hashmap::BoomHashMap2;
@@ -347,7 +348,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
 
     debug!("n of seqs: {}", seqs.len());
 
-    let shared_data: Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>> = Mutex::new(vec![vec![]; n_buckets]); // wrap in Arc ???
+    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets])); // wrap in Arc ???
     debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
