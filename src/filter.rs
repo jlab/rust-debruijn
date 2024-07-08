@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
+use std::process::Output;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -36,25 +37,39 @@ pub trait KmerSummarizer<DI, DO, T> {
     /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
+    //type S;
+    
+    fn new(min_kmer_obs: usize) -> Self;
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO, T);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
 /// is the number of times it was observed, capped at 2^16.
-pub struct CountFilter {
+pub struct CountFilter<D> {
     min_kmer_obs: usize,
+    phantom: PhantomData<D>
 }
 
-impl CountFilter {
+/* impl CountFilter {
     /// Construct a `CountFilter` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     pub fn new(min_kmer_obs: usize) -> CountFilter {
         CountFilter { min_kmer_obs }
     }
-}
+} */
 
-impl<D> KmerSummarizer<D, u16, (usize, usize)> for CountFilter {
+impl<D> KmerSummarizer<D, u16, (usize, usize)> for CountFilter<D> {
+
+    //type S = Self;
+
+    fn new(min_kmer_obs: usize) -> Self {
+        CountFilter {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
     fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16, (usize, usize)) {
         let mut all_exts = Exts::empty();
         let mut count = 0u16;
@@ -75,7 +90,7 @@ pub struct CountFilterSet<D> {
     phantom: PhantomData<D>,
 }
 
-impl<D> CountFilterSet<D> {
+/* impl<D> CountFilterSet<D> {
     /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     pub fn new(min_kmer_obs: usize) -> CountFilterSet<D> {
@@ -84,9 +99,19 @@ impl<D> CountFilterSet<D> {
             phantom: PhantomData,
         }
     }
-}
+} */
 
 impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, (usize, usize)> for CountFilterSet<D> {
+
+    //type S = Self;
+
+    fn new(min_kmer_obs: usize) -> Self {
+        CountFilterSet {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
     fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>, (usize, usize)) {
         let mut all_exts = Exts::empty();
 
@@ -122,7 +147,7 @@ pub struct CountFilterComb {
     phantom: PhantomData<u8>,
 }
 
-impl CountFilterComb {
+/* impl CountFilterComb {
     /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     /// data is (Tags u64 encoded, count)
@@ -134,9 +159,20 @@ impl CountFilterComb {
         }
     }
 
-}
+} */
 
 impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
+
+    //type S = Self;
+
+    fn new(min_kmer_obs: usize) -> Self {
+        CountFilterComb {
+            min_kmer_obs,
+            sum_datas: 0,
+            phantom: PhantomData,
+        }
+    }
+
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, (Tags, i32), (usize, usize)) {
         let mut all_exts = Exts::empty();
 
@@ -187,7 +223,7 @@ pub struct CountFilterStats {
     phantom: PhantomData<u8>,
 }
 
-impl CountFilterStats {
+/* impl CountFilterStats {
     /// Construct a `CountFilterStats` KmerSummarizer only accepts kmers that are observed
     /// at least `min_kmer_obs` times.
     /// data is (Tags: , count)
@@ -198,9 +234,19 @@ impl CountFilterStats {
         }
     }
 
-}
+} */
 
 impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterStats {
+
+    //type S = Self;
+
+    fn new(min_kmer_obs: usize) -> Self {
+        CountFilterStats {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, (Tags, Vec<u32>, i32), (usize, usize)) {
         let mut all_exts = Exts::empty();
 
@@ -297,23 +343,23 @@ pub enum Summarizer {
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + std::fmt::Debug + Send, S: KmerSummarizer<u8, DS, (usize, usize)>>(
     seqs: &[(V, Exts, u8)],
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
-    //summarizer: Box<S>,
+    _summarizer: Box<S>,
     //summarizer: Summarizer,
     min_kmer_obs: usize,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
-) -> (BoomHashMap2<K, Exts, (Tags, i32)>, Vec<K>)
+) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     let rc_norm = !stranded;
 
     //let shared_summarizer = Mutex::new(summarizer);
 
-    // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
+    // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
@@ -348,7 +394,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
 
     debug!("n of seqs: {}", seqs.len());
 
-    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<(Tags, i32)>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets])); // wrap in Arc ???
+    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets])); // wrap in Arc ???
     debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
@@ -395,7 +441,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync>(
                     Summarizer::CountNTags => CountFilterComb::new(min_kmer_obs),
                     Summarizer::CountNCountTags => CountFilterStats::new(min_kmer_obs),
                 }; */
-                let summarizer = CountFilterComb::new(min_kmer_obs);
+                let summarizer = S::new(min_kmer_obs);
                 let (is_valid, exts, summary_data, _) = summarizer.summarize(kmer_obs_iter);
                 if report_all_kmers {
                     all_kmers.push(kmer);
@@ -562,7 +608,7 @@ where
                 let bucket = bucket(min_kmer);
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone())); // also lots of heap memory
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
                 }
             }
         }
@@ -594,7 +640,7 @@ where
                 if is_valid {
                     valid_kmers.push(kmer);
                     valid_exts.push(exts);
-                    valid_data.push(summary_data); // also lots of memory // but below limit/in the end amount around limit
+                    valid_data.push(summary_data); 
                 }
             }
         }

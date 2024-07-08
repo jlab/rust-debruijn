@@ -145,7 +145,7 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::dna_string::DnaString;
-    use crate::filter;
+    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer};
     use crate::kmer::Kmer6;
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
@@ -567,6 +567,7 @@ mod tests {
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
+            Box::new(CountFilterComb::new(1)),
             1,
             stranded,
             false,
@@ -574,6 +575,26 @@ mod tests {
         );
         println!("1: {:?}", valid_kmers_errs);
         println!("2: {:?}", valid_kmers_errs2);
+
+        let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
+            &all_seqs,
+            Box::new(filter::CountFilter::new(1)),
+            1,
+            stranded,
+            false,
+            4,
+        );
+        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, (Tags, Vec<u32>, i32)>, _) = filter::filter_kmers_parallel(
+            &all_seqs,
+            Box::new(CountFilterStats::new(1)),
+            1,
+            stranded,
+            false,
+            4,
+        );
+
+        println!("3: {:?}", valid_kmers_errs3);
+        println!("4: {:?}", valid_kmers_errs4);
 /* 
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
