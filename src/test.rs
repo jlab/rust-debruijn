@@ -241,11 +241,12 @@ mod tests {
             stranded,
             false,
             4,
+            true,
         );
 
         let spec =
             SimpleCompress::new(|d1: u16, d2: &u16| ((d1 as u32 + *d2 as u32) % 65535) as u16);
-        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers).finish();
+        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -347,6 +348,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
         for k in valid_kmers.iter().map(|x| x.0) {
@@ -383,7 +385,7 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true);
 
         // Check that all the lines have valid kmers,
         // and have extensions into other valid kmers
@@ -453,13 +455,14 @@ mod tests {
                 stranded,
                 false,
                 4,
+                true
             );
 
             // Generate compress DBG for this shard
             let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
-            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers);
+            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true);
             shard_asms.push(graph.clone());
             //graph.finish().print();
         }
@@ -550,9 +553,10 @@ mod tests {
             stranded,
             false,
             4,
+            true
         );
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true);
         let graph1 = graph.finish();
         graph1.print();
         println!("components: {:?}", graph1.components_r());
@@ -564,6 +568,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -572,6 +577,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
         );
         println!("1: {:?}", valid_kmers_errs);
         println!("2: {:?}", valid_kmers_errs2);
@@ -583,6 +589,7 @@ mod tests {
             stranded,
             false,
             4,
+            true
         );
         let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, (Tags, Vec<u32>, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -591,6 +598,7 @@ mod tests {
             stranded,
             false,
             4,
+            true
         );
 
         println!("3: {:?}", valid_kmers_errs3);

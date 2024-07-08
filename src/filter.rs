@@ -6,9 +6,9 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
-use std::process::Output;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
@@ -27,6 +27,7 @@ fn bucket<K: Kmer>(kmer: K) -> usize {
         | (kmer.get(2) as usize) << 2
         | (kmer.get(3) as usize)
 }
+
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
@@ -353,9 +354,11 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
+    time: bool,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     let rc_norm = !stranded;
+    let basestarts = 256 * 4;
 
     //let shared_summarizer = Mutex::new(summarizer);
 
@@ -369,18 +372,18 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
     let slices_seq = kmer_mem / max_mem + 1;
     let slices = slices_seq;
     //let slices = 2;
-    let sz = 256 / slices + 1;
+    let sz = (basestarts) / slices + 1;
 
     debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
 
     let mut bucket_ranges = Vec::with_capacity(slices);
     let mut start = 0;
-    while start < 256 {
+    while start < basestarts {
         bucket_ranges.push(start..start + sz);
         start += sz;
     }
     debug!("start: {}, bucket_ranges: {:?}, len br: {}", start, bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= 256);
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= basestarts);
     let n_buckets = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
@@ -401,7 +404,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
 
         debug!("Processing bucket {} of {}", i, n_buckets);
 
-        let mut kmer_buckets = vec![Vec::new(); 256];
+        let before_kmer_picking = Instant::now();
+
+        let mut kmer_buckets = vec![Vec::new(); basestarts];
 
         for &(ref seq, seq_exts, ref d) in seqs {
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
@@ -420,8 +425,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
                 }
             }
         }
+
+        if time { println!("time picking kmers (bucket {}): {} s", i, before_kmer_picking.elapsed().as_secs_f32()) }
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
+
+        let before_parallel = Instant::now();
         
         // parallel start
         kmer_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
@@ -458,6 +467,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
 
         });
         // parallel end
+
+        if time { println!("time summarizing: {} s", before_parallel.elapsed().as_secs_f32()) }
 
         debug!("processed bucket {i}");
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
@@ -537,6 +548,7 @@ pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
+    time: bool,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 where
     DS: Debug,
@@ -595,6 +607,8 @@ where
 
         let mut kmer_buckets = vec![Vec::new(); 256];
 
+        let before_kmer_picking = Instant::now();
+
         for &(ref seq, seq_exts, ref d) in seqs {
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                 //println!("kmer: {:?}, exts: {:?}", kmer, exts);
@@ -625,6 +639,9 @@ where
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
+        if time { println!("time picking kmers (bucket {}): {} s", i, before_kmer_picking.elapsed().as_secs_f32()) }
+        let before_summarizing = Instant::now();
+
         for mut kmer_vec in kmer_buckets {
             debug!("kmers in this bucket: {}", kmer_vec.len());
             //println!("kmers in this bucket: {:?}", kmer_vec);
@@ -645,7 +662,10 @@ where
             }
         }
         debug!("sum data lengths after this bucket: {}", data_lengths);
+
+        if time { println!("time summarizing: {} s", before_summarizing.elapsed().as_secs_f32()) }
     }
+
 
     debug!(
         "Unique kmers: {}, All kmers (if returned): {}",

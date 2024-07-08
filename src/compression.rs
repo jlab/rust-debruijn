@@ -6,6 +6,7 @@ use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use crate::dna_string::DnaString;
 use crate::graph::{BaseGraph, DebruijnGraph};
@@ -557,6 +558,7 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         index: &BoomHashMap2<K, Exts, D>,
     ) -> BaseGraph<K, D> {
 
+
         //println!("index: {:?}", index);
         
         let n_kmers = index.len();
@@ -617,8 +619,12 @@ pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>
     stranded: bool,
     spec: &S,
     index: &BoomHashMap2<K, Exts, D>,
+    time: bool,
 ) -> BaseGraph<K, D> {
-    CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index)
+    let before_compression = Instant::now();
+    let graph = CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index);
+    if time { println!("time compression: {} s", before_compression.elapsed().as_secs_f32()) }
+    graph
 }
 
 /// Take (make) a BoomHash Object and build a compressed DeBruijn graph.
