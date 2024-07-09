@@ -179,7 +179,7 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
         if out_data.len() > 9999 {
-            println!("od size hint: {:?}", items.size_hint());
+            debug!("od size hint: {:?}", items.size_hint());
         }
         let mut kmer: K = Kmer::empty();
 
@@ -253,7 +253,7 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
         if out_data.len() > 9999 {
-            println!("od size hint: {:?}", items.size_hint());
+            debug!("od size hint: {:?}", items.size_hint());
         }
         let mut kmer: K = Kmer::empty();
 
@@ -426,7 +426,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
             }
         }
 
-        if time { println!("time picking kmers (bucket {}): {} s", i, before_kmer_picking.elapsed().as_secs_f32()) }
+        if time { println!("time picking kmers (bucket {}) (s): {}", i, before_kmer_picking.elapsed().as_secs_f32()) }
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
@@ -468,7 +468,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
         });
         // parallel end
 
-        if time { println!("time summarizing: {} s", before_parallel.elapsed().as_secs_f32()) }
+        if time { println!("time summarizing (s): {}", before_parallel.elapsed().as_secs_f32()) }
 
         debug!("processed bucket {i}");
         //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
@@ -639,7 +639,7 @@ where
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
-        if time { println!("time picking kmers (bucket {}): {} s", i, before_kmer_picking.elapsed().as_secs_f32()) }
+        if time { println!("time picking kmers (bucket {}) (s): {}", i, before_kmer_picking.elapsed().as_secs_f32()) }
         let before_summarizing = Instant::now();
 
         for mut kmer_vec in kmer_buckets {
@@ -663,7 +663,7 @@ where
         }
         debug!("sum data lengths after this bucket: {}", data_lengths);
 
-        if time { println!("time summarizing: {} s", before_summarizing.elapsed().as_secs_f32()) }
+        if time { println!("time summarizing (s): {}", before_summarizing.elapsed().as_secs_f32()) }
     }
 
 
