@@ -623,7 +623,7 @@ pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>
 ) -> BaseGraph<K, D> {
     let before_compression = Instant::now();
     let graph = CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index);
-    if time { println!("time compression: {} s", before_compression.elapsed().as_secs_f32()) }
+    if time { println!("time compression (s): {}", before_compression.elapsed().as_secs_f32()) }
     graph
 }
 
