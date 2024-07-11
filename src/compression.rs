@@ -5,7 +5,7 @@ use bit_set::BitSet;
 use log::debug;
 use rayon::current_num_threads;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
@@ -836,10 +836,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
     ) -> BaseGraph<K, D> {
         
         let n_kmers = index.len();
-        let mut available_kmers = BitSet::with_capacity(n_kmers);
-        for i in 0..n_kmers {
-            available_kmers.insert(i);
-        }
 
         // calculate the slices of the workload according to the available threads
         debug!("current num threads: {}", current_num_threads());
@@ -863,13 +859,14 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         debug!("parallel ranges: {:?}", parallel_ranges);
 
         let all_start_end_kmers: Arc<Mutex<Vec<(K, K)>>> = Arc::new(Mutex::new(Vec::new()));
+        let all_start_end_kmers: Arc<Mutex<HashMap<K, K>>> = Arc::new(Mutex::new(HashMap::new()));
         
         // go through all kmers and find the start and end kmer of each compressable sequence node
         parallel_ranges.into_par_iter().for_each(|range| {
 
             let mut path_buf = Vec::new();
             let mut edge_seq_buf = VecDeque::new();
-            let mut start_end_kmers: Vec<(K, K)> = Vec::new();
+            //let mut start_end_kmers: Vec<(K, K)> = Vec::new();
 
             for kmer_counter in range {
 
@@ -881,19 +878,26 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                     available_kmers: BitSet::new(),
                     index,
                 };               
+
                 let kmers = comp.build_node_start(kmer_counter, &mut path_buf, &mut edge_seq_buf);
-                start_end_kmers.push(kmers);
+
+                let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
+                if !all_lock.contains_key(&kmers.0) {
+                    all_lock.insert(kmers.0, kmers.1);
+                }
+                //start_end_kmers.push(kmers);
             }
-            let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
-            all_lock.append(&mut start_end_kmers);
+
+            /* let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
+            all_lock.append(&mut start_end_kmers); */
         });
 
         // all the kmers which occurr at the beginning or end of a node are soerted and deduped
         // resulting in one (K, K) per node
-        let mut all_start_end_kmers = all_start_end_kmers.lock().expect("final lock all_start_end_kmers");
+        let all_start_end_kmers: Vec<(K, K)> = all_start_end_kmers.lock().expect("final lock all_start_end_kmers").clone().into_iter().collect();
 
-        all_start_end_kmers.sort();
-        all_start_end_kmers.dedup();
+        //all_start_end_kmers.sort();
+        //all_start_end_kmers.dedup();
 
         debug!("all start and end kmers: {:?}", all_start_end_kmers);
 
