@@ -789,9 +789,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         spec: &S,
         index: &BoomHashMap2<K, Exts, D>,
     ) -> BaseGraph<K, D> {
-
-
-        //println!("index: {:?}", index);
         
         let n_kmers = index.len();
         let mut available_kmers = BitSet::with_capacity(n_kmers);
@@ -823,7 +820,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
-                println!("seq buf: {:?}", edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
         }
@@ -845,18 +841,15 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             available_kmers.insert(i);
         }
 
-        // Path-compressed De Bruijn graph will be created here
-
-        println!("current num threads: {}", current_num_threads());
-        
-
+        // calculate the slices of the workload according to the available threads
+        debug!("current num threads: {}", current_num_threads());
         debug!("n of kmers: {}", n_kmers);
 
         let slices = current_num_threads();
         let sz = n_kmers / slices + 1;
 
-        println!("n_kmers: {}", n_kmers);
-        println!("sz: {}", sz);
+        debug!("n_kmers: {}", n_kmers);
+        debug!("sz: {}", sz);
 
         let mut parallel_ranges = Vec::with_capacity(slices);
         let mut start = 0;
@@ -867,10 +860,11 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
         parallel_ranges.push(last_start..n_kmers);
-        println!("parallel ranges: {:?}", parallel_ranges);
+        debug!("parallel ranges: {:?}", parallel_ranges);
 
         let all_start_end_kmers: Arc<Mutex<Vec<(K, K)>>> = Arc::new(Mutex::new(Vec::new()));
         
+        // go through all kmers and find the start and end kmer of each compressable sequence node
         parallel_ranges.into_par_iter().for_each(|range| {
 
             let mut path_buf = Vec::new();
@@ -888,28 +882,30 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                     index,
                 };               
                 let kmers = comp.build_node_start(kmer_counter, &mut path_buf, &mut edge_seq_buf);
-                //println!("kmer: {:?}", index.get_key(kmer_counter));
                 start_end_kmers.push(kmers);
-                //let node_data2: D = node_data.clone(); 
-                //graph.add(&edge_seq_buf, node_exts, node_data);
-                //println!("edge seq buffer: {:?}", edge_seq_buf);
             }
             let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
             all_lock.append(&mut start_end_kmers);
         });
 
+        // all the kmers which occurr at the beginning or end of a node are soerted and deduped
+        // resulting in one (K, K) per node
         let mut all_start_end_kmers = all_start_end_kmers.lock().expect("final lock all_start_end_kmers");
 
         all_start_end_kmers.sort();
         all_start_end_kmers.dedup();
 
-        let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
+        debug!("all start and end kmers: {:?}", all_start_end_kmers);
 
+        // all graphs constructed by the respective threads are pushed into this and later combined
+        let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
+        
+        // calculate the workload has to be sliced depending on the threads
         let slices = current_num_threads();
         let sz = all_start_end_kmers.len() / slices + 1;
 
-        println!("n start kmers: {}", all_start_end_kmers.len());
-        println!("sz: {}", sz);
+        debug!("n start kmers: {}", all_start_end_kmers.len());
+        debug!("sz: {}", sz);
 
         let mut parallel_ranges = Vec::with_capacity(slices);
         let mut start = 0;
@@ -921,8 +917,9 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
         parallel_ranges.push(last_start..all_start_end_kmers.len());
 
-        println!("parallel ranges 2: {:?}", parallel_ranges);
+        debug!("parallel ranges 2: {:?}", parallel_ranges);
 
+        // go trough all start kmers and find the corresponding sequence, add them to the partial graph
         parallel_ranges.into_par_iter().for_each(|range| {
 
             let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
@@ -939,7 +936,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                     index,
                 };      
                 let (node_exts, node_data) = comp.build_node_par(comp.index.get_key_id(start).expect("get kmer id from index, should exist"), &mut path_buf, &mut edge_seq_buf);
-                println!("seq buffer: {:?}", edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
 
@@ -948,6 +944,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
         });
 
+        // combine the graphs and return the resulting graph
         let graph = BaseGraph::combine(graphs.lock().expect("final graph lock").clone().into_iter());
         graph
     }
