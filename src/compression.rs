@@ -701,7 +701,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             node_data = self.spec.reduce(node_data, kmer_data)
         }
 
-
         let mut path_seq = PackedDnaStringSet::new();
         path_seq.add(edge_seq);
         let first = path_seq.sequence.get_kmer::<K>(0);
@@ -821,12 +820,10 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         debug!("n of kmers: {}", n_kmers);
 
         for kmer_counter in 0..n_kmers {
-            //println!("kmer_counter: {}", kmer_counter);
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
-                //let node_data2: D = node_data.clone(); 
-                println!("edge seq buf: {:?}", edge_seq_buf);
+                println!("seq buf: {:?}", edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
         }
@@ -906,8 +903,6 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         all_start_end_kmers.sort();
         all_start_end_kmers.dedup();
 
-        println!("all start_end_kmers: {:?}", all_start_end_kmers);
-
         let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
 
         let slices = current_num_threads();
@@ -922,6 +917,9 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             parallel_ranges.push(start..start + sz);
             start += sz;
         }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..all_start_end_kmers.len());
 
         println!("parallel ranges 2: {:?}", parallel_ranges);
 
@@ -941,7 +939,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                     index,
                 };      
                 let (node_exts, node_data) = comp.build_node_par(comp.index.get_key_id(start).expect("get kmer id from index, should exist"), &mut path_buf, &mut edge_seq_buf);
-                println!("edge seq buffer: {:?}", edge_seq_buf);
+                println!("seq buffer: {:?}", edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
 
