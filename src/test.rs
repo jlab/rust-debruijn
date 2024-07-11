@@ -135,7 +135,7 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 mod tests {
 
     use crate::clean_graph::CleanGraph;
-    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
     use crate::graph::BaseGraph;
     use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
@@ -246,7 +246,7 @@ mod tests {
 
         let spec =
             SimpleCompress::new(|d1: u16, d2: &u16| ((d1 as u32 + *d2 as u32) % 65535) as u16);
-        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true).finish();
+        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -297,7 +297,7 @@ mod tests {
 
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
-    fn reassemble_contigs<K: Kmer + Copy, V: Vmer + Clone>(contigs: Vec<Vec<u8>>, stranded: bool) {
+    fn reassemble_contigs<K: Kmer + Copy + Send + Sync, V: Vmer + Clone>(contigs: Vec<Vec<u8>>, stranded: bool) {
         let ctg_lens: Vec<_> = contigs.iter().map(std::vec::Vec::len).collect();
         println!("Reassembling contig sizes: {:?}", ctg_lens);
 
@@ -385,7 +385,7 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false);
 
         // Check that all the lines have valid kmers,
         // and have extensions into other valid kmers
@@ -462,7 +462,7 @@ mod tests {
             let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
-            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true);
+            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false);
             shard_asms.push(graph.clone());
             //graph.finish().print();
         }
@@ -556,7 +556,7 @@ mod tests {
             true
         );
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false);
         let graph1 = graph.finish();
         graph1.print();
         println!("components: {:?}", graph1.components_r());
@@ -603,33 +603,37 @@ mod tests {
 
         println!("3: {:?}", valid_kmers_errs3);
         println!("4: {:?}", valid_kmers_errs4);
-/* 
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
-        let graph2 = graph.finish();
+
+        //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
+        let spec = ScmapCompress::new();
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, true);
+        println!("graph: {:?}", graph);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false);
+        println!("graph: {:?}", graph);
+        //let graph2 = graph.finish();
         //graph2.print();
         //println!("components: {:?}", graph2.components_r());
-        let max_path = graph2.max_path(|d| *d as f32, |_| true);
+        //let max_path = graph2.max_path(|d| *d as f32, |_| true);
         //println!("one graph: {:?}", max_path); 
-        let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
+        //let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
         //println!("all graphs: {:?}", max_path_c); 
         /* for i in 0..graph2.len() {
             println!("node {}: {}", i,  graph2.get_node(i).sequence());
             println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
         } */
-        let u_graph: BaseGraph<K, (Vec<()>, i32)> = uncompressed_graph(&valid_kmers_errs);
-        let u_graph2 = u_graph.finish();
+        //let u_graph: BaseGraph<K, (Vec<()>, i32)> = uncompressed_graph(&valid_kmers_errs);
+        //let u_graph2 = u_graph.finish();
         //println!("uncompressed graph: {:?}", u_graph2);
         //u_graph2.print();
 
         // Now try to clean the tips.
-        let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
-        let nodes_to_censor = cleaner.find_bad_nodes(&graph2);
+        //let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
+        //let nodes_to_censor = cleaner.find_bad_nodes(&graph2);
 
         //println!("censor: {:?}", nodes_to_censor);
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
-        //fixed.print(); */
+        //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
+        //let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
+        //fixed.print();
     }
 
     #[test]

@@ -3,14 +3,17 @@
 //! Create compressed DeBruijn graphs from uncompressed DeBruijn graphs, or a collection of disjoint DeBruijn graphs.
 use bit_set::BitSet;
 use log::debug;
+use rayon::current_num_threads;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::dna_string::DnaString;
-use crate::graph::{BaseGraph, DebruijnGraph};
-use crate::Dir;
+use crate::dna_string::{DnaString, PackedDnaStringSet};
+use crate::graph::{self, BaseGraph, DebruijnGraph};
+use crate::{Dir, Mer};
 use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
@@ -364,7 +367,7 @@ struct CompressFromHash<'a, 'b, K: 'a + Kmer, D: 'a, S: CompressionSpec<D>> {
 }
 
 /// Compression of paths in Debruijn graph
-impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<'a, 'b, K, D, S> {
+impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<D> + Sync> CompressFromHash<'a, 'b, K, D, S> {
     fn get_kmer_data(&self, kmer: &K) -> (&Exts, &D) {
         match self.index.get(kmer) {
             Some(data) => data,
@@ -448,6 +451,72 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         }
     }
 
+    /// Attempt to extend kmer v in direction dir. Return:
+    ///  - Unique(nextKmer, nextDir) if a single unique extension
+    ///    is possible.  nextDir indicates the direction to extend nextMker
+    ///    to preserve the direction of the extension.
+    /// - Term(ext) no unique extension possible, indicating the extensions at this end of the line
+    fn try_extend_kmer_par(&self, kmer: K, dir: Dir) -> ExtMode<K> {
+        // metadata of start kmer
+        let (exts, ref kmer_data) = self.get_kmer_data(&kmer);
+
+        // kmer is marked terminal if it has not one extension in one direction (if clear path always 1) 
+        // or if the graph is not stranded and the kmer is a palindrome
+        if exts.num_ext_dir(dir) != 1 || (!self.stranded && kmer.is_palindrome()) {
+            ExtMode::Terminal(exts.single_dir(dir))
+        } else {
+            // Get the next kmer
+            let ext_base = exts.get_unique_extension(dir).expect("should be unique");
+
+            let mut next_kmer = kmer.extend(ext_base, dir);
+
+            let mut do_flip = false;
+            
+            // decide if direction needs to be changed (how?????????) turn kmer into rc
+            if !self.stranded {
+                let flip_rc = next_kmer.min_rc_flip();
+                do_flip = flip_rc.1;
+                next_kmer = flip_rc.0;
+            }
+
+            let next_dir = dir.cond_flip(do_flip);
+            let is_palindrome = !self.stranded && next_kmer.is_palindrome();
+
+            // We can include this kmer in the line if:
+            // a) it exists in the partition and is still unused
+            // b) the kmer we go to has a unique extension back in our direction
+
+            // condition a) is skipped cause of parallel process
+
+            // Check condition b)
+            // Direction we're approaching the new kmer from
+            let new_incoming_dir = dir.flip().cond_flip(do_flip);
+            let next_kmer_r = self.get_kmer_data(&next_kmer);
+            let (next_kmer_exts, ref next_kmer_data) = next_kmer_r;
+            let incoming_count = next_kmer_exts.num_ext_dir(new_incoming_dir);
+            let outgoing_exts = next_kmer_exts.single_dir(new_incoming_dir.flip());
+
+            // Test if the spec let's us combine these into the same path
+            let can_join = self.spec.join_test(kmer_data, next_kmer_data);
+
+            if incoming_count == 0 && !is_palindrome {
+                println!("{:?}, {:?}, {:?}", kmer, exts, kmer_data);
+                println!(
+                    "{:?}, {:?}, {:?}",
+                    next_kmer, next_kmer_exts, next_kmer_data
+                );
+                panic!("unreachable");
+            } else if can_join && incoming_count == 1 && !is_palindrome {
+                // We have a unique path to next_kmer -- include it
+                ExtMode::Unique(next_kmer, next_dir, outgoing_exts)
+            } else {
+                // there's more than one path
+                // into the target kmer - don't include it
+                ExtMode::Terminal(exts.single_dir(dir))
+            }
+        }
+    }
+
     /// Build the maximal line starting at kmer in direction dir, at most max_dist long.
     /// Also return the extensions at the end of this line.
     /// Sub-lines break if their extensions are not available in this shard
@@ -465,6 +534,38 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         loop {
             let ext_result = self.try_extend_kmer(current_kmer, current_dir);
+
+            match ext_result {
+                ExtMode::Unique(next_kmer, next_dir, _) => {
+                    path.push((next_kmer, next_dir));
+                    let next_id = self.get_kmer_id(&next_kmer).expect("should have this kmer");
+                    self.available_kmers.remove(next_id);
+                    current_kmer = next_kmer;
+                    current_dir = next_dir;
+                }
+                ExtMode::Terminal(ext) => {
+                    final_exts = ext;
+                    break;
+                }
+            }
+        }
+
+        final_exts
+    }
+
+    fn extend_kmer_par(&mut self, kmer: K, start_dir: Dir, path: &mut Vec<(K, Dir)>) -> Exts {
+        let mut current_dir = start_dir;
+        let mut current_kmer = kmer;
+        path.clear();
+
+        let final_exts: Exts; // must get set below
+
+        // get id of kmer and remove from available kmers
+        let id = self.get_kmer_id(&kmer).expect("should have this kmer");
+        let _ = self.available_kmers.remove(id);
+
+        loop {
+            let ext_result = self.try_extend_kmer_par(current_kmer, current_dir);
 
             match ext_result {
                 ExtMode::Unique(next_kmer, next_dir, _) => {
@@ -525,8 +626,140 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
         };
 
 
-        // Unique path from seed kmer with Dir Left is built
+        // Unique path from seed kmer with Dir Right is built
         let r_ext = self.extend_kmer(seed, Dir::Right, path);
+
+        // Add on the right path
+        for &(next_kmer, dir) in path.iter() {
+            let kmer = match dir {
+                Dir::Left => next_kmer.rc(),
+                Dir::Right => next_kmer,
+            };
+
+            edge_seq.push_back(kmer.get(K::k() - 1));
+
+            let (_, kmer_data) = self.get_kmer_data(&next_kmer);
+            node_data = self.spec.reduce(node_data, kmer_data)
+        }
+
+        let right_extend = match path.last() {
+            None => r_ext,
+            Some(&(_, Dir::Left)) => r_ext.complement(),
+            Some(&(_, Dir::Right)) => r_ext,
+        };
+        
+        (Exts::from_single_dirs(left_extend, right_extend), node_data)
+    }
+
+
+    /// Build the edge surrounding a kmer
+    #[inline(never)]
+    fn  build_node_start(
+        &mut self,
+        seed_id: usize,
+        path: &mut Vec<(K, Dir)>,
+        edge_seq: &mut VecDeque<u8>,
+    ) -> (K, K) {
+        let seed: K = *self.index.get_key(seed_id).expect("Index out of bound");
+        edge_seq.clear();
+        for i in 0..K::k() {
+            edge_seq.push_back(seed.get(i));
+        }
+
+        let mut node_data = self.get_kmer_data(&seed).1.clone();
+
+        // Unique path from seed kmer with Dir Left is built
+        let l_ext = self.extend_kmer_par(seed, Dir::Left, path);
+
+        // Add on the left path
+        for &(next_kmer, dir) in path.iter() {
+            let kmer = match dir {
+                Dir::Left => next_kmer,
+                Dir::Right => next_kmer.rc(),
+            };
+
+            edge_seq.push_front(kmer.get(0));
+
+            // Reduce the data object
+            let (_, kmer_data) = self.get_kmer_data(&next_kmer);
+            node_data = self.spec.reduce(node_data, kmer_data)
+        }
+
+        // Unique path from seed kmer with Dir Right is built
+        let r_ext = self.extend_kmer_par(seed, Dir::Right, path);
+
+        // Add on the right path
+        for &(next_kmer, dir) in path.iter() {
+            let kmer = match dir {
+                Dir::Left => next_kmer.rc(),
+                Dir::Right => next_kmer,
+            };
+
+            edge_seq.push_back(kmer.get(K::k() - 1));
+
+            let (_, kmer_data) = self.get_kmer_data(&next_kmer);
+            node_data = self.spec.reduce(node_data, kmer_data)
+        }
+
+
+        let mut path_seq = PackedDnaStringSet::new();
+        path_seq.add(edge_seq);
+        let first = path_seq.sequence.get_kmer::<K>(0);
+        let min_first = first.min_rc();
+        let last = path_seq.sequence.get_kmer::<K>(path_seq.sequence.len()-K::k());
+        let min_last = last.min_rc();
+
+        let result = if min_first < min_last {
+            (min_first, min_last)
+        } else {
+            (min_last, min_first)
+        };
+        
+        result
+    }
+
+    #[inline(never)]
+    fn  build_node_par(
+        &mut self,
+        seed_id: usize,
+        path: &mut Vec<(K, Dir)>,
+        edge_seq: &mut VecDeque<u8>,
+    ) -> (Exts, D) {
+        let seed: K = *self.index.get_key(seed_id).expect("Index out of bound");
+        edge_seq.clear();
+        for i in 0..K::k() {
+            edge_seq.push_back(seed.get(i));
+        }
+
+        let mut node_data = self.get_kmer_data(&seed).1.clone();
+
+        // Unique path from seed kmer with Dir Left is built
+        let l_ext = self.extend_kmer_par(seed, Dir::Left, path);
+
+
+        // Add on the left path
+        for &(next_kmer, dir) in path.iter() {
+            let kmer = match dir {
+                Dir::Left => next_kmer,
+                Dir::Right => next_kmer.rc(),
+            };
+
+            edge_seq.push_front(kmer.get(0));
+
+            // Reduce the data object
+            let (_, kmer_data) = self.get_kmer_data(&next_kmer);
+            node_data = self.spec.reduce(node_data, kmer_data)
+        }
+
+        let left_extend = match path.last() {
+            None => l_ext,
+            Some(&(_, Dir::Left)) => l_ext,
+            Some(&(_, Dir::Right)) => l_ext.complement(),
+        };
+
+
+        // Unique path from seed kmer with Dir Right is built
+        let r_ext = self.extend_kmer_par(seed, Dir::Right, path);
 
         // Add on the right path
         for &(next_kmer, dir) in path.iter() {
@@ -576,9 +809,6 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
             index,
         };
 
-        /* println!("--comp av kmers: {:?}", comp.available_kmers);
-        println!("--comp index: {:?}", comp.index); */
-
         // Path-compressed De Bruijn graph will be created here
         let mut graph = BaseGraph::new(stranded);
 
@@ -590,24 +820,137 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
         debug!("n of kmers: {}", n_kmers);
 
-        /* println!("path_buf: {:?}", path_buf);
-        println!("edge_seq_buf: {:?}", edge_seq_buf); */
-
         for kmer_counter in 0..n_kmers {
             //println!("kmer_counter: {}", kmer_counter);
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
                 //let node_data2: D = node_data.clone(); 
+                println!("edge seq buf: {:?}", edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
-                /* println!("path_buf: {:?}", path_buf);
-                println!("edge_seq_buf: {:?}", edge_seq_buf);
-                println!("node_exts: {:?}", node_exts);
-                println!("node_data: {:?}", node_data2);
-                println!("graph: {:?}", graph); */
             }
         }
 
+        graph
+    }
+
+    /// Compress a set of kmers and their extensions and metadata into a base DeBruijn graph, utilizing multithreading
+    #[inline(never)]
+    pub fn compress_kmers_parallel(
+        stranded: bool,
+        spec: &S,
+        index: &BoomHashMap2<K, Exts, D>,
+    ) -> BaseGraph<K, D> {
+        
+        let n_kmers = index.len();
+        let mut available_kmers = BitSet::with_capacity(n_kmers);
+        for i in 0..n_kmers {
+            available_kmers.insert(i);
+        }
+
+        // Path-compressed De Bruijn graph will be created here
+
+        println!("current num threads: {}", current_num_threads());
+        
+
+        debug!("n of kmers: {}", n_kmers);
+
+        let slices = current_num_threads();
+        let sz = n_kmers / slices + 1;
+
+        println!("n_kmers: {}", n_kmers);
+        println!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_kmers {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_kmers);
+        println!("parallel ranges: {:?}", parallel_ranges);
+
+        let all_start_end_kmers: Arc<Mutex<Vec<(K, K)>>> = Arc::new(Mutex::new(Vec::new()));
+        
+        parallel_ranges.into_par_iter().for_each(|range| {
+
+            let mut path_buf = Vec::new();
+            let mut edge_seq_buf = VecDeque::new();
+            let mut start_end_kmers: Vec<(K, K)> = Vec::new();
+
+            for kmer_counter in range {
+
+                let mut comp = CompressFromHash {
+                    stranded,
+                    spec,
+                    k: PhantomData,
+                    d: PhantomData,
+                    available_kmers: BitSet::new(),
+                    index,
+                };               
+                let kmers = comp.build_node_start(kmer_counter, &mut path_buf, &mut edge_seq_buf);
+                //println!("kmer: {:?}", index.get_key(kmer_counter));
+                start_end_kmers.push(kmers);
+                //let node_data2: D = node_data.clone(); 
+                //graph.add(&edge_seq_buf, node_exts, node_data);
+                //println!("edge seq buffer: {:?}", edge_seq_buf);
+            }
+            let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
+            all_lock.append(&mut start_end_kmers);
+        });
+
+        let mut all_start_end_kmers = all_start_end_kmers.lock().expect("final lock all_start_end_kmers");
+
+        all_start_end_kmers.sort();
+        all_start_end_kmers.dedup();
+
+        println!("all start_end_kmers: {:?}", all_start_end_kmers);
+
+        let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
+
+        let slices = current_num_threads();
+        let sz = all_start_end_kmers.len() / slices + 1;
+
+        println!("n start kmers: {}", all_start_end_kmers.len());
+        println!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < all_start_end_kmers.len() {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        println!("parallel ranges 2: {:?}", parallel_ranges);
+
+        parallel_ranges.into_par_iter().for_each(|range| {
+
+            let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
+
+            for (start, _) in all_start_end_kmers[range].iter() {    
+                let mut path_buf = Vec::new();
+                let mut edge_seq_buf = VecDeque::new();
+                let mut comp = CompressFromHash {
+                    stranded,
+                    spec,
+                    k: PhantomData,
+                    d: PhantomData,
+                    available_kmers: BitSet::new(),
+                    index,
+                };      
+                let (node_exts, node_data) = comp.build_node_par(comp.index.get_key_id(start).expect("get kmer id from index, should exist"), &mut path_buf, &mut edge_seq_buf);
+                println!("edge seq buffer: {:?}", edge_seq_buf);
+                graph.add(&edge_seq_buf, node_exts, node_data);
+            }
+
+            let mut graph_lock = graphs.lock().expect("unlock graphs to push new graph");
+            graph_lock.push(graph);
+
+        });
+
+        let graph = BaseGraph::combine(graphs.lock().expect("final graph lock").clone().into_iter());
         graph
     }
 }
@@ -615,21 +958,23 @@ impl<'a, 'b, K: Kmer, D: Clone + Debug, S: CompressionSpec<D>> CompressFromHash<
 
 /// Take a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
-pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
+pub fn compress_kmers_with_hash<K: Kmer + Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     index: &BoomHashMap2<K, Exts, D>,
     time: bool,
+    parallel: bool,
 ) -> BaseGraph<K, D> {
     let before_compression = Instant::now();
-    let graph = CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index);
+    let graph = if !parallel {CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index) } else {
+        CompressFromHash::<K, D, S>::compress_kmers_parallel(stranded, spec, index)};
     if time { println!("time compression (s): {}", before_compression.elapsed().as_secs_f32()) }
     graph
 }
 
 /// Take (make) a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
-pub fn compress_kmers<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
+pub fn compress_kmers<K: Kmer + Send + Sync, D: Clone + Debug  + Send + Sync, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     kmer_exts: &[(K, (Exts, D))],
@@ -650,7 +995,7 @@ pub fn compress_kmers<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
 
 /// Build graph from a set of kmers with unknown extensions by finding the extensions on the fly.
 #[inline(never)]
-pub fn compress_kmers_no_exts<K: Kmer, D: Clone + Debug, S: CompressionSpec<D>>(
+pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     kmer_exts: &[(K, D)],
