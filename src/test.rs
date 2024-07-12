@@ -242,6 +242,7 @@ mod tests {
             false,
             4,
             true,
+            true,
         );
 
         let spec =
@@ -349,6 +350,7 @@ mod tests {
             false,
             4,
             true,
+            true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
         for k in valid_kmers.iter().map(|x| x.0) {
@@ -455,6 +457,7 @@ mod tests {
                 stranded,
                 false,
                 4,
+                true,
                 true
             );
 
@@ -553,6 +556,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
             true
         );
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
@@ -569,6 +573,7 @@ mod tests {
             false,
             4,
             true,
+            true,
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -577,6 +582,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
             true,
         );
         println!("1: {:?}", valid_kmers_errs);
@@ -589,6 +595,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
             true
         );
         let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, (Tags, Vec<u32>, i32)>, _) = filter::filter_kmers_parallel(
@@ -598,6 +605,7 @@ mod tests {
             stranded,
             false,
             4,
+            true,
             true
         );
 

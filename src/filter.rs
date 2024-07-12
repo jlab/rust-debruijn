@@ -355,10 +355,11 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
+    progress: bool,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     let rc_norm = !stranded;
-    let basestarts = 256 * 4;
+    let basestarts = 256;
 
     //let shared_summarizer = Mutex::new(summarizer);
 
@@ -402,7 +403,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
-        debug!("Processing bucket {} of {}", i, n_buckets);
+        debug!("Processing bucket {} of {}", i+1, n_buckets);
 
         let before_kmer_picking = Instant::now();
 
@@ -431,10 +432,19 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
         let before_parallel = Instant::now();
+
+        if progress {
+            println!("Processing bucket {} of {}", i+1, n_buckets);
+            for _i in 0..128 {
+                print!("-");
+            }
+            print!("\n");
+        }
         
         // parallel start
         kmer_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
-            debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
+            //debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
+            if progress & (j % 2 == 0) { print!("|") };
             kmer_vec.sort_by_key(|elt| elt.0);
 
             let mut all_kmers = Vec::new();
@@ -467,7 +477,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
 
         });
         // parallel end
-
+        if progress { print!("\n") }
         if time { println!("time summarizing (s): {}", before_parallel.elapsed().as_secs_f32()) }
 
         debug!("processed bucket {i}");
@@ -549,6 +559,7 @@ pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DS, S: KmerSummarizer<D
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
+    progress: bool,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 where
     DS: Debug,
@@ -642,9 +653,20 @@ where
         if time { println!("time picking kmers (bucket {}) (s): {}", i, before_kmer_picking.elapsed().as_secs_f32()) }
         let before_summarizing = Instant::now();
 
+        if progress {
+            println!("Processing bucket {} of {}", i+1, n_buckets);
+            for _i in 0..128 {
+                print!("-");
+            }
+            print!("\n")
+        }
+
+        let mut progress_counter = 0;
+
         for mut kmer_vec in kmer_buckets {
-            debug!("kmers in this bucket: {}", kmer_vec.len());
-            //println!("kmers in this bucket: {:?}", kmer_vec);
+            progress_counter += 1;
+            //debug!("kmers in this bucket: {}", kmer_vec.len());
+            if progress & (progress_counter % 2 == 0) { print!("|") };
             kmer_vec.sort_by_key(|elt| elt.0);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
@@ -662,7 +684,7 @@ where
             }
         }
         debug!("sum data lengths after this bucket: {}", data_lengths);
-
+        if progress { print!("\n") };
         if time { println!("time summarizing (s): {}", before_summarizing.elapsed().as_secs_f32()) }
     }
 
