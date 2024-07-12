@@ -435,9 +435,10 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
 
         if progress {
             println!("Processing bucket {} of {}", i+1, n_buckets);
-            for _i in 0..128 {
+            for _i in 0..127 {
                 print!("-");
             }
+            print!("|");
             print!("\n");
         }
         
@@ -655,9 +656,10 @@ where
 
         if progress {
             println!("Processing bucket {} of {}", i+1, n_buckets);
-            for _i in 0..128 {
+            for _i in 0..127 {
                 print!("-");
             }
+            print!("|");
             print!("\n")
         }
 

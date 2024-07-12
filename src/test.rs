@@ -247,7 +247,7 @@ mod tests {
 
         let spec =
             SimpleCompress::new(|d1: u16, d2: &u16| ((d1 as u32 + *d2 as u32) % 65535) as u16);
-        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false).finish();
+        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -387,7 +387,7 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
 
         // Check that all the lines have valid kmers,
         // and have extensions into other valid kmers
@@ -465,7 +465,7 @@ mod tests {
             let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
-            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false);
+            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
             shard_asms.push(graph.clone());
             //graph.finish().print();
         }
@@ -560,7 +560,7 @@ mod tests {
             true
         );
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false, true);
         let graph1 = graph.finish();
         graph1.print();
         println!("components: {:?}", graph1.components_r());
@@ -614,9 +614,9 @@ mod tests {
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, true);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, true, true);
         println!("graph: {:?}", graph);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false, true);
         println!("graph: {:?}", graph);
         //let graph2 = graph.finish();
         //graph2.print();

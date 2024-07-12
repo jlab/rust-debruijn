@@ -4,7 +4,7 @@
 use bit_set::BitSet;
 use log::debug;
 use rayon::current_num_threads;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use crate::dna_string::{DnaString, PackedDnaStringSet};
 use crate::graph::{self, BaseGraph, DebruijnGraph};
-use crate::{Dir, Mer};
+use crate::{kmer, Dir, Mer};
 use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
@@ -788,10 +788,13 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         stranded: bool,
         spec: &S,
         index: &BoomHashMap2<K, Exts, D>,
+        progress: bool,
     ) -> BaseGraph<K, D> {
         
         let n_kmers = index.len();
         let mut available_kmers = BitSet::with_capacity(n_kmers);
+        let progress = if n_kmers < 128 { false } else { progress };
+
         for i in 0..n_kmers {
             available_kmers.insert(i);
         }
@@ -816,13 +819,29 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
         debug!("n of kmers: {}", n_kmers);
 
+        let steps = n_kmers as f32 / 128.;
+
+        if progress {
+            println!("Compressing kmers");
+            for _i in 0..127 {
+                print!("-");
+            }
+            print!("|");
+            print!("\n");
+        }
+
         for kmer_counter in 0..n_kmers {
+            if progress {
+                    if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
+            }
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
         }
+
+        if progress { print!("\n") };
 
         graph
     }
@@ -833,9 +852,11 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         stranded: bool,
         spec: &S,
         index: &BoomHashMap2<K, Exts, D>,
+        progress: bool,
     ) -> BaseGraph<K, D> {
         
         let n_kmers = index.len();
+        let progress = if n_kmers < 128 { false } else { progress };
 
         // calculate the slices of the workload according to the available threads
         debug!("current num threads: {}", current_num_threads());
@@ -858,8 +879,17 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         parallel_ranges.push(last_start..n_kmers);
         debug!("parallel ranges: {:?}", parallel_ranges);
 
-        let all_start_end_kmers: Arc<Mutex<Vec<(K, K)>>> = Arc::new(Mutex::new(Vec::new()));
         let all_start_end_kmers: Arc<Mutex<HashMap<K, K>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let steps = n_kmers as f32 / 128.;
+        if progress {
+            println!("Compressing kmers\nStep 1 of 2");
+            for _i in 0..127 {
+                print!("-");
+            }
+            print!("|");
+            print!("\n");
+        }
         
         // go through all kmers and find the start and end kmer of each compressable sequence node
         parallel_ranges.into_par_iter().for_each(|range| {
@@ -869,6 +899,10 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             //let mut start_end_kmers: Vec<(K, K)> = Vec::new();
 
             for kmer_counter in range {
+
+                if progress {
+                    if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
+                }
 
                 let mut comp = CompressFromHash {
                     stranded,
@@ -892,6 +926,8 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             all_lock.append(&mut start_end_kmers); */
         });
 
+        if progress { print!("\n") }
+
         // all the kmers which occurr at the beginning or end of a node are soerted and deduped
         // resulting in one (K, K) per node
         let all_start_end_kmers: Vec<(K, K)> = all_start_end_kmers.lock().expect("final lock all_start_end_kmers").clone().into_iter().collect();
@@ -905,30 +941,47 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
         
         // calculate the workload has to be sliced depending on the threads
+        let n_starts = all_start_end_kmers.len();
         let slices = current_num_threads();
-        let sz = all_start_end_kmers.len() / slices + 1;
+        let sz = n_starts / slices + 1;
 
         debug!("n start kmers: {}", all_start_end_kmers.len());
         debug!("sz: {}", sz);
 
         let mut parallel_ranges = Vec::with_capacity(slices);
         let mut start = 0;
-        while start < all_start_end_kmers.len() {
+        while start < n_starts {
             parallel_ranges.push(start..start + sz);
             start += sz;
         }
 
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
-        parallel_ranges.push(last_start..all_start_end_kmers.len());
+        parallel_ranges.push(last_start..n_starts);
 
         debug!("parallel ranges 2: {:?}", parallel_ranges);
+
+        let steps = n_starts as f32 / 128.;
+        if progress {
+            println!("Step 2 of 2");
+            for _i in 0..127 {
+                print!("-");
+            }
+            print!("|");
+            print!("\n");
+        }
+        let short_progress = if n_starts < 100 { true } else { false };
 
         // go trough all start kmers and find the corresponding sequence, add them to the partial graph
         parallel_ranges.into_par_iter().for_each(|range| {
 
             let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
 
-            for (start, _) in all_start_end_kmers[range].iter() {    
+            for (i, (start, _)) in all_start_end_kmers[range].iter().enumerate() {   
+
+                if progress & !short_progress {
+                    if (i as f32 % steps >= 0.) & (i as f32 % steps < 1.) { print!("|")}
+                }
+
                 let mut path_buf = Vec::new();
                 let mut edge_seq_buf = VecDeque::new();
                 let mut comp = CompressFromHash {
@@ -948,6 +1001,14 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
         });
 
+        if progress & short_progress {
+            for _i in 0..128 {
+                print!("|");
+            }
+        }
+        
+        if progress { print!("\n") }
+
         // combine the graphs and return the resulting graph
         let graph = BaseGraph::combine(graphs.lock().expect("final graph lock").clone().into_iter());
         graph
@@ -963,10 +1024,11 @@ pub fn compress_kmers_with_hash<K: Kmer + Send + Sync, D: Clone + Debug + Send +
     index: &BoomHashMap2<K, Exts, D>,
     time: bool,
     parallel: bool,
+    progress: bool,
 ) -> BaseGraph<K, D> {
     let before_compression = Instant::now();
-    let graph = if !parallel {CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index) } else {
-        CompressFromHash::<K, D, S>::compress_kmers_parallel(stranded, spec, index)};
+    let graph = if !parallel {CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, index, progress) } else {
+        CompressFromHash::<K, D, S>::compress_kmers_parallel(stranded, spec, index, progress)};
     if time { println!("time compression (s): {}", before_compression.elapsed().as_secs_f32()) }
     graph
 }
@@ -989,7 +1051,7 @@ pub fn compress_kmers<K: Kmer + Send + Sync, D: Clone + Debug  + Send + Sync, S:
     }
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, &index)
+    CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, &index, false)
 }
 
 /// Build graph from a set of kmers with unknown extensions by finding the extensions on the fly.
@@ -1033,7 +1095,7 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
     assert_eq!(kmer_set.len(), keys.len());
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, &index)
+    CompressFromHash::<K, D, S>::compress_kmers(stranded, spec, &index,false)
 }
 
 /// assumes stranded = false
