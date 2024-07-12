@@ -4,6 +4,8 @@
 
 use bit_set::BitSet;
 use log::{debug, trace};
+use rayon::prelude::*;
+use rayon::{current_num_threads, current_thread_index};
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
@@ -11,7 +13,7 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::f32;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::fs::File;
 use std::hash::Hash;
 use std::io::Error;
@@ -656,6 +658,44 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
+        debug!("large to dot loop: {}", self.len());
+    }
+
+    pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&D) -> String + Sync>(&self, path: P, node_label: &F) 
+    where 
+        D: Sync,
+        K: Sync
+    {        
+        let slices = current_num_threads();
+        let n_nodes = self.len();
+        let sz = n_nodes / slices + 1;
+
+        debug!("n_nodes: {}", n_nodes);
+        debug!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_nodes {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_nodes);
+        print!("parallel ranges: {:?}", parallel_ranges);
+
+        let digits = (current_num_threads() as f32).log10().ceil() as usize;
+    
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut f = File::create(format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits)).expect("couldn't open file");
+            if current_thread_index().expect("thread index in writing") == 0 { writeln!(&mut f, "digraph {{").unwrap(); }
+
+            for i in range {
+                self.node_to_dot(&self.get_node(i), node_label, &mut f);
+                if i == n_nodes-1 { writeln!(&mut f, "}}").unwrap() }
+            }
+            println!("current: {}, of: {}", current_thread_index().expect(""), current_num_threads());
+        });
         debug!("large to dot loop: {}", self.len());
     }
 

@@ -136,7 +136,7 @@ mod tests {
 
     use crate::clean_graph::CleanGraph;
     use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
-    use crate::graph::BaseGraph;
+    use crate::graph::{self, BaseGraph};
     use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
     use boomphf::hashmap::BoomHashMap2;
@@ -618,6 +618,11 @@ mod tests {
         println!("graph: {:?}", graph);
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false, true);
         println!("graph: {:?}", graph);
+
+        let graph = graph.finish();
+        graph.to_dot("test_out", &|d| format!("{:?}", d));
+        graph.to_dot_parallel("test_out", &|d| format!("{:?}", d));
+        
         //let graph2 = graph.finish();
         //graph2.print();
         //println!("components: {:?}", graph2.components_r());
