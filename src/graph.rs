@@ -682,7 +682,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
         parallel_ranges.push(last_start..n_nodes);
-        print!("parallel ranges: {:?}", parallel_ranges);
+        debug!("parallel ranges: {:?}", parallel_ranges);
 
         let digits = (current_num_threads() as f32).log10().ceil() as usize;
     
@@ -694,7 +694,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
             }
             if end { writeln!(&mut f, "}}").unwrap() }
-            println!("current: {}, of: {}", current_thread_index().expect(""), current_num_threads());
         });
         debug!("large to dot loop: {}", self.len());
     }
