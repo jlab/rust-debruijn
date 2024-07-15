@@ -1014,6 +1014,11 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             if progress {
                     if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
             }
+
+            if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) {
+                debug!("another 1/128 done: {}", kmer_counter as f32 / steps);
+            }
+
             if comp.available_kmers.contains(kmer_counter) {
                 let (node_exts, node_data) =
                     comp.build_node(kmer_counter, &mut path_buf, &mut edge_seq_buf);
@@ -1078,6 +1083,8 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             let mut edge_seq_buf = VecDeque::new();
             //let mut start_end_kmers: Vec<(K, K)> = Vec::new();
 
+            let range2 = range.clone();
+
             for kmer_counter in range {
 
                 if progress {
@@ -1101,6 +1108,8 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                 }
                 //start_end_kmers.push(kmers);
             }
+
+            debug!("finished range: {:?}", range2);
 
             /* let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
             all_lock.append(&mut start_end_kmers); */

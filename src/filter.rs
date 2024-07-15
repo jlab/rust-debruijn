@@ -178,9 +178,9 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-        if out_data.len() > 9999 {
+        /* if out_data.len() > 9999 {
             debug!("od size hint: {:?}", items.size_hint());
-        }
+        } */
         let mut kmer: K = Kmer::empty();
 
         let mut nobs = 0i32;
@@ -192,12 +192,12 @@ impl KmerSummarizer<u8, (Tags, i32), (usize, usize)> for CountFilterComb {
         }
         
 
-        if out_data.len() > 9999 {debug!(
+        /* if out_data.len() > 9999 {debug!(
             "odl {:?}
             kmer: {:?}
             size: {:?}B", out_data.len(), kmer, mem::size_of_val(&*out_data)
 
-        )}
+        )} */
 
         let max = out_data.len();
 
@@ -252,9 +252,9 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-        if out_data.len() > 9999 {
+        /* if out_data.len() > 9999 {
             debug!("od size hint: {:?}", items.size_hint());
-        }
+        } */
         let mut kmer: K = Kmer::empty();
 
         let mut nobs = 0i32;
@@ -265,12 +265,12 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
             nobs += 1;
         }
 
-        if out_data.len() > 9999 {debug!(
+/*         if out_data.len() > 9999 {debug!(
             "odl {:?}
             kmer: {:?}
             size: {:?}B", out_data.len(), kmer, mem::size_of_val(&*out_data)
 
-        )}
+        )} */
 
         let max = out_data.len();
 
@@ -446,6 +446,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
         kmer_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
             //debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
             if progress & (j % 2 == 0) { print!("|") };
+            debug!("bucket {} with {} kmers", j, kmer_vec.len());
             kmer_vec.sort_by_key(|elt| elt.0);
 
             let mut all_kmers = Vec::new();
@@ -498,7 +499,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
 
-    debug!("data_out: {:?}", data_out);
 
     for bucket in data_out.iter() {
         for element in bucket {
@@ -509,8 +509,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DS: Clone + 
         }
     } 
     
-    debug!("data_out2: {:?}", data_out);
-
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
@@ -615,7 +613,7 @@ where
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
-        debug!("Processing bucket {} of {}", i, n_buckets);
+        debug!("Processing bucket {} of {}", i+1, n_buckets);
 
         let mut kmer_buckets = vec![Vec::new(); 256];
 
@@ -666,6 +664,7 @@ where
         let mut progress_counter = 0;
 
         for mut kmer_vec in kmer_buckets {
+            debug!("bucket {} with {} kmers", progress_counter, kmer_vec.len());
             progress_counter += 1;
             //debug!("kmers in this bucket: {}", kmer_vec.len());
             if progress & (progress_counter % 2 == 0) { print!("|") };
