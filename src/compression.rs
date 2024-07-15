@@ -1124,7 +1124,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         //all_start_end_kmers.sort();
         //all_start_end_kmers.dedup();
 
-        debug!("all start and end kmers: {:?}", all_start_end_kmers);
+        //debug!("all start and end kmers: {:?}", all_start_end_kmers);
 
         // all graphs constructed by the respective threads are pushed into this and later combined
         let graphs: Arc<Mutex<Vec<BaseGraph<K, D>>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads())));
