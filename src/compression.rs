@@ -456,7 +456,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
     ///    is possible.  nextDir indicates the direction to extend nextMker
     ///    to preserve the direction of the extension.
     /// - Term(ext) no unique extension possible, indicating the extensions at this end of the line
-    fn try_extend_kmer_par2(&self, kmer: K, dir: Dir) -> ExtMode<K> {
+    fn try_extend_kmer_par2(&self, kmer: K, dir: Dir, path: &mut Vec<(K, Dir)>) -> ExtMode<K> {
         // metadata of start kmer
         let (exts, ref kmer_data) = self.get_kmer_data(&kmer);
 
@@ -487,6 +487,20 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             // b) the kmer we go to has a unique extension back in our direction
 
             // condition a) is skipped cause of parallel process
+            // instead check if already in path
+            // might be time consuming, can try to replace with hashmap later
+            // to avoid circluar graphs leading infinite loops
+            // also check if just checking for next_dir would suffice
+
+            if path.contains(&(next_kmer, Dir::Left)) {
+                // The next kmer is already in the path, break loop
+                return ExtMode::Terminal(exts.single_dir(dir))
+            }
+
+            if path.contains(&(next_kmer, Dir::Right)) {
+                // The next kmer is already in the path, break loop
+                return ExtMode::Terminal(exts.single_dir(dir))
+            }
 
             // Check condition b)
             // Direction we're approaching the new kmer from
@@ -638,12 +652,12 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         //let _ = self.available_kmers.remove(id);
 
         loop {
-            let ext_result = self.try_extend_kmer_par2(current_kmer, current_dir);
+            let ext_result = self.try_extend_kmer_par2(current_kmer, current_dir, path);
 
             match ext_result {
                 ExtMode::Unique(next_kmer, next_dir, _) => {
                     path.push((next_kmer, next_dir));
-                    let next_id = self.get_kmer_id(&next_kmer).expect("should have this kmer");
+                    //let next_id = self.get_kmer_id(&next_kmer).expect("should have this kmer");
                     //self.available_kmers.remove(next_id);
                     current_kmer = next_kmer;
                     current_dir = next_dir;
