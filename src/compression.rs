@@ -1165,6 +1165,8 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
             let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
 
+            let range2 = range.clone();
+
             for (i, (start, _)) in all_start_end_kmers[range].iter().enumerate() {   
 
                 if progress & !short_progress {
@@ -1184,6 +1186,9 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                 let (node_exts, node_data) = comp.build_node_par2(comp.index.get_key_id(start).expect("get kmer id from index, should exist"), &mut path_buf, &mut edge_seq_buf);
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
+
+            debug!("finished range: {:?}", range2);
+
 
             let mut graph_lock = graphs.lock().expect("unlock graphs to push new graph");
             graph_lock.push(graph);
