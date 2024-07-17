@@ -1093,7 +1093,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..self.len() {
             if !visited[i] {
                 let mut comp: Vec<usize> = Vec::new();
-                (visited, comp) = self.component(&visited, i, &comp);
+                self.component(&mut visited, i, &mut comp);
                 components.push(comp);
             }
         }
@@ -1102,9 +1102,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     }
 
-    fn component<'a>(&'a self, visited: &'a Vec<bool>, i: usize, comp: &'a Vec<usize>) -> (Vec<bool>, Vec<usize>) {
-        let mut visited = visited.clone();
-        let mut comp = comp.clone();
+    fn component<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) {
         
         visited[i] = true;
         comp.push(i);
@@ -1115,12 +1113,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         for (edge, _, _) in edges.iter() {
             if !visited[*edge] {
-                (visited, comp) = self.component(&visited, *edge, &comp);
+                self.component(visited, *edge, comp);
             }
         }
-
-        (visited, comp)
-
     }
 
 }

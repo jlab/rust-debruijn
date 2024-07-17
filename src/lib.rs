@@ -28,6 +28,7 @@
 //! which expects bases encoded as the integers 0,1,2,3, and a separate form names 'ascii',
 //! which expects bases encoded as the ASCII letters A,C,G,T.
 
+use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
@@ -886,17 +887,20 @@ impl Tags {
 
     }
 
-    pub fn to_string_vec<'a>(&'a self, str_keys: Vec<&'a str>) -> Vec<&str> {
+    pub fn to_string_vec<'a>(&'a self, str_map: BiMap<&'a str, u8>) -> Vec<&str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::new();
 
+        // iterate through bits of the u64
         for i in 0..64 {
+            // check if odd number: current first bit is 1
             if x % 2 != 0 {
-                if i >= str_keys.len() {
-                    panic!("tried to access tag string that doesnt exist!")
+                match str_map.get_by_right(&(i as u8)) {
+                    Some(label) => vec.push(label),
+                    None => panic!("tried to access label that doesnt exist!"),
                 }
-                vec.push(str_keys[i])
             }
+            // shift the u64 bitise to rotate though it
             x >>= 1;
         }
 

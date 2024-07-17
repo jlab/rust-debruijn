@@ -139,6 +139,7 @@ mod tests {
     use crate::graph::{self, BaseGraph};
     use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
+    use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
     use std::collections::{HashMap, HashSet};
@@ -625,7 +626,8 @@ mod tests {
         
         //let graph2 = graph.finish();
         //graph2.print();
-        //println!("components: {:?}", graph2.components_r());
+        graph.print();
+        println!("components: {:?}", graph.components_r());
         //let max_path = graph2.max_path(|d| *d as f32, |_| true);
         //println!("one graph: {:?}", max_path); 
         //let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
@@ -656,6 +658,10 @@ mod tests {
         let vec = vec![0, 1, 4, 6];
         println!("vec to tags: {:?}", Tags::from_u8_vec(vec).val);
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
-        println!("tags to string vec: {:?}", tag.to_string_vec(str_vec));
+        let mut str_map = BiMap::new();
+        for (i, str) in str_vec.into_iter().enumerate() {
+            str_map.insert(str, i as u8);
+        }
+        println!("tags to string vec: {:?}", tag.to_string_vec(str_map));
     }
 }

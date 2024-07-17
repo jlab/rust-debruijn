@@ -21,6 +21,7 @@ bit-set = "0.5.1"
 itertools = ">=0.7"
 log = "0.4"
 rayon = "1.10.0"
+bimap = "0.6.3"
 
 [dev-dependencies]
 pretty_assertions = "1.3"

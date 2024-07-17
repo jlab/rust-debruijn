@@ -252,9 +252,7 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-        /* if out_data.len() > 9999 {
-            debug!("od size hint: {:?}", items.size_hint());
-        } */
+
         let mut kmer: K = Kmer::empty();
 
         let mut nobs = 0i32;
@@ -264,13 +262,6 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
-
-/*         if out_data.len() > 9999 {debug!(
-            "odl {:?}
-            kmer: {:?}
-            size: {:?}B", out_data.len(), kmer, mem::size_of_val(&*out_data)
-
-        )} */
 
         let max = out_data.len();
 
@@ -291,6 +282,8 @@ impl KmerSummarizer<u8, (Tags, Vec<u32>, i32), (usize, usize)> for CountFilterSt
         tag_counts.push(tag_counter);
 
         out_data.dedup();
+
+        
 
         let act: usize = out_data.len();
 
