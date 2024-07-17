@@ -13,14 +13,16 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::f32;
-use std::fmt::{self, Debug, Display};
-use std::fs::File;
+use std::fmt::{self, format, Debug, Display};
+use std::fs::{remove_file, File};
 use std::hash::Hash;
-use std::io::Error;
+use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -649,7 +651,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
     }
 
-    /// Write the graph to a dot file.
+    /// Write the graph to a dot file in parallel
+    /// Will write in to n_threads files simultaniously,
+    /// then go though the files and add the contents to a larger file, 
+    /// and delete the small files
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
         let mut f = File::create(path).expect("couldn't open file");
 
@@ -685,9 +690,15 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         debug!("parallel ranges: {:?}", parallel_ranges);
 
         let digits = (current_num_threads() as f32).log10().ceil() as usize;
+
+        let files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads()))); 
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut f = File::create(format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits)).expect("couldn't open file");
+            let current_file = format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits);
+            let mut files_locked = files.lock().expect("lock vec with files");
+            files_locked.push(current_file.clone());
+            drop(files_locked);
+            let mut f = File::create(current_file).expect("couldn't open file");
             if range.start == 0 { writeln!(&mut f, "digraph {{").unwrap(); }
             //let end = if range.end == n_nodes { true } else { false };
             let print_end = match current_thread_index() {
@@ -700,7 +711,24 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
             if print_end { writeln!(&mut f, "}}").unwrap() }
         });
-        debug!("large to dot loop: {}", self.len());
+
+        let files = files.lock().expect("final lock vec with files (to dot)");
+        let mut out_file = File::create(format!("{}.dot", path)).unwrap();
+
+        for file in files.iter() {
+            let open_file = File::open(file).expect("couldn't open file");
+            let mut reader = BufReader::new(open_file);
+            let mut buffer = [0; 8000];
+            loop {
+                let linecount = reader.read(&mut buffer).unwrap();
+                if linecount == 0 { break }
+                out_file.write_all(&buffer[..linecount]).unwrap();
+            }
+            //drop(open_file);
+            remove_file(file).unwrap();
+        }
+
+
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(

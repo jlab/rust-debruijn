@@ -546,7 +546,7 @@ mod tests {
 
 
         // initialize global thread pool with x threads
-        let num_threads = 3;
+        let num_threads = 2;
         rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
 
         // Assemble w/o tips
@@ -621,7 +621,7 @@ mod tests {
 
         let graph = graph.finish();
         graph.to_dot("test_out", &|d| format!("{:?}", d));
-        graph.to_dot_parallel("test_out", &|d| format!("{:?}", d));
+        graph.to_dot_parallel("test_out_par", &|d| format!("{:?}", d));
         
         //let graph2 = graph.finish();
         //graph2.print();
