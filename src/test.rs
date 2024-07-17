@@ -546,7 +546,7 @@ mod tests {
 
 
         // initialize global thread pool with x threads
-        let num_threads = 6;
+        let num_threads = 3;
         rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
 
         // Assemble w/o tips

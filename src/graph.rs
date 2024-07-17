@@ -689,11 +689,16 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
             let mut f = File::create(format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits)).expect("couldn't open file");
             if range.start == 0 { writeln!(&mut f, "digraph {{").unwrap(); }
-            let end = if range.end == n_nodes { true } else { false };
+            //let end = if range.end == n_nodes { true } else { false };
+            let print_end = match current_thread_index() {
+                Some(x) if x == current_num_threads()-1 => true,
+                None => true,
+                _ => false,
+            };
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
             }
-            if end { writeln!(&mut f, "}}").unwrap() }
+            if print_end { writeln!(&mut f, "}}").unwrap() }
         });
         debug!("large to dot loop: {}", self.len());
     }
