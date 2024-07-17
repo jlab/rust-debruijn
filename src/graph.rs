@@ -13,7 +13,7 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::f32;
-use std::fmt::{self, format, Debug, Display};
+use std::fmt::{self, Debug, Display};
 use std::fs::{remove_file, File};
 use std::hash::Hash;
 use std::io::{BufReader, Error, Read};
@@ -21,7 +21,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use boomphf::hashmap::BoomHashMap;
@@ -693,23 +692,18 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads()))); 
     
-        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+        parallel_ranges.into_par_iter().for_each(| range| {
             let current_file = format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits);
             let mut files_locked = files.lock().expect("lock vec with files");
             files_locked.push(current_file.clone());
             drop(files_locked);
+
             let mut f = File::create(current_file).expect("couldn't open file");
             if range.start == 0 { writeln!(&mut f, "digraph {{").unwrap(); }
-            //let end = if range.end == n_nodes { true } else { false };
-            let print_end = match current_thread_index() {
-                Some(x) if x == current_num_threads()-1 => true,
-                None => true,
-                _ => false,
-            };
+
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
             }
-            if print_end { writeln!(&mut f, "}}").unwrap() }
         });
 
         let files = files.lock().expect("final lock vec with files (to dot)");
@@ -719,14 +713,17 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let open_file = File::open(file).expect("couldn't open file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; 8000];
+
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
                 if linecount == 0 { break }
                 out_file.write_all(&buffer[..linecount]).unwrap();
             }
-            //drop(open_file);
+
             remove_file(file).unwrap();
         }
+
+        writeln!(&mut out_file, "}}").unwrap();
 
 
     }
