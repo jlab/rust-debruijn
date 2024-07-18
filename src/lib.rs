@@ -887,7 +887,7 @@ impl Tags {
 
     }
 
-    pub fn to_string_vec<'a>(&'a self, str_map: BiMap<&'a str, u8>) -> Vec<&str> {
+    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::new();
 

@@ -146,7 +146,7 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::dna_string::DnaString;
-    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer};
+    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, TagsCountData, TagsSumData};
     use crate::kmer::Kmer6;
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
@@ -567,7 +567,7 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsSumData>, _) = filter::filter_kmers(
             &all_seqs,
             &Box::new(filter::CountFilterComb::new(2)),
             stranded,
@@ -576,7 +576,7 @@ mod tests {
             true,
             true,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, (Tags, i32)>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(CountFilterComb::new(1)),
             1,
@@ -599,7 +599,7 @@ mod tests {
             true,
             true
         );
-        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, (Tags, Vec<u32>, i32)>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(CountFilterStats::new(1)),
             1,
@@ -662,6 +662,6 @@ mod tests {
         for (i, str) in str_vec.into_iter().enumerate() {
             str_map.insert(str, i as u8);
         }
-        println!("tags to string vec: {:?}", tag.to_string_vec(str_map));
+        println!("tags to string vec: {:?}", tag.to_string_vec(&str_map));
     }
 }
