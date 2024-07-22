@@ -30,11 +30,11 @@ fn bucket<K: Kmer>(kmer: K) -> usize {
 }
 
 /// Trait for the output of the KmerSummarizers
-pub trait SummaryData<D, T, C> {
+pub trait SummaryData<D, T> {
     fn new(data: D) -> Self;
     /// does not actually print but format
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String;
-    fn vec_for_color(&self) -> Option<(Vec<T>, C)>;
+    fn vec_for_color(&self) -> Option<(Vec<T>, i32)>;
 }
 
 /* #[derive(Clone, Debug)]
@@ -54,7 +54,7 @@ impl SummaryData<u16> for CountData {
     }
 } */
 
-impl<> SummaryData<u16, (), ()> for u16 {
+impl<> SummaryData<u16, ()> for u16 {
     fn new(data: u16) -> Self {
         data
     }
@@ -62,7 +62,7 @@ impl<> SummaryData<u16, (), ()> for u16 {
     fn print(&self, _: &BiMap<&str, u8>) -> String {
         format!("count: {}", self)
     }
-    fn vec_for_color(&self) -> Option<(Vec<()>, ())> {
+    fn vec_for_color(&self) -> Option<(Vec<()>, i32)> {
         None
     }
 }
@@ -83,7 +83,7 @@ impl<D: Debug> SummaryData<D> for TagsData<D> {
     }
 } */
 
-impl<D: Debug> SummaryData<Vec<D>, (), ()> for Vec<D> {
+impl<D: Debug> SummaryData<Vec<D>, ()> for Vec<D> {
     fn new(data: Vec<D>) -> Self {
         data
     }
@@ -92,7 +92,7 @@ impl<D: Debug> SummaryData<Vec<D>, (), ()> for Vec<D> {
         format!("tags: {:?}", self)
     }
     
-    fn vec_for_color(&self) -> Option<(Vec<()>, ())> {
+    fn vec_for_color(&self) -> Option<(Vec<()>, i32)> {
         None
     }
 }
@@ -103,7 +103,7 @@ pub struct TagsSumData {
     sum: i32,
 }
 
-impl SummaryData<(Tags, i32), u8, i32> for TagsSumData {
+impl SummaryData<(Tags, i32), u8> for TagsSumData {
     fn new(data: (Tags, i32)) -> Self {
         TagsSumData { tags: data.0, sum: data.1 }
     }
@@ -117,14 +117,14 @@ impl SummaryData<(Tags, i32), u8, i32> for TagsSumData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TagsCountData {
     tags: Tags,
     counts: Vec<u32>,
     sum: i32,
 }
 
-impl SummaryData<(Tags, Vec<u32>, i32), u8, i32> for TagsCountData {
+impl SummaryData<(Tags, Vec<u32>, i32), u8> for TagsCountData {
     fn new(data: (Tags, Vec<u32>, i32)) -> Self {
         TagsCountData { tags: data.0, counts: data.1, sum: data.2 }
     }
@@ -141,7 +141,7 @@ impl SummaryData<(Tags, Vec<u32>, i32), u8, i32> for TagsCountData {
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
-pub trait KmerSummarizer<DI, DO: SummaryData<SD, T, C>, SD, T, C> {
+pub trait KmerSummarizer<DI, DO: SummaryData<SD, T>, SD, T> {
     /// The input `items` is an iterator over kmer observations. Input observation
     /// is a tuple of (kmer, extensions, data). The summarize function inspects the
     /// data and returns a tuple indicating:
@@ -161,7 +161,7 @@ pub struct CountFilter<D> {
     phantom: PhantomData<D>
 }
 
-impl<D> KmerSummarizer<D, u16, u16, (), ()> for CountFilter<D> {
+impl<D> KmerSummarizer<D, u16, u16, ()> for CountFilter<D> {
     fn new(min_kmer_obs: usize) -> Self {
         CountFilter {
             min_kmer_obs,
@@ -189,7 +189,7 @@ pub struct CountFilterSet<D> {
     phantom: PhantomData<D>,
 }
 
-impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, Vec<D>, (), ()> for CountFilterSet<D> {
+impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, Vec<D>, ()> for CountFilterSet<D> {
     fn new(min_kmer_obs: usize) -> Self {
         CountFilterSet {
             min_kmer_obs,
@@ -227,7 +227,7 @@ pub struct CountFilterComb {
     phantom: PhantomData<u8>,
 }
 
-impl KmerSummarizer<u8, TagsSumData, (Tags, i32), u8, i32> for CountFilterComb {
+impl KmerSummarizer<u8, TagsSumData, (Tags, i32), u8> for CountFilterComb {
     fn new(min_kmer_obs: usize) -> Self {
         CountFilterComb {
             min_kmer_obs,
@@ -264,7 +264,7 @@ pub struct CountFilterStats {
     phantom: PhantomData<u8>,
 }
 
-impl KmerSummarizer<u8, TagsCountData, (Tags, Vec<u32>, i32), u8, i32> for CountFilterStats {
+impl KmerSummarizer<u8, TagsCountData, (Tags, Vec<u32>, i32), u8> for CountFilterStats {
     fn new(min_kmer_obs: usize) -> Self {
         CountFilterStats {
             min_kmer_obs,
@@ -352,7 +352,7 @@ pub enum Summarizer {
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO, T, C>, S: KmerSummarizer<u8, DS, DO, T, C>, T, C>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO, T>, S: KmerSummarizer<u8, DS, DO, T>, T>(
     seqs: &[(V, Exts, u8)],
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
@@ -558,7 +558,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DO, DS: SummaryData<DO, T, C>, S: KmerSummarizer<D1, DS, DO, T, C>, T, C>(
+pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DO, DS: SummaryData<DO, T>, S: KmerSummarizer<D1, DS, DO, T>, T>(
     seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
