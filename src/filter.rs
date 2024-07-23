@@ -406,7 +406,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("n of seqs: {}", seqs.len());
 
-    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets])); // wrap in Arc ???
+    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets]));
     debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
@@ -457,10 +457,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             debug!("bucket {} with {} kmers", j, kmer_vec.len());
             kmer_vec.sort_by_key(|elt| elt.0);
 
-            let mut all_kmers = Vec::new();
-            let mut valid_kmers = Vec::new();
-            let mut valid_exts = Vec::new();
-            let mut valid_data = Vec::new();
+            let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
+
+            let mut all_kmers = Vec::with_capacity(size);
+            let mut valid_kmers = Vec::with_capacity(size);
+            let mut valid_exts = Vec::with_capacity(size);
+            let mut valid_data = Vec::with_capacity(size);
 
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
@@ -496,6 +498,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     ); */
 
     let data_out = shared_data.lock().expect("final unlock shared filter data");
+    debug!("data out capacity:: {}, size: {}", data_out[0].capacity(), data_out[0].len());
 
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
@@ -505,6 +508,11 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     for bucket in data_out.iter() {
         for element in bucket {
+            all_kmers.reserve_exact(element.0.len());
+            valid_kmers.reserve_exact(element.1.len());
+            valid_exts.reserve_exact(element.2.len());
+            valid_data.reserve_exact(element.3.len());
+
             all_kmers.append(&mut element.0.clone());
             valid_kmers.append(&mut element.1.clone());
             valid_exts.append(&mut element.2.clone());
@@ -616,6 +624,7 @@ where
     let mut valid_kmers = Vec::new();
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
+
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
         debug!("Processing bucket {} of {}", i+1, n_buckets);
 
@@ -675,7 +684,10 @@ where
             kmer_vec.sort_by_key(|elt| elt.0);
 
             let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
-            debug!("no of unique kmers in this vector (prediction): {}", size);
+
+            valid_kmers.reserve_exact(size);
+            valid_exts.reserve_exact(size);
+            valid_data.reserve_exact(size);
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
