@@ -1030,7 +1030,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             }
 
             if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) {
-                debug!("another 1/128 done: {}", kmer_counter as f32 / steps);
+                debug!("another 1/128 done: {}", (kmer_counter as f32 / steps) as i32);
             }
 
             if comp.available_kmers.contains(kmer_counter) {

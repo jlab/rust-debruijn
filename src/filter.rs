@@ -120,12 +120,12 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagsCountData {
     tags: Tags,
-    counts: Vec<u32>,
+    counts: Box<[u32]>,
     sum: i32,
 }
 
-impl SummaryData<(Tags, Vec<u32>, i32)> for TagsCountData {
-    fn new(data: (Tags, Vec<u32>, i32)) -> Self {
+impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
+    fn new(data: (Tags, Box<[u32]>, i32)) -> Self {
         TagsCountData { tags: data.0, counts: data.1, sum: data.2 }
     }
 
@@ -264,7 +264,7 @@ pub struct CountFilterStats {
     phantom: PhantomData<u8>,
 }
 
-impl KmerSummarizer<u8, TagsCountData, (Tags, Vec<u32>, i32)> for CountFilterStats {
+impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterStats {
     fn new(min_kmer_obs: usize) -> Self {
         CountFilterStats {
             min_kmer_obs,
@@ -301,6 +301,8 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Vec<u32>, i32)> for CountFilterSta
         tag_counts.push(tag_counter);
 
         out_data.dedup();
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
 
         (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountData::new((Tags::from_u8_vec(out_data), tag_counts, nobs))) 
     }
