@@ -860,14 +860,19 @@ impl Tags {
         let val: T = 0;
         Tags { val }
     } */
-
+    /// encodes a sorted (!) Vec<u8> and encodes it as a u64
     pub fn from_u8_vec(vec: Vec<u8>) -> Self {
-        let mut x: u64 = 1;
+        let mut x: u64 = 0;
+
+        if vec.last().expect("vector empty when it shouldn't be") > &63 { panic!("too many tags") }
 
         for i in (1..vec.len()).rev() {
-            x <<= vec[i] - vec[i-1];
             x += 1;
+            x <<= vec[i] - vec[i-1];
         }
+
+        x += 1;
+        x <<= vec[0];
 
         Tags { val: x }
     }
