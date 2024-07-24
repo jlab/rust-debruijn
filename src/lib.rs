@@ -844,7 +844,7 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
 }
 
 /// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub struct Tags {
     pub val: u64,
 }
