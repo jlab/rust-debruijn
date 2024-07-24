@@ -476,7 +476,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         kmer_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
             //debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
             if progress & (j % 2 == 0) { print!("|") };
-            debug!("bucket {} with {} kmers", j, kmer_vec.len());
+            debug!("bucket {} with {} kmers, capacity of {}", j, kmer_vec.len(), kmer_vec.capacity());
             kmer_vec.sort_by_key(|elt| elt.0);
 
             let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
@@ -499,10 +499,14 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                     valid_data.push(summary_data);
                 }
             }
-            
+            debug!("valid kmers il - capacity: {}, size: {}", valid_kmers.capacity(), valid_kmers.len());
+            debug!("valid exts il - capacity: {}, size: {}", valid_exts.capacity(), valid_exts.len());
+            debug!("valid data il - capacity: {}, size: {}", valid_data.capacity(), valid_data.len());
 
             let mut data_out = shared_data.lock().expect("unlock shared filter data");
             data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
+
+            
 
         });
         // parallel end
@@ -699,7 +703,7 @@ where
         let mut progress_counter = 0;
 
         for mut kmer_vec in kmer_buckets {
-            debug!("bucket {} with {} kmers", progress_counter, kmer_vec.len());
+            debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());
             progress_counter += 1;
             //debug!("kmers in this bucket: {}", kmer_vec.len());
             if progress & (progress_counter % 2 == 0) { print!("|") };
