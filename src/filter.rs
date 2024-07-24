@@ -35,7 +35,7 @@ pub trait SummaryData<D> {
     /// does not actually print but format
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String;
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)>;
-    fn get_tags(&self) -> Option<Tags>;
+    fn get_tags_sum(&self) -> Option<(Tags, i32)>;
 }
 
 /* #[derive(Clone, Debug)]
@@ -67,9 +67,10 @@ impl<> SummaryData<u16> for u16 {
         None
     }
 
-    fn get_tags(&self) -> Option<Tags> {
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
+
 }
 
 /* pub struct TagsData<D> {
@@ -101,9 +102,10 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
         None
     }
     
-    fn get_tags(&self) -> Option<Tags> {
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
+
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,8 +127,8 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
         Some((self.tags.to_u8_vec(), self.sum))
     }
 
-    fn get_tags(&self) -> Option<Tags> {
-        Some(self.tags)
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+        Some((self.tags, self.sum))
     }
 }
 
@@ -150,9 +152,10 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
         Some((self.tags.to_u8_vec(), self.sum))
     }
 
-    fn get_tags(&self) -> Option<Tags> {
-        Some(self.tags)
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+        Some((self.tags, self.sum))
     }
+
 }
 
 
