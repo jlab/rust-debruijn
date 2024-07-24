@@ -903,8 +903,15 @@ impl Tags {
             // shift the u64 bitise to rotate though it
             x >>= 1;
         }
-
         vec    
+    }
+
+    /// compares the value of the tags with another value (marker) with a bit-wise and,
+    /// returns true if the result is greater than 0:
+    /// `00101 & 01000 -> false`
+    /// `00101 & 00100 -> true`
+    pub fn bit_and(&self, marker: u64) -> bool {
+        (self.val & marker) > 0
     }
 }
 
