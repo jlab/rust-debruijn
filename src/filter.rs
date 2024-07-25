@@ -429,6 +429,10 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     debug!("n of seqs: {}", seqs.len());
 
     let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets]));
+
+    let mut time_picking = 0.;
+    let mut time_summarizing = 0.;
+
     debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
@@ -459,7 +463,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             }
         }
 
-        if time { println!("time picking kmers (bucket {}) (s): {}", i, before_kmer_picking.elapsed().as_secs_f32()) }
+        time_picking += before_kmer_picking.elapsed().as_secs_f32();
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
@@ -501,9 +505,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                     valid_data.push(summary_data);
                 }
             }
-            debug!("valid kmers il - capacity: {}, size: {}", valid_kmers.capacity(), valid_kmers.len());
-            debug!("valid exts il - capacity: {}, size: {}", valid_exts.capacity(), valid_exts.len());
-            debug!("valid data il - capacity: {}, size: {}", valid_data.capacity(), valid_data.len());
 
             let mut data_out = shared_data.lock().expect("unlock shared filter data");
             data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
@@ -513,17 +514,16 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         });
         // parallel end
         if progress { print!("\n") }
-        if time { println!("time summarizing (s): {}", before_parallel.elapsed().as_secs_f32()) }
+
+        time_summarizing += before_parallel.elapsed().as_secs_f32();
 
         debug!("processed bucket {i}");
-        //println!("all k: {:?}\n v k: {:?}\n v e: {:?}\n v d: {:?}", all_kmers, valid_kmers, valid_exts, valid_data);
     }
 
-    /* debug!(
-        "Unique kmers: {}, All kmers (if returned): {}",
-        valid_kmers.len(),
-        all_kmers.len(),
-    ); */
+    if time { 
+        println!("time picking (s): {}", time_picking);
+        println!("time summarizing (s): {}", time_summarizing);
+    }
 
     let data_out = shared_data.lock().expect("final unlock shared filter data");
     debug!("data out capacity:: {}, size: {}", data_out[0].capacity(), data_out[0].len());
@@ -532,7 +532,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     let mut valid_kmers = Vec::new();
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
-
 
     for bucket in data_out.iter() {
         for element in bucket {
@@ -653,6 +652,9 @@ where
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
 
+    let mut time_picking = 0.;
+    let mut time_summarizing = 0.;
+
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
         debug!("Processing bucket {} of {}", i+1, n_buckets);
 
@@ -679,6 +681,7 @@ where
                 }
             }
         }
+
         debug!("size of the bucket: {}B
             len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
         let mut bucket_elements: usize = 0;
@@ -692,7 +695,8 @@ where
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
-        if time { println!("time picking kmers (bucket {}) (s): {}", i, before_kmer_picking.elapsed().as_secs_f32()) }
+        time_picking += before_kmer_picking.elapsed().as_secs_f32();
+
         let before_summarizing = Instant::now();
 
         if progress {
@@ -732,11 +736,17 @@ where
             }
         }
         if progress { print!("\n") };
-        if time { println!("time summarizing (s): {}", before_summarizing.elapsed().as_secs_f32()) }
+
+        time_summarizing += before_summarizing.elapsed().as_secs_f32();
 
         debug!("valid kmers - capacity: {}, size: {}", valid_kmers.capacity(), valid_kmers.len());
         debug!("valid exts - capacity: {}, size: {}", valid_exts.capacity(), valid_exts.len());
         debug!("valid data - capacity: {}, size: {}", valid_data.capacity(), valid_data.len());
+    }
+
+    if time { 
+        println!("time picking (s): {}", time_picking);
+        println!("time summarizing (s): {}", time_summarizing);
     }
 
 
