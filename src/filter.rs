@@ -451,6 +451,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                 };
                 let bucket = bucket(min_kmer);
 
+                kmer_buckets[bucket].reserve_exact(1);
+
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
                 }
@@ -669,6 +671,8 @@ where
                     (kmer, exts)
                 };
                 let bucket = bucket(min_kmer);
+
+                kmer_buckets[bucket].reserve_exact(1);
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
