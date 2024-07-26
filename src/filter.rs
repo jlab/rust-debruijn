@@ -390,6 +390,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 {
     let rc_norm = !stranded;
     let basestarts = 256;
+    let bucket_capacity_steps = 200;
 
     //let shared_summarizer = Mutex::new(summarizer);
 
@@ -398,7 +399,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = input_kmers * mem::size_of::<(K, u8)>();
+    let kmer_mem = (input_kmers  + bucket_capacity_steps * 256) * mem::size_of::<(K, u8)>();
+
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
     let slices = slices_seq;
@@ -455,7 +457,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                 };
                 let bucket = bucket(min_kmer);
 
-                kmer_buckets[bucket].reserve_exact(1);
+                if kmer_buckets[bucket].capacity() == kmer_buckets[bucket].len() {
+                    kmer_buckets[bucket].reserve_exact(bucket_capacity_steps);
+                }
 
                 if bucket >= bucket_range.start && bucket < bucket_range.end {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
@@ -606,25 +610,24 @@ where
     DS: Debug,
 {
     let rc_norm = !stranded;
-
-    //println!("sequence input: {:?}", seqs);
+    let bucket_capacity_steps = 200;
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
+    let kmer_mem = (input_kmers  + bucket_capacity_steps * 256) * mem::size_of::<(K, D1)>();
     debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
-    debug!("size of kmer, E, D: {}B", mem::size_of::<(K, Exts, D1)>());
-    debug!("size of K: {}B, size of Exts: {}B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
+    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
+    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
     let sz = 256 / slices + 1;
 
-    debug!("kmer_mem: {}B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
 
     let mut bucket_ranges = Vec::with_capacity(slices);
     let mut start = 0;
@@ -674,9 +677,13 @@ where
                 };
                 let bucket = bucket(min_kmer);
 
-                kmer_buckets[bucket].reserve_exact(1);
+                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
 
-                if bucket >= bucket_range.start && bucket < bucket_range.end {
+                if kmer_buckets[bucket].capacity() == kmer_buckets[bucket].len() && in_range {
+                    kmer_buckets[bucket].reserve_exact(bucket_capacity_steps);
+                }
+
+                if in_range {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
                 }
             }
