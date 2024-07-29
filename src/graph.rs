@@ -595,6 +595,49 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     
     }
 
+    /// write the paths from `max_path_comp` to a fasta file
+    pub fn path_to_fasta<>(&self, f: &mut dyn std::io::Write, path_reciever: Receiver<Vec<(usize, Dir)>>) {
+        // width of fasta lines
+        let columns = 80;
+        // numerical ID of path seq
+        let mut seq_counter = 0;
+
+        loop {
+            match path_reciever.recv() {
+                Ok(path) => {
+                    // write fasta header
+                    writeln!(f, ">path {}", seq_counter).unwrap();
+
+                    // get dna sequence from path
+                    let seq = self.sequence_of_path(path.iter());
+
+                    // calculate how sequence has to be split up
+                    let slices = (seq.len() / columns) + 1;
+                    let mut ranges = Vec::with_capacity(slices);
+
+                    let mut start = 0;
+                    while start < seq.len() {
+                        ranges.push(start..start + columns);
+                        start += columns;
+                    }
+
+                    let last_start = ranges.pop().expect("no kmers in parallel ranges").start;
+                    ranges.push(last_start..seq.len());
+                    debug!("fasta ranges: {:?}", ranges);
+
+                    // split up sequence and write to file accordingly
+                    for range in ranges {
+                        writeln!(f, "{:?}", seq.slice(range.start, range.end)).unwrap();
+                    }
+
+                    seq_counter += 1;
+                },
+                Err(_) => break,
+            }
+        }        
+        
+    }
+
 
     /// Get the sequence of a path through the graph. The path is given as a sequence of node_id integers
     pub fn sequence_of_path<'a, I: 'a + Iterator<Item = &'a (usize, Dir)>>(
