@@ -21,6 +21,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use boomphf::hashmap::BoomHashMap;
@@ -491,17 +492,18 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
     /// paths will be terminated if there are multiple valid paths emanating from a node.
     /// Returns vec with path for each component
-    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> Vec<Vec<(usize, Dir)>>
+    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2, channel_buffer: usize) -> Receiver<Vec<(usize, Dir)>>
     where
         F: Fn(&D) -> f32,
         F2: Fn(&D) -> bool,
     {
+
+        let (sender, reciever) = sync_channel::<Vec<(usize, Dir)>>(channel_buffer);
+
         if self.is_empty() {
-            let vec: Vec<Vec<(usize, Dir)>> = Vec::new();
-            return vec;
+            return reciever;
         }
 
-        let mut paths: Vec<Vec<(usize, Dir)>> = Vec::new();
         let components = self.components_r();
 
         for j in 0..components.len() {
@@ -584,11 +586,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 }
             }
             
-            debug!("path:{:?}", path);
-            paths.push(Vec::from_iter(path));
+            debug!("path len: {:?}", path.len());
+            let _res = sender.send(Vec::from_iter(path));
+            //paths.push(Vec::from_iter(path));
         }
 
-        paths
+        reciever
     
     }
 
@@ -1033,55 +1036,14 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         new_states
     }
 
-    /// returns 2D Vec with node_ids grouped according to the connected components they form
+    /// iteratively returns 2D Vec with node_ids grouped according to the connected components they form
     pub fn components_i(&self) -> () {
-        let mut components: Vec<usize> = Vec::with_capacity(self.len());
-        //let mut connected: HashMap<usize, usize> = HashMap::with_capacity(self.len());
-        let mut connected: Vec<usize> = Vec::new();
-
-        for i in 0..self.len() {
-            connected.insert(i, i);
-        }
-
-        let mut new_component: usize = 0;
-
-        for i in 0..self.len() {
-
-            let l_edges = self.get_node(i).l_edges();
-            let r_edges = self.get_node(i).r_edges();
-
-            println!("node: {}, l: {:?}, r: {:?}", i,  l_edges, r_edges);
-
-            let mut edges = HashMap::new();
-
-            for (edge, _, _) in l_edges.iter() {
-                if edge < &i {edges.insert(edge, components[*edge]);}
-            }
-
-            for (edge, _, _) in r_edges.iter() {
-                if edge < &i {edges.insert(edge, components[*edge]);}
-            }
-
-            if edges.len() == 0 {
-
-                components[i] = new_component;
-                connected.push(new_component);
-                new_component += 1;
-                
-            } else {
-            
-                let min_edge = *edges.keys().min().expect("no min element in edges");
-                components[i] = min_edge.clone();
-
-            }
-            
-        }
-
+        // TODO
     }
-
 
     /// recursively detects which nodes form separate graph components
     /// returns 2D vector with node ids per component
+    /// (may lead to stack overflow)
     pub fn components_r(&self) -> Vec<Vec<usize>> {
         let mut components: Vec<Vec<usize>> = Vec::with_capacity(self.len());
         let mut visited: Vec<bool> = Vec::with_capacity(self.len());
@@ -1093,7 +1055,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..self.len() {
             if !visited[i] {
                 let mut comp: Vec<usize> = Vec::new();
-                self.component(&mut visited, i, &mut comp);
+                self.component_r(&mut visited, i, &mut comp);
                 components.push(comp);
             }
         }
@@ -1102,7 +1064,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     }
 
-    fn component<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) {
+    fn component_r<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) {
         
         visited[i] = true;
         comp.push(i);
@@ -1113,7 +1075,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         for (edge, _, _) in edges.iter() {
             if !visited[*edge] {
-                self.component(visited, *edge, comp);
+                self.component_r(visited, *edge, comp);
             }
         }
     }
