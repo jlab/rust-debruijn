@@ -31,29 +31,17 @@ fn bucket<K: Kmer>(kmer: K) -> usize {
 
 /// Trait for the output of the KmerSummarizers
 pub trait SummaryData<D> {
+    /// Make a new `SummaryData<D>`
     fn new(data: D) -> Self;
     /// does not actually print but format
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String;
+    /// If the `SummaryData` contains sufficient information, return `Vec<u8>` of the tags and the count
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)>;
+    /// If the `SummaryData` contains sufficient information, return the Tags and the count 
     fn get_tags_sum(&self) -> Option<(Tags, i32)>;
+    /// return a score (the sum of the kmer appearances), `Vec<D>` simply returns `1`
+    fn score(&self) -> f32;
 }
-
-/* #[derive(Clone, Debug)]
-pub struct CountData {
-    count: u16,
-}
-
-impl SummaryData<u16> for CountData {
-    fn new(count: u16) -> Self {
-        CountData {
-            count
-        }
-    }
-
-    fn print(&self, _: &BiMap<&str, u8>) -> String{
-        format!("{}", self.count)
-    }
-} */
 
 impl<> SummaryData<u16> for u16 {
     fn new(data: u16) -> Self {
@@ -71,23 +59,11 @@ impl<> SummaryData<u16> for u16 {
         None
     }
 
-}
-
-/* pub struct TagsData<D> {
-    tags: D,
-}
-
-impl<D: Debug> SummaryData<D> for TagsData<D> {
-    fn new(data: D) -> Self {
-        TagsData {
-            tags: data
-        }
+    fn score(&self) -> f32 {
+        *self as f32
     }
 
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
-        format!("{:?}", self.tags)
-    }
-} */
+}
 
 impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
     fn new(data: Vec<D>) -> Self {
@@ -104,6 +80,10 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
     
     fn get_tags_sum(&self) -> Option<(Tags, i32)> {
         None
+    }
+
+    fn score(&self) -> f32 {
+        1.
     }
 
 }
@@ -130,6 +110,10 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     fn get_tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum))
     }
+
+    fn score(&self) -> f32 {
+        self.sum as f32
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,7 +129,7 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
     }
 
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum)
+        format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum).replace("\"", "\'")
     }
 
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
@@ -154,6 +138,10 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
 
     fn get_tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum as f32
     }
 
 }
