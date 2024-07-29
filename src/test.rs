@@ -143,6 +143,8 @@ mod tests {
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
     use std::collections::{HashMap, HashSet};
+    use std::fmt::Write;
+    use std::fs::File;
     use std::iter::FromIterator;
 
     use crate::dna_string::DnaString;
@@ -586,8 +588,8 @@ mod tests {
             true,
             true,
         );
-        println!("1: {:?}", valid_kmers_errs);
-        println!("2: {:?}", valid_kmers_errs2);
+        //println!("1: {:?}", valid_kmers_errs);
+        //println!("2: {:?}", valid_kmers_errs2);
 
         let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -610,8 +612,8 @@ mod tests {
             true
         );
 
-        println!("3: {:?}", valid_kmers_errs3);
-        println!("4: {:?}", valid_kmers_errs4);
+        //println!("3: {:?}", valid_kmers_errs3);
+        //println!("4: {:?}", valid_kmers_errs4);
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();
@@ -621,13 +623,40 @@ mod tests {
         println!("graph: {:?}", graph);
 
         let graph = graph.finish();
-        graph.to_dot("test_out", &|d| format!("{:?}", d));
-        graph.to_dot_parallel("test_out_par", &|d| format!("{:?}", d));
+        graph.print();
+        /* graph.to_dot("test_out", &|d| format!("{:?}", d));
+        graph.to_dot_parallel("test_out_par", &|d  format!("{:?}", d)); */
         
+        let path_reciever = graph.max_path_comp(|_| 1., |_| true, 100);
+
+        println!("components i: {:?}", graph.components_i());
+        println!("components r: {:?}", graph.components_r());
+
+
+        loop {
+            match path_reciever.recv() {
+                Ok(path) => println!("{:?}", path),
+                Err(_) => {println!("recieving stopped"); break }
+            }
+        }
+        
+        let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);
+
+        let mut file = File::create("test_fasta_out.fasta").unwrap();
+        graph.path_to_fasta(&mut file, path_iter);
+
+        for x in graph.iter_components() {
+            println!("component: {:?}", x);
+        }
+
+        for path in graph.iter_max_path_comp(|_| 1., |_| true) {
+            println!("path seq: {:?}", path);
+            println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
+        }
         //let graph2 = graph.finish();
         //graph2.print();
-        graph.print();
-        println!("components: {:?}", graph.components_r());
+        //graph.print();
+        //println!("components: {:?}", graph.components_r());
         //let max_path = graph2.max_path(|d| *d as f32, |_| true);
         //println!("one graph: {:?}", max_path); 
         //let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
@@ -655,13 +684,22 @@ mod tests {
     fn test_tags() {
         let tag = Tags::new(83u64);
         println!("tag as u64: {}, tag as u8 vec: {:?}", tag.val, tag.to_u8_vec());
-        let vec = vec![0, 1, 4, 6];
-        println!("vec to tags: {:?}", Tags::from_u8_vec(vec).val);
+        println!("tag as bin: {:064b}", tag.val);
+        let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        println!("vec to tags: {:?}", vec.val); 
+        let vec = Tags::from_u8_vec(vec![0, 2, 3, 4, 6]);
+        println!("vec to tags: {:?}", vec.val); 
+        println!("tag as bin: {:064b}", vec.val);
+        println!("tag back to vec: {:?}", vec.to_u8_vec());
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
         let mut str_map = BiMap::new();
         for (i, str) in str_vec.into_iter().enumerate() {
             str_map.insert(str, i as u8);
         }
-        println!("tags to string vec: {:?}", tag.to_string_vec(&str_map));
+        println!("tags to string vec: {:?}", vec.to_string_vec(&str_map));
+        let comp = Tags::new(21);
+        println!("comp 8: {:?}", comp.bit_and(8));
+        println!("comp 12: {:?}", comp.bit_and(12));
+        println!("comp 16: {:?}", comp.bit_and(16));
     }
 }
