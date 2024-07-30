@@ -627,17 +627,11 @@ mod tests {
         /* graph.to_dot("test_out", &|d| format!("{:?}", d));
         graph.to_dot_parallel("test_out_par", &|d  format!("{:?}", d)); */
         
-        let path_reciever = graph.max_path_comp(|_| 1., |_| true, 100);
-
         println!("components i: {:?}", graph.components_i());
         println!("components r: {:?}", graph.components_r());
 
-
-        loop {
-            match path_reciever.recv() {
-                Ok(path) => println!("{:?}", path),
-                Err(_) => {println!("recieving stopped"); break }
-            }
+        for path in graph.max_path_comp(|_| 1., |_| true) {
+            println!("path m1: {:?}", graph.sequence_of_path(path.iter()))
         }
         
         let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);

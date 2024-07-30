@@ -10,7 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
 use std::fmt::{self, Debug, Display};
@@ -20,9 +20,7 @@ use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
 use std::path::Path;
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use boomphf::hashmap::BoomHashMap;
@@ -489,23 +487,22 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
     /// paths will be terminated if there are multiple valid paths emanating from a node.
     /// Returns vec with path for each component
-    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2, channel_buffer: usize) -> Receiver<Vec<(usize, Dir)>>
+    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> Vec<VecDeque<(usize, Dir)>>
     where
         F: Fn(&D) -> f32,
         F2: Fn(&D) -> bool,
     {
-
-        let (sender, receiver) = sync_channel::<Vec<(usize, Dir)>>(channel_buffer);
-
         if self.is_empty() {
-            return receiver;
+            let vec: Vec<VecDeque<(usize, Dir)>> = Vec::new();
+            return vec;
         }
 
-        let components = self.components_r();
+        let components = self.iter_components();
+        let mut paths: Vec<VecDeque<(usize, Dir)>> = Vec::new();
 
-        for j in 0..components.len() {
+        for component in components {
 
-            let current_comp = &components[j];
+            let current_comp = &component;
             
 
             let mut best_node = current_comp[0];
@@ -584,11 +581,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
             
             debug!("path len: {:?}", path.len());
-            let _res = sender.send(Vec::from_iter(path));
+            paths.push(path);
             //paths.push(Vec::from_iter(path));
         }
 
-        receiver
+        paths
     
     }
 
@@ -1500,7 +1497,7 @@ where
 F: Fn(&D) -> f32,
 F2: Fn(&D) -> bool
 {
-    type Item = Vec<(usize, Dir)>;
+    type Item = VecDeque<(usize, Dir)>;
     fn next(&mut self) -> Option<Self::Item> {
         while self.graph_pos <= self.graph.len() {
             match self.component_iterator.next() {
@@ -1529,11 +1526,6 @@ F2: Fn(&D) -> bool
                         None => false,
                         Some((id, _)) => (self.solid_path)(self.graph.get_node(id).data()),
                     };
-
-                    /* let osolid_path = |state| match state {
-                        None => false,
-                        Some((id, _)) => true,
-                    }; */
         
                     // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
                     // already put into the path
@@ -1590,8 +1582,7 @@ F2: Fn(&D) -> bool
                     
                     debug!("path len: {:?}", path.len());
                     
-                    return Some(Vec::from_iter(path))
-                    //paths.push(Vec::from_iter(path));
+                    return Some(path)
                 }, 
                 None => {
                     // should technically not need graph_pos after this 
