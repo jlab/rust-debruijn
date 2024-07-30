@@ -2,6 +2,7 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
+use core::f32;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
@@ -14,6 +15,7 @@ use bimap::BiMap;
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
+use num_traits::abs;
 use rayon::prelude::*;
 
 use crate::Dir;
@@ -377,7 +379,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     let rc_norm = !stranded;
-    let basestarts = 256;
+    let buckets = 256;
     let bucket_capacity_steps = 200;
 
     //let shared_summarizer = Mutex::new(summarizer);
@@ -392,19 +394,26 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
     let slices = slices_seq;
-    //let slices = 2;
-    let sz = (basestarts) / slices + 1;
+    //let sz = buckets / slices + 1;
+    
+    // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
+    let lambda = 0.011;
 
-    debug!("kmer_mem: {}, max_mem: {}, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+    let mut bucket_ranges = Vec::with_capacity(if slices < buckets {buckets} else {slices});
 
-    let mut bucket_ranges = Vec::with_capacity(slices);
-    let mut start = 0;
-    while start < basestarts {
-        bucket_ranges.push(start..start + sz);
-        start += sz;
+    for i in 1..=slices {
+        // calculate lower and upper bound with Quantile function of exponential probability distribution
+        // I(i) = [1/lambda * |ln(1 - (i-1)/slices)|, 1/lambda * |ln(1 - i/slices)|]
+        let lbound = ((1./lambda) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
+        let ubound = ((1./lambda) * abs((1.-i as f32/slices as f32).ln())) as usize;
+
+        // if upper bound is above no of buckets (256), reduce to no of buckets
+        let ubound = if ubound > buckets { buckets } else { ubound };
+        if ubound > lbound && lbound < buckets { bucket_ranges.push(lbound..ubound) };
     }
-    debug!("start: {}, bucket_ranges: {:?}, len br: {}", start, bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= basestarts);
+
+    debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= buckets);
     let n_buckets = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
@@ -431,7 +440,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
         let before_kmer_picking = Instant::now();
 
-        let mut kmer_buckets = vec![Vec::new(); basestarts];
+        let mut kmer_buckets = vec![Vec::new(); buckets];
 
         for &(ref seq, seq_exts, ref d) in seqs {
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
@@ -598,6 +607,7 @@ where
     DS: Debug,
 {
     let rc_norm = !stranded;
+    let buckets = 256;
     let bucket_capacity_steps = 200;
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
@@ -605,7 +615,7 @@ where
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = (input_kmers  + bucket_capacity_steps * 256) * mem::size_of::<(K, D1)>();
+    let kmer_mem = (input_kmers  + bucket_capacity_steps * buckets) * mem::size_of::<(K, D1)>();
     debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
@@ -613,18 +623,28 @@ where
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices = kmer_mem / max_mem + 1;
-    let sz = 256 / slices + 1;
+    //let sz = buckets / slices + 1;
+    
+    // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
+    let lambda = 0.011;
 
-    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}, sz: {}", kmer_mem, max_mem, slices, sz);
+    let mut bucket_ranges = Vec::with_capacity(if slices < buckets {buckets} else {slices});
 
-    let mut bucket_ranges = Vec::with_capacity(slices);
-    let mut start = 0;
-    while start < 256 {
-        bucket_ranges.push(start..start + sz);
-        start += sz;
+    for i in 1..=slices {
+        // calculate lower and upper bound with Quantile function of exponential probability distribution
+        // I(i) = [1/lambda * |ln(1 - (i-1)/slices)|, 1/lambda * |ln(1 - i/slices)|]
+        let lbound = ((1./lambda) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
+        let ubound = ((1./lambda) * abs((1.-i as f32/slices as f32).ln())) as usize;
+
+        // if upper bound is above no of buckets (256), reduce to no of buckets
+        let ubound = if ubound > buckets { buckets } else { ubound };
+        if ubound > lbound && lbound < buckets { bucket_ranges.push(lbound..ubound) };
     }
-    debug!("start: {}, bucket_ranges: {:?}, len br: {}", start, bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= 256);
+
+    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
+
+    debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= buckets);
     let n_buckets = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
