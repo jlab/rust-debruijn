@@ -607,7 +607,7 @@ where
     DS: Debug,
 {
     let rc_norm = !stranded;
-    let buckets = 256;
+    const BUCKETS: usize = 256;
     let bucket_capacity_steps = 200;
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
@@ -615,36 +615,38 @@ where
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = (input_kmers  + bucket_capacity_steps * buckets) * mem::size_of::<(K, D1)>();
+    let kmer_mem = (input_kmers  + bucket_capacity_steps * BUCKETS) * mem::size_of::<(K, D1)>();
     debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
 
-    let max_mem = memory_size * 10_usize.pow(9);
-    let slices = kmer_mem / max_mem + 1;
+    let max_mem: usize = memory_size * 10_usize.pow(9);
+    let slices: usize = kmer_mem / max_mem + 1;
     //let sz = buckets / slices + 1;
     
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    let lambda = 0.011;
+    // for the probability distribution LAMBDA =~ 0.015 would be more accurate 
+    // but since vectors with summarized kmers start to grow later, we pretend we have a lower value for LAMBDA 
+    const LAMBDA: f32 = 0.005;
 
-    let mut bucket_ranges = Vec::with_capacity(if slices < buckets {buckets} else {slices});
+    let mut bucket_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < BUCKETS {slices} else {BUCKETS});
 
     for i in 1..=slices {
         // calculate lower and upper bound with Quantile function of exponential probability distribution
-        // I(i) = [1/lambda * |ln(1 - (i-1)/slices)|, 1/lambda * |ln(1 - i/slices)|]
-        let lbound = ((1./lambda) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
-        let ubound = ((1./lambda) * abs((1.-i as f32/slices as f32).ln())) as usize;
+        // I(i) = [1/LAMBDA * |ln(1 - (i-1)/slices)|, 1/LAMBDA * |ln(1 - i/slices)|]
+        let lbound: usize = ((1./LAMBDA) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
+        let ubound: usize = ((1./LAMBDA) * abs((1.-i as f32/slices as f32).ln())) as usize;
 
         // if upper bound is above no of buckets (256), reduce to no of buckets
-        let ubound = if ubound > buckets { buckets } else { ubound };
-        if ubound > lbound && lbound < buckets { bucket_ranges.push(lbound..ubound) };
+        let ubound: usize = if ubound > BUCKETS { BUCKETS } else { ubound };
+        if ubound > lbound && lbound < BUCKETS { bucket_ranges.push(lbound..ubound) };
     }
 
     debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= buckets);
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
     let n_buckets = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
@@ -658,6 +660,7 @@ where
 
     debug!("n of seqs: {}", seqs.len());
 
+
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
     let mut valid_exts = Vec::new();
@@ -667,15 +670,48 @@ where
     let mut time_summarizing = 0.;
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
-        debug!("Processing bucket {} of {}", i+1, n_buckets);
-
-        let mut kmer_buckets = vec![Vec::new(); 256];
+        debug!("Processing slice {} of {}", i+1, n_buckets);
 
         let before_kmer_picking = Instant::now();
+        // first step: picking kmers with their exts & data from the reads
+        // go through all kmers and sort into bucket according to first four bases
+        // all kmers starting with "AAAA" go in kmer_buckets[0], all starting with AAAC go in kmer_buckets[1] and so on
+        // when using the first four bases, this needs 256 buckets
+        // the buckets are split in to the bucket_ranges to save memory
 
+        // first go trough all kmers to find the length of all buckets (to reserve capacity)
+        let mut capacities: [usize; 256] = [0; BUCKETS];
+
+        for &(ref seq, _, _) in seqs {
+            // iterate through all kmers in seq
+            for kmer in seq.iter_kmers::<K>() {
+                // if not stranded choose lexiographically lesser of kmer and rc of kmer
+                let min_kmer = if rc_norm {
+                    let (min_kmer, _) = kmer.min_rc_flip();
+                    min_kmer
+                } else {
+                    kmer
+                };
+
+                // calculate which bucket this kmer belongs to
+                let bucket = bucket(min_kmer);
+                // check if bucket is in current range and if so, add one to needed capacity
+                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+                if in_range { capacities[bucket] += 1 }
+            }
+        }
+        
+        let mut kmer_buckets = Vec::new();
+        // reserve needed capacity in each bucket
+        for capacity in capacities {
+            kmer_buckets.push(Vec::with_capacity(capacity));
+        }
+
+        // then go through all kmers and add to bucket according to first four bases and current bucket_range
         for &(ref seq, seq_exts, ref d) in seqs {
+            // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                //println!("kmer: {:?}, exts: {:?}", kmer, exts);
+                // // if not stranded choose lexiographically lesser of kmer and rc of kmer, flip exts if needed
                 let (min_kmer, flip_exts) = if rc_norm {
                     let (min_kmer, flip) = kmer.min_rc_flip();
                     let flip_exts = if flip { exts.rc() } else { exts };
@@ -683,30 +719,27 @@ where
                 } else {
                     (kmer, exts)
                 };
+
+                // calculate which bucket this kmer belongs to
                 let bucket = bucket(min_kmer);
 
+                // check if bucket is in current range and if so, push kmer to bucket
                 let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-
-                if kmer_buckets[bucket].capacity() == kmer_buckets[bucket].len() && in_range {
-                    kmer_buckets[bucket].reserve_exact(bucket_capacity_steps);
-                }
-
                 if in_range {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
                 }
             }
         }
 
-        debug!("size of the bucket: {}B
-            len of kmer bucket: {}", mem::size_of_val(&*kmer_buckets), kmer_buckets.len());
-        let mut bucket_elements: usize = 0;
+        debug!("size of the slice: {} B", mem::size_of_val(&*kmer_buckets));
+        let mut slice_elements: usize = 0;
         for bucket in kmer_buckets.iter() {
-            bucket_elements += bucket.len();
+            slice_elements += bucket.len();
         }
-        debug!("overall elements in this bucket: {bucket_elements}");
-        debug!("bucket size guess (advanced version):
-            {} (len) * 24B (ref vec) + {}B (elements size) * {} (elements)
-            = {}B", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), bucket_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, D1)>() * bucket_elements));
+        debug!("overall elements in this bucket: {slice_elements}");
+        debug!("slice size guess (advanced version):
+            {} (len) * 24B (ref vec) + {} B (elements size) * {} (elements)
+            = {} B", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), slice_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, D1)>() * slice_elements));
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
