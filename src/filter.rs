@@ -608,14 +608,13 @@ where
 {
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
-    let bucket_capacity_steps = 200;
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = (input_kmers  + bucket_capacity_steps * BUCKETS) * mem::size_of::<(K, D1)>();
+    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
@@ -623,12 +622,11 @@ where
 
     let max_mem: usize = memory_size * 10_usize.pow(9);
     let slices: usize = kmer_mem / max_mem + 1;
-    //let sz = buckets / slices + 1;
-    
+  
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    // for the probability distribution LAMBDA =~ 0.015 would be more accurate 
+    // for the probability distribution a higher LAMBDA (~ 0.011) would be more accurate 
     // but since vectors with summarized kmers start to grow later, we pretend we have a lower value for LAMBDA 
-    const LAMBDA: f32 = 0.005;
+    const LAMBDA: f32 = 0.008;
 
     let mut bucket_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < BUCKETS {slices} else {BUCKETS});
 
@@ -642,6 +640,8 @@ where
         let ubound: usize = if ubound > BUCKETS { BUCKETS } else { ubound };
         if ubound > lbound && lbound < BUCKETS { bucket_ranges.push(lbound..ubound) };
     }
+
+    debug!("bucket ranges: {:?}", bucket_ranges);
 
     debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
 
