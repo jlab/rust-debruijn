@@ -380,16 +380,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 {
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
-    let bucket_capacity_steps = 200;
-
-    //let shared_summarizer = Mutex::new(summarizer);
 
     // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
-    let kmer_mem = (input_kmers  + bucket_capacity_steps * 256) * mem::size_of::<(K, u8)>();
+    let kmer_mem = input_kmers * mem::size_of::<(K, u8)>();
 
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
@@ -397,7 +394,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     //let sz = buckets / slices + 1;
     
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    let lambda = 0.088;
+    let lambda = 0.008;
 
     let mut bucket_ranges = Vec::with_capacity(if slices < BUCKETS {BUCKETS} else {slices});
 

@@ -8,6 +8,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -847,7 +848,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             }
 
             if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) {
-                debug!("another 1/128 done: {}", (kmer_counter as f32 / steps) as i32);
+                debug!("another 1/128 done: {}, data graph size: {}", (kmer_counter as f32 / steps) as i32, mem::size_of_val(&*graph.data));
             }
 
             if comp.available_kmers.contains(kmer_counter) {
@@ -1018,8 +1019,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
                 graph.add(&edge_seq_buf, node_exts, node_data);
             }
 
-            debug!("finished range: {:?}", range2);
-
+            debug!("finished range: {:?}, subgraph data size: {}", range2, mem::size_of_val(&*graph.data));
 
             let mut graph_lock = graphs.lock().expect("unlock graphs to push new graph");
             graph_lock.push(graph);
