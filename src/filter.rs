@@ -379,7 +379,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     let rc_norm = !stranded;
-    let buckets = 256;
+    const BUCKETS: usize = 256;
     let bucket_capacity_steps = 200;
 
     //let shared_summarizer = Mutex::new(summarizer);
@@ -397,9 +397,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     //let sz = buckets / slices + 1;
     
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    let lambda = 0.011;
+    let lambda = 0.088;
 
-    let mut bucket_ranges = Vec::with_capacity(if slices < buckets {buckets} else {slices});
+    let mut bucket_ranges = Vec::with_capacity(if slices < BUCKETS {BUCKETS} else {slices});
 
     for i in 1..=slices {
         // calculate lower and upper bound with Quantile function of exponential probability distribution
@@ -408,12 +408,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         let ubound = ((1./lambda) * abs((1.-i as f32/slices as f32).ln())) as usize;
 
         // if upper bound is above no of buckets (256), reduce to no of buckets
-        let ubound = if ubound > buckets { buckets } else { ubound };
-        if ubound > lbound && lbound < buckets { bucket_ranges.push(lbound..ubound) };
+        let ubound = if ubound > BUCKETS { BUCKETS } else { ubound };
+        if ubound > lbound && lbound < BUCKETS { bucket_ranges.push(lbound..ubound) };
     }
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= buckets);
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
     let n_buckets = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
@@ -439,8 +439,41 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         debug!("Processing bucket {} of {}", i+1, n_buckets);
 
         let before_kmer_picking = Instant::now();
+        // first step: picking kmers with their exts & data from the reads
+        // go through all kmers and sort into bucket according to first four bases
+        // all kmers starting with "AAAA" go in kmer_buckets[0], all starting with AAAC go in kmer_buckets[1] and so on
+        // when using the first four bases, this needs 256 buckets
+        // the buckets are split in to the bucket_ranges to save memory
 
-        let mut kmer_buckets = vec![Vec::new(); buckets];
+        // first go trough all kmers to find the length of all buckets (to reserve capacity)
+        let mut capacities: [usize; 256] = [0; BUCKETS];
+
+        for &(ref seq, _, _) in seqs {
+            // iterate through all kmers in seq
+            for kmer in seq.iter_kmers::<K>() {
+                // if not stranded choose lexiographically lesser of kmer and rc of kmer
+                let min_kmer = if rc_norm {
+                    let (min_kmer, _) = kmer.min_rc_flip();
+                    min_kmer
+                } else {
+                    kmer
+                };
+
+                // calculate which bucket this kmer belongs to
+                let bucket = bucket(min_kmer);
+                // check if bucket is in current range and if so, add one to needed capacity
+                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+                if in_range { capacities[bucket] += 1 }
+            }
+        }
+
+        debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, u8)>());
+
+        let mut kmer_buckets = Vec::new();
+        // reserve needed capacity in each bucket
+        for capacity in capacities {
+            kmer_buckets.push(Vec::with_capacity(capacity));
+        }
 
         for &(ref seq, seq_exts, ref d) in seqs {
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
@@ -452,13 +485,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                 } else {
                     (kmer, exts)
                 };
+
+                // calculate which bucket this kmer belongs to
                 let bucket = bucket(min_kmer);
 
-                if kmer_buckets[bucket].capacity() == kmer_buckets[bucket].len() {
-                    kmer_buckets[bucket].reserve_exact(bucket_capacity_steps);
-                }
-
-                if bucket >= bucket_range.start && bucket < bucket_range.end {
+                // check if bucket is in current range and if so, push kmer to bucket
+                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+                if in_range {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
                 }
             }
@@ -700,6 +733,8 @@ where
                 if in_range { capacities[bucket] += 1 }
             }
         }
+
+        debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, D1)>());
         
         let mut kmer_buckets = Vec::new();
         // reserve needed capacity in each bucket
