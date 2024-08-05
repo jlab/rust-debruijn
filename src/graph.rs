@@ -746,7 +746,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             drop(files_locked);
 
             let mut f = File::create(current_file).expect("couldn't open file");
-            if range.start == 0 { writeln!(&mut f, "digraph {{").unwrap(); }
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
@@ -755,6 +754,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let files = files.lock().expect("final lock vec with files (to dot)");
         let mut out_file = File::create(format!("{}.dot", path)).unwrap();
+
+        writeln!(&mut out_file, "digraph {{").unwrap();
 
         for file in files.iter() {
             let open_file = File::open(file).expect("couldn't open file");
@@ -869,6 +870,73 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..self.len() {
             let n = self.get_node(i);
             self.node_to_gfa(&n, &mut wtr, Some(&tag_func))?;
+        }
+
+        Ok(())
+    }
+
+    /// Write the graph to GFA format, with multithreading
+    pub fn to_gfa_otags_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<'_, K, D>) -> String>(
+        &self,
+        gfa_out: P,
+        tag_func: Option<&F>,
+    ) -> Result<(), Error> 
+    where 
+    K: Sync,
+    D: Sync,
+    F: Sync
+    {
+        // split into ranges according to thread count
+        let slices = current_num_threads();
+        let n_nodes = self.len();
+        let sz = n_nodes / slices + 1;
+
+        debug!("n_nodes: {}", n_nodes);
+        debug!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_nodes {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_nodes);
+        debug!("parallel ranges: {:?}", parallel_ranges);
+
+        let mut files = Vec::with_capacity(current_num_threads());
+
+        for i in 0..parallel_ranges.len() {
+            files.push(format!("{}-{}.gfa", gfa_out, i));
+        } 
+        
+        
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut wtr = File::create(&files[i]).unwrap();
+
+            for i in range {
+                let n = self.get_node(i);
+                self.node_to_gfa(&n, &mut wtr, tag_func).unwrap();
+            }
+        });
+
+        // combine files
+        let mut out_file = File::create(format!("{}.gfa", gfa_out))?;
+        writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
+
+        for file in files.iter() {
+            let open_file = File::open(file).expect("couldn't open file");
+            let mut reader = BufReader::new(open_file);
+            let mut buffer = [0; 8000];
+
+            loop {
+                let linecount = reader.read(&mut buffer).unwrap();
+                if linecount == 0 { break }
+                out_file.write_all(&buffer[..linecount]).unwrap();
+            }
+
+            remove_file(file).unwrap();
         }
 
         Ok(())
@@ -1553,6 +1621,12 @@ F2: Fn(&D) -> bool
                                 let cand = Some((id, dir));
                                 if osolid_path(cand) {
                                     solid_paths += 1;
+
+                                    // second if clause is outside of first in original code (see max_path) 
+                                    // but would basically ignore path validity.
+                                    if oscore(cand) > oscore(next) {
+                                        next = cand;
+                                    }
                                 }
         
                                 if oscore(cand) > oscore(next) {
