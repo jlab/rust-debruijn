@@ -148,7 +148,7 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::dna_string::DnaString;
-    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, TagsCountData, TagsSumData};
+    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
     use crate::kmer::Kmer6;
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
@@ -549,7 +549,7 @@ mod tests {
 
 
         // initialize global thread pool with x threads
-        let num_threads = 2;
+        let num_threads = 4;
         rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
 
         // Assemble w/o tips
@@ -647,6 +647,9 @@ mod tests {
             println!("path seq: {:?}", path);
             println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
         }
+
+        graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
+        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsSumData>| format!("{:?}", node.data()))).unwrap();
         //let graph2 = graph.finish();
         //graph2.print();
         //graph.print();

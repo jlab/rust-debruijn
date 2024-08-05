@@ -5,7 +5,7 @@
 use bit_set::BitSet;
 use log::{debug, trace};
 use rayon::prelude::*;
-use rayon::{current_num_threads, current_thread_index};
+use rayon::current_num_threads;
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
@@ -21,7 +21,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -735,24 +734,20 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         parallel_ranges.push(last_start..n_nodes);
         debug!("parallel ranges: {:?}", parallel_ranges);
 
-        let digits = (current_num_threads() as f32).log10().ceil() as usize;
+        let mut files = Vec::with_capacity(current_num_threads());
 
-        let files: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::with_capacity(current_num_threads()))); 
+        for i in 0..parallel_ranges.len() {
+            files.push(format!("{}-{}.gfa", path, i));
+        } 
     
-        parallel_ranges.into_par_iter().for_each(| range| {
-            let current_file = format!("{}-{:0digits$}.dot", path, current_thread_index().expect("current thread index"), digits = digits);
-            let mut files_locked = files.lock().expect("lock vec with files");
-            files_locked.push(current_file.clone());
-            drop(files_locked);
-
-            let mut f = File::create(current_file).expect("couldn't open file");
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut f = File::create(&files[i]).expect("couldn't open file");
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
             }
         });
 
-        let files = files.lock().expect("final lock vec with files (to dot)");
         let mut out_file = File::create(format!("{}.dot", path)).unwrap();
 
         writeln!(&mut out_file, "digraph {{").unwrap();
@@ -875,7 +870,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(())
     }
 
-    /// Write the graph to GFA format, with multithreading
+    /// Write the graph to GFA format, with multithreading, 
+    /// pass `tag_func=None` to write without tags
     pub fn to_gfa_otags_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<'_, K, D>) -> String>(
         &self,
         gfa_out: P,
