@@ -551,8 +551,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             }
 
             let mut data_out = shared_data.lock().expect("unlock shared filter data");
-            debug!("bucket {} processed, size of valid_kmers: {}, size of valid_exts: {}, size of valid_data: {}, current size of data_out (might be surface level): {}", 
-                j, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data), mem::size_of_val(&*data_out));
+            debug!("bucket {} processed, mem of valid_kmers: {} Bytes, mem of valid_exts: {} Bytes, mem of valid_data: {} Bytes", 
+                j, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
             data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
         });
         // parallel end
@@ -590,9 +590,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         }
     } 
 
-    debug!("valid kmers - capacity: {}, size: {}", valid_kmers.capacity(), valid_kmers.len());
-    debug!("valid exts - capacity: {}, size: {}", valid_exts.capacity(), valid_exts.len());
-    debug!("valid data - capacity: {}, size: {}, memory", valid_data.capacity(), valid_data.len());
+    debug!("valid kmers - capacity: {}, size: {}, mem: {}", valid_kmers.capacity(), valid_kmers.len(), mem::size_of_val(&*valid_kmers));
+    debug!("valid exts - capacity: {}, size: {}, mem: {}", valid_exts.capacity(), valid_exts.len(), mem::size_of_val(&*valid_exts));
+    debug!("valid data - capacity: {}, size: {}, mem: {}", valid_data.capacity(), valid_data.len(), mem::size_of_val(&*valid_data));
     
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
@@ -826,14 +826,16 @@ where
                     valid_data.push(summary_data); 
                 }
             }
+            debug!("finished bucket {}, current mems: valid_kmers {} Bytes, valid_exts {} Bytes, valid_data {} Bytes", 
+                progress_counter, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data))
         }
         if progress { print!("\n") };
 
         time_summarizing += before_summarizing.elapsed().as_secs_f32();
 
-        debug!("valid kmers - capacity: {}, size: {}", valid_kmers.capacity(), valid_kmers.len());
-        debug!("valid exts - capacity: {}, size: {}", valid_exts.capacity(), valid_exts.len());
-        debug!("valid data - capacity: {}, size: {}", valid_data.capacity(), valid_data.len());
+        debug!("valid kmers - capacity: {}, size: {}, mem: {} Bytes", valid_kmers.capacity(), valid_kmers.len(), mem::size_of_val(&*valid_kmers));
+        debug!("valid exts - capacity: {}, size: {}, mem: {} Bytes", valid_exts.capacity(), valid_exts.len(), mem::size_of_val(&*valid_exts));
+        debug!("valid data - capacity: {}, size: {}, mem: {} Bytes", valid_data.capacity(), valid_data.len(), mem::size_of_val(&*valid_data));
     }
 
     if time { 
@@ -848,9 +850,9 @@ where
         all_kmers.len(),
     );
 
-    debug!("size of valid kmers: {} B
-        size of valid exts: {} B
-        size of valid data: {} B", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
+    debug!("size of valid kmers: {} Bytes
+        size of valid exts: {} Bytes
+        size of valid data: {} Bytes", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
