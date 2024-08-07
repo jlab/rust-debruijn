@@ -16,6 +16,7 @@ use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
 use num_traits::abs;
+use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::Dir;
@@ -443,69 +444,115 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
 
-        // first go trough all kmers to find the length of all buckets (to reserve capacity)
-        let capacities = Arc::new(Mutex::new([0usize; BUCKETS]));
+        // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
 
-        seqs.par_iter().for_each(|&(ref seq, _, _): &(V, _, _)| { 
-            // iterate through all kmers in seq
-            for kmer in seq.iter_kmers::<K>() {
-                // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                let min_kmer = if rc_norm {
-                    let (min_kmer, _) = kmer.min_rc_flip();
-                    min_kmer
-                } else {
-                    kmer
-                };
+        let n_threads = current_num_threads();
+        let n_reads = seqs.len();
+        let sz = n_reads / n_threads + 1;
 
-                // calculate which bucket this kmer belongs to
-                let bucket = bucket(min_kmer);
-                // check if bucket is in current range and if so, add one to needed capacity
-                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                if in_range { 
-                    let mut cap = capacities.lock().expect("unlock capacities");
-                    cap[bucket] += 1;
-                }
-            }
-        });
+        debug!("n_reads: {}", n_reads);
+        debug!("sz: {}", sz);
 
-        let capacities = capacities.lock().expect("final unlock capacities");
-
-        debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, u8)>());
-
-        let mut kmer_buckets = Vec::new();
-        // reserve needed capacity in each bucket
-        for capacity in capacities.into_iter() {
-            kmer_buckets.push(Vec::with_capacity(capacity));
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_reads {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
         }
 
-        let kmer_buckets = Arc::new(Mutex::new(kmer_buckets));
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_reads);
+        debug!("parallel ranges: {:?}", parallel_ranges);
 
-        seqs.par_iter().for_each(|&(ref seq, seq_exts, ref d): &(V, Exts, u8)| {
-            for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                //println!("kmer: {:?}, exts: {:?}", kmer, exts);
-                let (min_kmer, flip_exts) = if rc_norm {
-                    let (min_kmer, flip) = kmer.min_rc_flip();
-                    let flip_exts = if flip { exts.rc() } else { exts };
-                    (min_kmer, flip_exts)
-                } else {
-                    (kmer, exts)
-                };
+        // first go trough all kmers to find the length of all buckets (to reserve capacity)
+        let capacities2d = Arc::new(Mutex::new(vec![[0usize; BUCKETS]; n_threads]));
 
-                // calculate which bucket this kmer belongs to
-                let bucket = bucket(min_kmer);
+        parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut capacities1d = [0usize; BUCKETS];
+            for &(ref seq, _, _) in &seqs[range] { 
+                // iterate through all kmers in seq
+                for kmer in seq.iter_kmers::<K>() {
+                    // if not stranded choose lexiographically lesser of kmer and rc of kmer
+                    let min_kmer = if rc_norm {
+                        let (min_kmer, _) = kmer.min_rc_flip();
+                        min_kmer
+                    } else {
+                        kmer
+                    };
 
-                // check if bucket is in current range and if so, push kmer to bucket
-                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                if in_range {
-                    let mut kb = kmer_buckets.lock().expect("lock kmer buckets");
-                    kb[bucket].push((min_kmer, flip_exts, d.clone()));
+                    // calculate which bucket this kmer belongs to
+                    let bucket = bucket(min_kmer);
+                    // check if bucket is in current range and if so, add one to needed capacity
+                    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+                    if in_range { 
+                        capacities1d[bucket] += 1;
+                    }
                 }
             }
+            let mut caps2d = capacities2d.lock().expect("lock capacities");
+            caps2d[i]= capacities1d;
+        });
+
+        let capacities2d = capacities2d.lock().expect("final unlock capacities");
+
+        debug!("kmer capacities: {:?}, times {}", capacities2d, mem::size_of::<(K, Exts, u8)>());
+
+        let kmer_buckets2d = vec![Vec::new(); n_threads];
+
+        let kmer_buckets = Arc::new(Mutex::new(kmer_buckets2d));
+
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            // vec with 256 buckets
+            let mut kmer_buckets1d = Vec::with_capacity(BUCKETS); 
+            // reserve capacities needed for current range in each bucket
+            for capacity in capacities2d[i].into_iter() {
+                kmer_buckets1d.push(Vec::with_capacity(capacity));
+            }
+            for &(ref seq, seq_exts, ref d) in &seqs[range] {
+                for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+                    let (min_kmer, flip_exts) = if rc_norm {
+                        let (min_kmer, flip) = kmer.min_rc_flip();
+                        let flip_exts = if flip { exts.rc() } else { exts };
+                        (min_kmer, flip_exts)
+                    } else {
+                        (kmer, exts)
+                    };
+
+                    // calculate which bucket this kmer belongs to
+                    let bucket = bucket(min_kmer);
+
+                    // check if bucket is in current range and if so, push kmer to bucket
+                    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+                    if in_range {
+                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, d.clone()));
+                    }
+                }
+            }
+            let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
+            kb2d[i] = kmer_buckets1d;
         });
 
         // unlock kmer buckets and move out of guard so they can be turned into iterator
         let mut kmer_buckets = kmer_buckets.lock().expect("unlock kmer_buckets final");
-        let new_buckets = mem::take(&mut *kmer_buckets);
+        let kmer_buckets = mem::take(&mut *kmer_buckets);
+
+        
+        // flatten capacities for overall capacities for bucket
+        /* let capacities = [0usize; BUCKETS];
+        for thread_vec in capacities2d.iter() {
+            for (i, bucket_cap) in thread_vec.iter().enumerate() {
+                capacities[i] += *bucket_cap;
+            }
+        } */
+
+        let mut new_buckets = vec![Vec::new(); BUCKETS];
+        // flatten kmer buckets
+        for thread_vec in kmer_buckets.into_iter() {
+            for (i, mut bucket) in thread_vec.into_iter().enumerate() {
+                new_buckets[i].reserve_exact(bucket.len());
+                new_buckets[i].append(&mut bucket);
+            }
+        }
 
         time_picking += before_kmer_picking.elapsed().as_secs_f32();
         
