@@ -495,7 +495,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
         let capacities2d = capacities2d.lock().expect("final unlock capacities");
 
-        debug!("kmer capacities: {:?}, times {}", capacities2d, mem::size_of::<(K, Exts, u8)>());
+        debug!("kmer capacities format: {} x {}, times {}", capacities2d.len(), capacities2d[0].len(), mem::size_of::<(K, Exts, u8)>());
 
         let kmer_buckets2d = vec![Vec::new(); n_threads];
 
