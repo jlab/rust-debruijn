@@ -52,7 +52,7 @@ impl<> SummaryData<u16> for u16 {
     }
 
     fn print(&self, _: &BiMap<&str, u8>) -> String {
-        format!("count: {}", self)
+        format!("count: {}", self).replace("\"", "\'")
     }
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
         None
@@ -74,7 +74,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
     }
 
     fn print(&self, _: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}", self)
+        format!("tags: {:?}", self).replace("\"", "\'")
     }
     
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
@@ -103,7 +103,7 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     }
 
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum)
+        format!("tags: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
     }
 
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
