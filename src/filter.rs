@@ -464,12 +464,14 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         parallel_ranges.push(last_start..n_reads);
         debug!("parallel ranges: {:?}", parallel_ranges);
 
-        // first go trough all kmers to find the length of all buckets (to reserve capacity)
-        let capacities2d = Arc::new(Mutex::new(vec![[0usize; BUCKETS]; n_threads]));
+
+        let kmer_buckets = Arc::new(Mutex::new(vec![Vec::new(); n_threads]));
 
         parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut capacities1d = [0usize; BUCKETS];
-            for &(ref seq, _, _) in &seqs[range] { 
+
+            // first go trough all kmers to find the length of all buckets (to reserve capacity)
+            let mut capacities = [0usize; BUCKETS];
+            for &(ref seq, _, _) in &seqs[range.clone()] { 
                 // iterate through all kmers in seq
                 for kmer in seq.iter_kmers::<K>() {
                     // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -485,27 +487,14 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                     // check if bucket is in current range and if so, add one to needed capacity
                     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                     if in_range { 
-                        capacities1d[bucket] += 1;
+                        capacities[bucket] += 1;
                     }
                 }
             }
-            let mut caps2d = capacities2d.lock().expect("lock capacities");
-            caps2d[i]= capacities1d;
-        });
 
-        let capacities2d = capacities2d.lock().expect("final unlock capacities");
-
-        debug!("kmer capacities format: {} x {}, times {}", capacities2d.len(), capacities2d[0].len(), mem::size_of::<(K, Exts, u8)>());
-
-        let kmer_buckets2d = vec![Vec::new(); n_threads];
-
-        let kmer_buckets = Arc::new(Mutex::new(kmer_buckets2d));
-
-        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            // vec with 256 buckets
             let mut kmer_buckets1d = Vec::with_capacity(BUCKETS); 
             // reserve capacities needed for current range in each bucket
-            for capacity in capacities2d[i].into_iter() {
+            for capacity in capacities.into_iter() {
                 kmer_buckets1d.push(Vec::with_capacity(capacity));
             }
             for &(ref seq, seq_exts, ref d) in &seqs[range] {
@@ -528,23 +517,18 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                     }
                 }
             }
+
             let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
+            // replace empty vec too keep order
             kb2d[i] = kmer_buckets1d;
+
         });
 
         // unlock kmer buckets and move out of guard so they can be turned into iterator
         let mut kmer_buckets = kmer_buckets.lock().expect("unlock kmer_buckets final");
         let kmer_buckets = mem::take(&mut *kmer_buckets);
 
-        
-        // flatten capacities for overall capacities for bucket
-        /* let capacities = [0usize; BUCKETS];
-        for thread_vec in capacities2d.iter() {
-            for (i, bucket_cap) in thread_vec.iter().enumerate() {
-                capacities[i] += *bucket_cap;
-            }
-        } */
-
+        // all combined buckets go into this vector
         let mut new_buckets = vec![Vec::new(); BUCKETS];
         // flatten kmer buckets
         for thread_vec in kmer_buckets.into_iter() {
@@ -556,8 +540,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
         time_picking += before_kmer_picking.elapsed().as_secs_f32();
         
-        //debug!("no of kmer buckets: {}", kmer_buckets.len());
-
         let before_parallel = Instant::now();
 
         if progress {
@@ -600,6 +582,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             let mut data_out = shared_data.lock().expect("unlock shared filter data");
             debug!("bucket {} processed, mem of valid_kmers: {} Bytes, mem of valid_exts: {} Bytes, mem of valid_data: {} Bytes", 
                 j, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
+            // i is the slice/bucket_range
             data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
         });
         // parallel end
@@ -611,7 +594,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     }
 
     if time { 
-        println!("time picking (s): {}", time_picking);
+        println!("time counting + collecting (s): {}", time_picking);
         println!("time summarizing (s): {}", time_summarizing);
     }
 
@@ -623,17 +606,17 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
 
-    for bucket in data_out.iter() {
-        for element in bucket {
-            all_kmers.reserve_exact(element.0.len());
-            valid_kmers.reserve_exact(element.1.len());
-            valid_exts.reserve_exact(element.2.len());
-            valid_data.reserve_exact(element.3.len());
+    for slice in data_out.iter() {
+        for bucket in slice {
+            all_kmers.reserve_exact(bucket.0.len());
+            valid_kmers.reserve_exact(bucket.1.len());
+            valid_exts.reserve_exact(bucket.2.len());
+            valid_data.reserve_exact(bucket.3.len());
 
-            all_kmers.append(&mut element.0.clone());
-            valid_kmers.append(&mut element.1.clone());
-            valid_exts.append(&mut element.2.clone());
-            valid_data.append(&mut element.3.clone());
+            all_kmers.append(&mut bucket.0.clone());
+            valid_kmers.append(&mut bucket.1.clone());
+            valid_exts.append(&mut bucket.2.clone());
+            valid_data.append(&mut bucket.3.clone());
         }
     } 
 
@@ -856,13 +839,25 @@ where
             if progress & (progress_counter % 2 == 0) { print!("|") };
             kmer_vec.sort_by_key(|elt| elt.0);
 
+            
+            // predict amount of unique k-mers found in this bucket
             let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
 
+            // only works perfectly if min k-mer count is 1, else this might reserve too much 
+            // still better than doubling the vector
+            // also reserve_exact considers pre-existing free capacity -> this might mostly add to runtime
             valid_kmers.reserve_exact(size);
             valid_exts.reserve_exact(size);
             valid_data.reserve_exact(size);
 
+            // if all k-mers should be reported, also grow all_kmers by exact amount -> this should always be the perfect capacity
+            if report_all_kmers {
+                all_kmers.reserve_exact(size);
+            }
+
+            // group the tuples by the k-mers and iterate over the groups
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
+                // summarize group with chosen summarizer and add result to vectors
                 let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
                 if report_all_kmers {
                     all_kmers.push(kmer);
