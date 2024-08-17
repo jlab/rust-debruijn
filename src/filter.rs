@@ -426,12 +426,17 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("n of seqs: {}", seqs.len());
 
-    let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets]));
+    //let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets]));
+
+    let shared_valid_kmers: Arc<Mutex<Vec<K>>> = Arc::new(Mutex::new(Vec::new()));
+    let shared_valid_exts: Arc<Mutex<Vec<Exts>>> = Arc::new(Mutex::new(Vec::new()));
+    let shared_valid_data: Arc<Mutex<Vec<DS>>> = Arc::new(Mutex::new(Vec::new()));
+    let shared_all_kmers: Arc<Mutex<Vec<K>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mut time_picking = 0.;
     let mut time_summarizing = 0.;
 
-    debug!("data_out empty: {:?}", shared_data.lock());
+    //debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
@@ -579,11 +584,29 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                 }
             }
 
-            let mut data_out = shared_data.lock().expect("unlock shared filter data");
+            if valid_kmers.len() > 0 || all_kmers.len() > 0 {
+                { let mut svk = shared_valid_kmers.lock().expect("lock valid kmers");
+                svk.reserve_exact(valid_kmers.len());
+                svk.append(&mut valid_kmers); }
+
+                { let mut sve = shared_valid_exts.lock().expect("lock valid exts");
+                sve.reserve_exact(valid_exts.len());
+                sve.append(&mut valid_exts); }
+
+                { let mut svd = shared_valid_data.lock().expect("lock valid data");
+                svd.reserve_exact(valid_data.len());
+                svd.append(&mut valid_data); }
+
+                { let mut sak = shared_all_kmers.lock().expect("lock all kmers");
+                sak.reserve_exact(all_kmers.len());
+                sak.append(&mut all_kmers); }
+            }
+            
+            /* let mut data_out = shared_data.lock().expect("unlock shared filter data");
             debug!("bucket {} processed, mem of valid_kmers: {} Bytes, mem of valid_exts: {} Bytes, mem of valid_data: {} Bytes", 
                 j, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
             // i is the slice/bucket_range
-            data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data));
+            data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data)); */
         });
         // parallel end
         if progress { print!("\n") }
@@ -598,10 +621,10 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         println!("time summarizing (s): {}", time_summarizing);
     }
 
-    let data_out = shared_data.lock().expect("final unlock shared filter data");
-    debug!("data out capacity:: {}, size: {}", data_out[0].capacity(), data_out[0].len());
+    /* let data_out = shared_data.lock().expect("final unlock shared filter data");
+    debug!("data out capacity:: {}, size: {}", data_out[0].capacity(), data_out[0].len()); */
 
-    let mut all_kmers = Vec::new();
+    /* let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
@@ -618,7 +641,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             valid_exts.append(&mut bucket.2.clone());
             valid_data.append(&mut bucket.3.clone());
         }
-    } 
+    }  */
+
+    let valid_kmers = shared_valid_kmers.lock().expect("final lock valid kmers").to_vec();
+    let valid_exts = shared_valid_exts.lock().expect("final lock valid exts").to_vec();
+    let valid_data = shared_valid_data.lock().expect("final lock valid data").to_vec();
+    let all_kmers = shared_all_kmers.lock().expect("final lock all kmers").to_vec();
+
 
     debug!("valid kmers - capacity: {}, size: {}, mem: {}", valid_kmers.capacity(), valid_kmers.len(), mem::size_of_val(&*valid_kmers));
     debug!("valid exts - capacity: {}, size: {}, mem: {}", valid_exts.capacity(), valid_exts.len(), mem::size_of_val(&*valid_exts));
