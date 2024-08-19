@@ -379,6 +379,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     progress: bool,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
+    // take timestamp before all processes
+    let before_all = Instant::now();
+
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
 
@@ -387,6 +390,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
+
+    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
+
     let kmer_mem = input_kmers * mem::size_of::<(K, Exts, u8)>();
     let max_mem = memory_size * 10_usize.pow(9);
     let slices_seq = kmer_mem / max_mem + 1;
@@ -426,10 +432,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("n of seqs: {}", seqs.len());
 
+    let mut time_picking_par = 0.;
     let mut time_picking = 0.;
     let mut time_summarizing = 0.;
 
     let shared_target_vecs = Arc::new(Mutex::new((Vec::new(), Vec::new(), Vec::new(), Vec::new())));
+
+    if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
@@ -464,6 +473,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
 
         let kmer_buckets = Arc::new(Mutex::new(vec![Vec::new(); n_threads]));
+
+        let before_picking_parallel = Instant::now();
 
         parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
 
@@ -523,6 +534,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             kb2d[i] = kmer_buckets1d;
 
         });
+
+        time_picking_par += before_picking_parallel.elapsed().as_secs_f32();
 
         // unlock kmer buckets and move out of guard so they can be turned into iterator
         let mut kmer_buckets = kmer_buckets.lock().expect("unlock kmer_buckets final");
@@ -620,6 +633,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     }
 
     if time { 
+        println!("time counting + collecting par (s): {}", time_picking_par);
         println!("time counting + collecting (s): {}", time_picking);
         println!("time summarizing (s): {}", time_summarizing);
     }
@@ -652,6 +666,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     debug!("valid exts - capacity: {}, size: {}, mem: {}", stv.1.capacity(), stv.1.len(), mem::size_of_val(&*stv.1));
     debug!("valid data - capacity: {}, size: {}, mem: {}", stv.2.capacity(), stv.2.len(), mem::size_of_val(&*stv.2));
     debug!("all kmers - capacity: {}, size: {}, mem: {}", stv.3.capacity(), stv.3.len(), mem::size_of_val(&*stv.3));
+
+    if time { println!("time filter_kmers inner (s): {}", before_all.elapsed().as_secs_f32()) }
 
     (
         BoomHashMap2::new(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec()),
@@ -707,6 +723,7 @@ pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DO, DS: SummaryData<DO>
 where
     DS: Debug,
 {
+    let before_all = Instant::now();
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
 
@@ -715,6 +732,9 @@ where
         .iter()
         .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
         .sum();
+
+    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
+
     let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
     debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
@@ -769,6 +789,9 @@ where
 
     let mut time_picking = 0.;
     let mut time_summarizing = 0.;
+    let mut time_picking_par = 0.;
+
+    if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
         debug!("Processing slice {} of {}", i+1, n_buckets);
@@ -833,6 +856,8 @@ where
                 }
             }
         }
+
+        time_picking_par += before_kmer_picking.elapsed().as_secs_f32();
 
         debug!("size of the slice: {} B", mem::size_of_val(&*kmer_buckets));
         let mut slice_elements: usize = 0;
@@ -910,6 +935,7 @@ where
     }
 
     if time { 
+        println!("time picking par (s): {}", time_picking_par);
         println!("time picking (s): {}", time_picking);
         println!("time summarizing (s): {}", time_summarizing);
     }
@@ -924,6 +950,8 @@ where
     debug!("size of valid kmers: {} Bytes
         size of valid exts: {} Bytes
         size of valid data: {} Bytes", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
+
+    if time { println!("time filter_kmers inner (s): {}", before_all.elapsed().as_secs_f32()) }
     (
         BoomHashMap2::new(valid_kmers, valid_exts, valid_data),
         all_kmers,
