@@ -426,21 +426,10 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("n of seqs: {}", seqs.len());
 
-    //let shared_data: Arc<Mutex<Vec<Vec<(Vec<K>, Vec<K>, Vec<Exts>, Vec<DS>)>>>> = Arc::new(Mutex::new(vec![vec![]; n_buckets]));
-
-
-
-    /* let shared_valid_kmers: Arc<Mutex<Vec<K>>> = Arc::new(Mutex::new(Vec::new()));
-    let shared_valid_exts: Arc<Mutex<Vec<Exts>>> = Arc::new(Mutex::new(Vec::new()));
-    let shared_valid_data: Arc<Mutex<Vec<DS>>> = Arc::new(Mutex::new(Vec::new()));
-    let shared_all_kmers: Arc<Mutex<Vec<K>>> = Arc::new(Mutex::new(Vec::new())); */
-
     let mut time_picking = 0.;
     let mut time_summarizing = 0.;
 
     let shared_target_vecs = Arc::new(Mutex::new((Vec::new(), Vec::new(), Vec::new(), Vec::new())));
-
-    //debug!("data_out empty: {:?}", shared_data.lock());
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
@@ -527,7 +516,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
                 }
             }
 
-            let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
+            // clone and lock kmer_buckets to safely share across threads
+            let kb_clone = Arc::clone(&kmer_buckets);
+            let mut kb2d = kb_clone.lock().expect("lock kmer buckets 2d");
             // replace empty vec too keep order
             kb2d[i] = kmer_buckets1d;
 
@@ -592,7 +583,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             // important that this is done in one step so each kmer has the same index with its exts and data
             if valid_kmers.len() > 0 {
 
-                let mut stv = shared_target_vecs.lock().expect("lock target vectors");
+                let stv_clone = Arc::clone(&shared_target_vecs);
+                let mut stv = stv_clone.lock().expect("lock target vectors");
                 // valid kmers
                 stv.0.reserve_exact(valid_kmers.len());
                 stv.0.append(&mut valid_kmers); 
@@ -606,7 +598,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
             // if kmers were collected into all_kmers, append them to shared target vector
             if all_kmers.len() > 0 {
-                let mut stv = shared_target_vecs.lock().expect("lock target vectors");
+                let stv_clone = Arc::clone(&shared_target_vecs);
+                let mut stv = stv_clone.lock().expect("lock target vectors");
                 // all kmers
                 stv.3.reserve_exact(all_kmers.len());
                 stv.3.append(&mut all_kmers);
@@ -655,18 +648,11 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     let stv = shared_target_vecs.lock().expect("final lock target vectors");
 
-/*     let valid_kmers = stv.0;
-    let valid_exts = shared_valid_exts.lock().expect("final lock valid exts").to_vec();
-    let valid_data = shared_valid_data.lock().expect("final lock valid data").to_vec();
-    let all_kmers = shared_all_kmers.lock().expect("final lock all kmers").to_vec(); */
-
-
     debug!("valid kmers - capacity: {}, size: {}, mem: {}", stv.0.capacity(), stv.0.len(), mem::size_of_val(&*stv.0));
     debug!("valid exts - capacity: {}, size: {}, mem: {}", stv.1.capacity(), stv.1.len(), mem::size_of_val(&*stv.1));
     debug!("valid data - capacity: {}, size: {}, mem: {}", stv.2.capacity(), stv.2.len(), mem::size_of_val(&*stv.2));
     debug!("all kmers - capacity: {}, size: {}, mem: {}", stv.3.capacity(), stv.3.len(), mem::size_of_val(&*stv.3));
 
-    
     (
         BoomHashMap2::new(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec()),
         stv.3.to_vec(),

@@ -934,17 +934,14 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
                 let kmers = comp.build_node_start(kmer_counter, &mut path_buf, &mut edge_seq_buf);
 
-                let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
+                let all_clone = Arc::clone(&all_start_end_kmers);
+                let mut all_lock = all_clone.lock().expect("lock all_start_end_kmers");
                 if !all_lock.contains_key(&kmers.0) {
                     all_lock.insert(kmers.0, kmers.1);
                 }
-                //start_end_kmers.push(kmers);
             }
 
             debug!("finished range: {:?}", range2);
-
-            /* let mut all_lock = all_start_end_kmers.lock().expect("lock all_start_end_kmers");
-            all_lock.append(&mut start_end_kmers); */
         });
 
         if progress { print!("\n") }
@@ -1021,8 +1018,9 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
             debug!("finished range: {:?}, subgraph data size: {}", range2, mem::size_of_val(&*graph.data));
 
-            let mut graph_lock = graphs.lock().expect("unlock graphs to push new graph");
-            graph_lock.push(graph);
+            let graphs_clone = Arc::clone(&graphs);
+            let mut graphs_lock = graphs_clone.lock().expect("lock graphs to push new graph");
+            graphs_lock.push(graph);
 
         });
 
