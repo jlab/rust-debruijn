@@ -667,11 +667,16 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     debug!("valid data - capacity: {}, size: {}, mem: {}", stv.2.capacity(), stv.2.len(), mem::size_of_val(&*stv.2));
     debug!("all kmers - capacity: {}, size: {}, mem: {}", stv.3.capacity(), stv.3.len(), mem::size_of_val(&*stv.3));
 
+    let before_hash = Instant::now();
     let hm = BoomHashMap2::new(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec());
+    let after_hash = before_hash.elapsed().as_secs_f32();
     let all_kmers = stv.3.to_vec();
 
     let filter_kmers_inner = before_all.elapsed().as_secs_f32();
-    if time { println!("time filter_kmers inner (s): {}", filter_kmers_inner) }
+    if time { 
+        println!("time filter_kmers inner (s): {}", filter_kmers_inner);
+        println!("time build filtered hash map (s): {}", after_hash);
+    }
 
     (
         hm,
@@ -955,10 +960,15 @@ where
         size of valid exts: {} Bytes
         size of valid data: {} Bytes", mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
 
+    let before_hash = Instant::now();
     let hm = BoomHashMap2::new(valid_kmers, valid_exts, valid_data);
+    let after_hash = before_hash.elapsed().as_secs_f32();
 
     let filter_kmers_inner = before_all.elapsed().as_secs_f32();
-    if time { println!("time filter_kmers inner (s): {}", filter_kmers_inner) }
+    if time { 
+        println!("time filter_kmers inner (s): {}", filter_kmers_inner);
+        println!("time build filter hash map (s): {}", after_hash);
+    }
     (
         hm,
         all_kmers,
