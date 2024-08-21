@@ -402,15 +402,15 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
     
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    let lambda = 0.008;
+    const LAMBDA: f32 = 0.012;
 
     let mut bucket_ranges = Vec::with_capacity(if slices < BUCKETS {BUCKETS} else {slices});
 
     for i in 1..=slices {
         // calculate lower and upper bound with Quantile function of exponential probability distribution
         // I(i) = [1/lambda * |ln(1 - (i-1)/slices)|, 1/lambda * |ln(1 - i/slices)|]
-        let lbound = ((1./lambda) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
-        let ubound = ((1./lambda) * abs((1.-i as f32/slices as f32).ln())) as usize;
+        let lbound = ((1./LAMBDA) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
+        let ubound = ((1./LAMBDA) * abs((1.-i as f32/slices as f32).ln())) as usize;
 
         // if upper bound is above no of buckets (256), reduce to no of buckets
         let ubound = if ubound > BUCKETS { BUCKETS } else { ubound };
@@ -756,7 +756,7 @@ where
     // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
     // for the probability distribution a higher LAMBDA (~ 0.011) would be more accurate 
     // but since vectors with summarized kmers start to grow later, we pretend we have a lower value for LAMBDA 
-    const LAMBDA: f32 = 0.008;
+    const LAMBDA: f32 = 0.012;
 
     let mut bucket_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < BUCKETS {slices} else {BUCKETS});
 
