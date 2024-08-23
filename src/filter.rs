@@ -16,7 +16,6 @@ use bimap::BiMap;
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
-use num_traits::abs;
 use num_traits::Pow;
 use rayon::current_num_threads;
 use rayon::prelude::*;
@@ -426,21 +425,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
     
-    // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    const LAMBDA: f32 = 0.012;
-
-    let mut bucket_ranges = Vec::with_capacity(if slices < BUCKETS {BUCKETS} else {slices});
-
-    for i in 1..=slices {
-        // calculate lower and upper bound with Quantile function of exponential probability distribution
-        // I(i) = [1/lambda * |ln(1 - (i-1)/slices)|, 1/lambda * |ln(1 - i/slices)|]
-        let lbound = ((1./LAMBDA) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
-        let ubound = ((1./LAMBDA) * abs((1.-i as f32/slices as f32).ln())) as usize;
-
-        // if upper bound is above no of buckets (256), reduce to no of buckets
-        let ubound = if ubound > BUCKETS { BUCKETS } else { ubound };
-        if ubound > lbound && lbound < BUCKETS { bucket_ranges.push(lbound..ubound) };
-    }
+    // split ranges into slices according to linear probability distribition of kmers 
+    let bucket_ranges: Vec<std::ops::Range<usize>> = lin_dist_range(BUCKETS, slices);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -780,7 +766,7 @@ where
   
     // split ranges into slices according to linear probability distribition of kmers 
     let bucket_ranges: Vec<std::ops::Range<usize>> = lin_dist_range(BUCKETS, slices);
-    
+
     debug!("bucket ranges: {:?}", bucket_ranges);
 
     debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);

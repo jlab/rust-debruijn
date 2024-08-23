@@ -146,10 +146,11 @@ mod tests {
     use std::fmt::Write;
     use std::fs::File;
     use std::iter::FromIterator;
+    use std::marker::PhantomData;
 
     use crate::dna_string::DnaString;
     use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
-    use crate::kmer::Kmer6;
+    use crate::kmer::{Kmer4, Kmer6};
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
@@ -588,8 +589,9 @@ mod tests {
             true,
             true,
         );
-        //println!("1: {:?}", valid_kmers_errs);
-        //println!("2: {:?}", valid_kmers_errs2);
+
+        println!("1: {:?}", valid_kmers_errs);
+        println!("2: {:?}", valid_kmers_errs2);
 
         let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -698,5 +700,17 @@ mod tests {
         println!("comp 8: {:?}", comp.bit_and(8));
         println!("comp 12: {:?}", comp.bit_and(12));
         println!("comp 16: {:?}", comp.bit_and(16));
+    }
+
+    #[test]
+    fn kmer_experiment() {
+        let mut counts = [0; 256];
+        let max = (4usize.pow(6) - 1) as u16;
+        for i in 0..=max {
+            let kmer = crate::kmer::Kmer6::from(VarIntKmer { storage: i, phantom: PhantomData });
+            let min_rc = kmer.min_rc();
+            counts[filter::bucket(min_rc)] += 1;
+        }
+        println!("{:?}", counts);
     }
 }
