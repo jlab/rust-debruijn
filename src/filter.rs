@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -16,6 +17,7 @@ use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
 use num_traits::abs;
+use num_traits::Pow;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
@@ -25,11 +27,34 @@ use crate::Kmer;
 use crate::Tags;
 use crate::Vmer;
 
-fn bucket<K: Kmer>(kmer: K) -> usize {
+pub fn bucket<K: Kmer>(kmer: K) -> usize {
     (kmer.get(0) as usize) << 6
         | (kmer.get(1) as usize) << 4
         | (kmer.get(2) as usize) << 2
         | (kmer.get(3) as usize)
+}
+
+fn lin_quant(p: f32, m: f32, b: f32) -> f32 {
+    return ((b * b + 2. * m * p).sqrt() - b) / m
+}
+
+fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
+    let b: f32 = 2f32/buckets as f32;
+    let m: f32 = - 2f32/(buckets as f32).pow(2);
+
+    let mut bucket_ranges_lin: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < buckets {slices} else {buckets});
+
+    for i in 1..=slices {
+        // calculate lower and upper bound with Quantile function of linear probability distribution
+        let lbound = lin_quant((i as f32 - 1.)/slices as f32, m, b) as usize;
+        let ubound = lin_quant((i as f32)/slices as f32, m, b) as usize;
+
+        // if upper bound is above no of buckets (256), reduce to no of buckets
+        let ubound: usize = if ubound > buckets { buckets } else { ubound };
+        if ubound > lbound && lbound < buckets { bucket_ranges_lin.push(lbound..ubound) };
+    }
+
+    return bucket_ranges_lin
 }
 
 /// Trait for the output of the KmerSummarizers
@@ -753,24 +778,9 @@ where
     let max_mem: usize = memory_size * 10_usize.pow(9);
     let slices: usize = kmer_mem / max_mem + 1;
   
-    // exponential probabilty distribution: p(x) = lambda * exp(-lambda * x)
-    // for the probability distribution a higher LAMBDA (~ 0.011) would be more accurate 
-    // but since vectors with summarized kmers start to grow later, we pretend we have a lower value for LAMBDA 
-    const LAMBDA: f32 = 0.012;
-
-    let mut bucket_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < BUCKETS {slices} else {BUCKETS});
-
-    for i in 1..=slices {
-        // calculate lower and upper bound with Quantile function of exponential probability distribution
-        // I(i) = [1/LAMBDA * |ln(1 - (i-1)/slices)|, 1/LAMBDA * |ln(1 - i/slices)|]
-        let lbound: usize = ((1./LAMBDA) * abs((1.-(i as f32 - 1.)/slices as f32).ln())) as usize;
-        let ubound: usize = ((1./LAMBDA) * abs((1.-i as f32/slices as f32).ln())) as usize;
-
-        // if upper bound is above no of buckets (256), reduce to no of buckets
-        let ubound: usize = if ubound > BUCKETS { BUCKETS } else { ubound };
-        if ubound > lbound && lbound < BUCKETS { bucket_ranges.push(lbound..ubound) };
-    }
-
+    // split ranges into slices according to linear probability distribition of kmers 
+    let bucket_ranges: Vec<std::ops::Range<usize>> = lin_dist_range(BUCKETS, slices);
+    
     debug!("bucket ranges: {:?}", bucket_ranges);
 
     debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
