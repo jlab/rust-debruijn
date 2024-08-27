@@ -30,7 +30,7 @@
 
 use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::hash::Hash;
 
 pub mod clean_graph;
@@ -853,19 +853,17 @@ impl Tags {
 
     /// Make 
     pub fn new(val: u64) -> Self {
-        Tags { val }
+        return Tags { val }
     }
 
-    /* pub fn empty() -> Self {
-        let val: T = 0;
-        Tags { val }
-    } */
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
     pub fn from_u8_vec(vec: Vec<u8>) -> Self {
         let mut x: u64 = 0;
 
+        // panic if Tags would overflow
         if vec.last().expect("vector empty when it shouldn't be") > &63 { panic!("too many tags") }
-
+        
+        // iterate backwards over all elements of the vector
         for i in (1..vec.len()).rev() {
             x += 1;
             x <<= vec[i] - vec[i-1];
@@ -874,13 +872,16 @@ impl Tags {
         x += 1;
         x <<= vec[0];
 
-        Tags { val: x }
+        return Tags { val: x }
     }
 
+    // turn Tags into Vec<u8>
     pub fn to_u8_vec(&self) -> Vec<u8> {
         let mut x = self.val;
         let mut vec: Vec<u8> = Vec::new();
 
+        // do bit-wise right shifts trough u64
+        // each time first digit is 1 (is an odd number), push i to vec
         for i in 0..64 {
             if x % 2 != 0 {
                 vec.push(i)
@@ -888,10 +889,11 @@ impl Tags {
             x >>= 1;
         }
 
-        vec
-
+        return vec
     }
 
+    // directly translate Tags to Vec<&str>
+    // str_map is translatror BiMap between u8 and &str 
     pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::new();
@@ -908,7 +910,7 @@ impl Tags {
             // shift the u64 bitise to rotate though it
             x >>= 1;
         }
-        vec    
+        return vec    
     }
 
     /// compares the value of the tags with another value (marker) with a bit-wise and,

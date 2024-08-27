@@ -699,7 +699,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// Write the graph to a dot file in parallel
     /// Will write in to n_threads files simultaniously,
     /// then go though the files and add the contents to a larger file, 
-    /// and delete the small files
+    /// and delete the small files.
+    /// 
+    /// The path does not need to contain the file ending.
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
         let mut f = File::create(path).expect("couldn't open file");
 
@@ -737,7 +739,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut files = Vec::with_capacity(current_num_threads());
 
         for i in 0..parallel_ranges.len() {
-            files.push(format!("{}-{}.gfa", path, i));
+            files.push(format!("{}-{}.dot", path, i));
         } 
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {

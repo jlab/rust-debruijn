@@ -68,6 +68,8 @@ pub trait SummaryData<D> {
     fn get_tags_sum(&self) -> Option<(Tags, i32)>;
     /// return a score (the sum of the kmer appearances), `Vec<D>` simply returns `1`
     fn score(&self) -> f32;
+    /// return the size of the structure, including contents of slices
+    fn mem(&self) -> usize;
 }
 
 impl<> SummaryData<u16> for u16 {
@@ -88,6 +90,10 @@ impl<> SummaryData<u16> for u16 {
 
     fn score(&self) -> f32 {
         *self as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::align_of_val(&self)
     }
 
 }
@@ -111,6 +117,10 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 
     fn score(&self) -> f32 {
         1.
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&*self)
     }
 
 }
@@ -149,6 +159,10 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     fn score(&self) -> f32 {
         self.sum as f32
     }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +191,10 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
 
     fn score(&self) -> f32 {
         self.sum as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&self) + mem::align_of_val(&*self.counts)
     }
 
 }
@@ -681,10 +699,19 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     let stv = shared_target_vecs.lock().expect("final lock target vectors");
 
+    
+
     debug!("valid kmers - capacity: {}, size: {}, mem: {}", stv.0.capacity(), stv.0.len(), mem::size_of_val(&*stv.0));
     debug!("valid exts - capacity: {}, size: {}, mem: {}", stv.1.capacity(), stv.1.len(), mem::size_of_val(&*stv.1));
-    debug!("valid data - capacity: {}, size: {}, mem: {}", stv.2.capacity(), stv.2.len(), mem::size_of_val(&*stv.2));
+    debug!("valid data - capacity: {}, size: {}, struct mem: {}, real mem: {}", stv.2.capacity(), stv.2.len(), mem::size_of_val(&*stv.2), {
+        let mut data_size = 0;
+        for data in &stv.2 {
+            data_size += data.mem();
+        }
+        data_size
+    });
     debug!("all kmers - capacity: {}, size: {}, mem: {}", stv.3.capacity(), stv.3.len(), mem::size_of_val(&*stv.3));
+    
 
     let before_hash = Instant::now();
     let hm = BoomHashMap2::new_parallel(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec());
