@@ -120,7 +120,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self)
+        mem::size_of_val(&**self) + mem::size_of_val(&*self)
     }
 
 }
