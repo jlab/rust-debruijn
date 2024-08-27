@@ -116,6 +116,8 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// aligned would be 16 Bytes, packed is 12 Bytes
+#[repr(packed)]
 pub struct TagsSumData {
     tags: Tags,
     sum: i32,
@@ -127,11 +129,17 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     }
 
     fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
+        // need to copy fields to local variable because repr(packed) results in unaligned struct
+        let tags = self.tags;
+        let sum = self.sum;
+        // replace " with ' to avoid conflicts in dot file
+        format!("tags: {:?}, sum: {}", tags.to_string_vec(tag_translator), sum).replace("\"", "\'")
     }
 
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
-        Some((self.tags.to_u8_vec(), self.sum))
+        // need to copy fields to local variable because repr(packed) results in unaligned struct
+        let tags = self.tags;
+        Some((tags.to_u8_vec(), self.sum))
     }
 
     fn get_tags_sum(&self) -> Option<(Tags, i32)> {
