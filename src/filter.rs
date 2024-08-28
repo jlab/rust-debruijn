@@ -194,7 +194,7 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::align_of_val(&*self.counts)
+        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
     }
 
 }
