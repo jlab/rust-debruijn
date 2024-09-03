@@ -127,6 +127,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 
 #[derive(Debug, Clone, PartialEq)]
 // aligned would be 16 Bytes, packed is 12 Bytes
+#[repr(packed)]
 pub struct TagsSumData {
     tags: Tags,
     sum: i32,
