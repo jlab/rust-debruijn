@@ -127,7 +127,6 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 
 #[derive(Debug, Clone, PartialEq)]
 // aligned would be 16 Bytes, packed is 12 Bytes
-#[repr(packed)]
 pub struct TagsSumData {
     tags: Tags,
     sum: i32,
@@ -168,8 +167,8 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagsCountData {
     tags: Tags,
-    counts: Box<[u32]>,
     sum: i32,
+    counts: Box<[u32]>,
 }
 
 impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
@@ -368,14 +367,6 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
         (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountData::new((Tags::from_u8_vec(out_data), tag_counts, nobs))) 
     }
 }
-
-pub enum Summarizer {
-    Count,
-    Tags,
-    CountNTags,
-    CountNCountTags,
-}
-
 
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
