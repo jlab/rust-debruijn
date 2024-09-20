@@ -557,7 +557,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             }
 
             // clone and lock kmer_buckets to safely share across threads
-            let _kb_clone = Arc::clone(&kmer_buckets);
+            //let _kb_clone = Arc::clone(&kmer_buckets);
             debug!("{}", Arc::strong_count(&kmer_buckets));
             let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
             // replace empty vec too keep order
@@ -626,7 +626,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             // important that this is done in one step so each kmer has the same index with its exts and data
             if valid_kmers.len() > 0 {
 
-                let _stv_clone = Arc::clone(&shared_target_vecs);
+                //let _stv_clone = Arc::clone(&shared_target_vecs);
                 let mut stv = shared_target_vecs.lock().expect("lock target vectors");
                 // valid kmers
                 stv.0.reserve_exact(valid_kmers.len());
@@ -641,7 +641,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
             // if kmers were collected into all_kmers, append them to shared target vector
             if all_kmers.len() > 0 {
-                let _stv_clone = Arc::clone(&shared_target_vecs);
+                //let _stv_clone = Arc::clone(&shared_target_vecs);
                 let mut stv = shared_target_vecs.lock().expect("lock target vectors");
                 // all kmers
                 stv.3.reserve_exact(all_kmers.len());
