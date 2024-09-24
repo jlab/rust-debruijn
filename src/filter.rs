@@ -707,7 +707,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     
 
     let before_hash = Instant::now();
-    let hm = BoomHashMap2::new(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec());
+    let hm = BoomHashMap2::new_parallel(stv.0.to_vec(), stv.1.to_vec(), stv.2.to_vec());
     let after_hash = before_hash.elapsed().as_secs_f32();
     let all_kmers = stv.3.to_vec();
 
