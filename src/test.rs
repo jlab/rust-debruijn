@@ -570,18 +570,18 @@ mod tests {
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsSumData>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(filter::CountFilterComb::new(2)),
+            &Box::new(filter::CountFilterStats::new(2)),
             stranded,
             false,
             4,
             true,
             true,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsSumData>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterComb::new(1)),
+            Box::new(CountFilterStats::new(1)),
             1,
             stranded,
             false,
@@ -651,7 +651,7 @@ mod tests {
         }
 
         graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
-        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsSumData>| format!("{:?}", node.data()))).unwrap();
+        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsCountData>| format!("{:?}", node.data()))).unwrap();
         //let graph2 = graph.finish();
         //graph2.print();
         //graph.print();
