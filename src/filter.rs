@@ -146,6 +146,8 @@ impl<D: Ord> KmerSummarizer<D, (Vec<D>, Vec<u32>, u32)> for CountFilterSet2<D> {
                 label_counter = 1;
             }
         }
+        label_counts.push(label_counter);
+
         out_data.dedup();
         (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, label_counts, nobs))
     }
