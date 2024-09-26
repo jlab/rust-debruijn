@@ -100,6 +100,57 @@ impl<D: Ord> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
     }
 }
 
+/// A simple KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. The metadata returned about a Kmer
+/// is a vector of the unique data values observed for that kmer, 
+/// the number of observations by that data value and the number of overall observations.
+pub struct CountFilterSet2<D> {
+    min_kmer_obs: usize,
+    phantom: PhantomData<D>,
+}
+
+impl<D> CountFilterSet2<D> {
+    /// Construct a `CountFilterSet` KmerSummarizer only accepts kmers that are observed
+    /// at least `min_kmer_obs` times.
+    pub fn new(min_kmer_obs: usize) -> CountFilterSet2<D> {
+        CountFilterSet2 {
+            min_kmer_obs,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<D: Ord> KmerSummarizer<D, (Vec<D>, Vec<u32>, u32)> for CountFilterSet2<D> {
+    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, (Vec<D>, Vec<u32>, u32)) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0;
+        for (_, exts, d) in items {
+            out_data.push(d);
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut label_counts = Vec::new();
+        let mut label_counter = 1;
+
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                label_counter += 1;
+            } else {
+                label_counts.push(label_counter.clone());
+                label_counter = 1;
+            }
+        }
+        out_data.dedup();
+        (nobs as usize >= self.min_kmer_obs, all_exts, (out_data, label_counts, nobs))
+    }
+}
+
 /// Process DNA sequences into kmers and determine the set of valid kmers,
 /// their extensions, and summarize associated label/'color' data. The input
 /// sequences are converted to kmers of type `K`, and like kmers are grouped together.
