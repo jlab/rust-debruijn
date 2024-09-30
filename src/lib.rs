@@ -32,6 +32,7 @@ use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
+use std::mem;
 
 pub mod clean_graph;
 pub mod compression;
@@ -845,23 +846,40 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
 
 /// Compress the tags to one u64 (8 bytes)
 #[derive(Clone, PartialEq, Copy)]
+#[cfg(feature = "sample128")]
+pub struct Tags {
+    pub val: u128,
+}
+
+/// Compress the tags to one u64 (8 bytes)
+#[derive(Clone, PartialEq, Copy)]
+#[cfg(not(feature = "sample128"))]
 pub struct Tags {
     pub val: u64,
 }
 
 impl Tags {
 
-    /// Make 
+    /// Make a new Tags from a u64
+    #[cfg(not(feature = "sample128"))]
     pub fn new(val: u64) -> Self {
+        return Tags { val }
+    }
+
+    /// Make a new Tags from a u64
+    #[cfg(feature = "sample128")]
+    pub fn new(val: u128) -> Self {
         return Tags { val }
     }
 
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
     pub fn from_u8_vec(vec: Vec<u8>) -> Self {
-        let mut x: u64 = 0;
+        let mut x = 0;
 
         // panic if Tags would overflow
-        if vec.last().expect("vector empty when it shouldn't be") > &63 { panic!("too many tags") }
+        if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8u8 >= mem::size_of::<Tags>() as u8 { 
+            panic!("too many tags - maximum number of supported tags is 64 by default, 128 with compile flag / feature '--feature sample128'") 
+        }
         
         // iterate backwards over all elements of the vector
         for i in (1..vec.len()).rev() {
@@ -882,7 +900,7 @@ impl Tags {
 
         // do bit-wise right shifts trough u64
         // each time first digit is 1 (is an odd number), push i to vec
-        for i in 0..64 {
+        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
             if x % 2 != 0 {
                 vec.push(i)
             }
@@ -899,12 +917,12 @@ impl Tags {
         let mut vec: Vec<&str> = Vec::new();
 
         // iterate through bits of the u64
-        for i in 0..64 {
+        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
             // check if odd number: current first bit is 1
             if x % 2 != 0 {
                 match str_map.get_by_right(&(i as u8)) {
                     Some(label) => vec.push(label),
-                    None => panic!("tried to access label that doesnt exist!"),
+                    None => panic!("tried to access label that does not exist!"),
                 }
             }
             // shift the u64 bitise to rotate though it
@@ -917,9 +935,20 @@ impl Tags {
     /// returns true if the result is greater than 0:
     /// `00101 & 01000 -> false`
     /// `00101 & 00100 -> true`
+    #[cfg(feature = "sample128")]
+    pub fn bit_and(&self, marker: u128) -> bool {
+        (self.val & marker) > 0
+    }
+
+    /// compares the value of the tags with another value (marker) with a bit-wise and,
+    /// returns true if the result is greater than 0:
+    /// `00101 & 01000 -> false`
+    /// `00101 & 00100 -> true`
+    #[cfg(not(feature = "sample128"))]
     pub fn bit_and(&self, marker: u64) -> bool {
         (self.val & marker) > 0
     }
+
 }
 
 impl fmt::Debug for Tags {

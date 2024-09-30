@@ -681,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_tags() {
-        let tag = Tags::new(83u64);
+        let tag = Tags::new(83);
         println!("tag as u64: {}, tag as u8 vec: {:?}", tag.val, tag.to_u8_vec());
         println!("tag as bin: {:064b}", tag.val);
         let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
@@ -700,6 +700,11 @@ mod tests {
         println!("comp 8: {:?}", comp.bit_and(8));
         println!("comp 12: {:?}", comp.bit_and(12));
         println!("comp 16: {:?}", comp.bit_and(16));
+        println!("tag overflow: 63 {:?}", Tags::from_u8_vec(vec![1, 63]));
+        println!("tag overflow: 64 {:?}", Tags::from_u8_vec(vec![1, 64]));
+        println!("tag overflow: 65 {:?}", Tags::from_u8_vec(vec![1, 65]));
+        println!("tag overflow: 100 {:?}", Tags::from_u8_vec(vec![1, 100]));
+        println!("tag overflow: 128 {:?}", Tags::from_u8_vec(vec![1, 128]));
     }
 
     #[test]
