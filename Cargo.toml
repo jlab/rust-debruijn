@@ -30,3 +30,6 @@ rand = "0.5"
 [dependencies.boomphf]
 version = "0.6"
 features = ["serde"]
+
+[features]
+sample128 = []
