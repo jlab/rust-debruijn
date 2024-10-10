@@ -28,9 +28,11 @@
 //! which expects bases encoded as the integers 0,1,2,3, and a separate form names 'ascii',
 //! which expects bases encoded as the ASCII letters A,C,G,T.
 
+use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::hash::Hash;
+use std::mem;
 
 pub mod clean_graph;
 pub mod compression;
@@ -223,6 +225,7 @@ pub trait Kmer: Mer + Sized + Copy + PartialEq + PartialOrd + Eq + Ord + Hash {
     /// Return the minimum of the kmer and it's reverse complement, and a flag indicating if sequence was flipped
     fn min_rc_flip(&self) -> (Self, bool) {
         let rc = self.rc();
+        //println!("kmer flip: self: {:?}, rc: {:?}, t/f: {}", self, rc, (*self < rc));
         if *self < rc {
             (*self, false)
         } else {
@@ -533,7 +536,7 @@ impl<'a> Vmer for DnaSlice<'a> {
 }
 
 /// Direction of motion in a DeBruijn graph
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Dir {
     Left,
     Right,
@@ -840,3 +843,118 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
         }
     }
 }
+
+/// Compress the tags to one u64 (8 bytes)
+#[derive(Clone, PartialEq, Copy)]
+#[cfg(feature = "sample128")]
+pub struct Tags {
+    pub val: u128,
+}
+
+/// Compress the tags to one u64 (8 bytes)
+#[derive(Clone, PartialEq, Copy)]
+#[cfg(not(feature = "sample128"))]
+pub struct Tags {
+    pub val: u64,
+}
+
+impl Tags {
+
+    /// Make a new Tags from a u64
+    #[cfg(not(feature = "sample128"))]
+    pub fn new(val: u64) -> Self {
+        return Tags { val }
+    }
+
+    /// Make a new Tags from a u64
+    #[cfg(feature = "sample128")]
+    pub fn new(val: u128) -> Self {
+        return Tags { val }
+    }
+
+    /// encodes a sorted (!) Vec<u8> and encodes it as a u64
+    pub fn from_u8_vec(vec: Vec<u8>) -> Self {
+        let mut x = 0;
+
+        // panic if Tags would overflow
+        if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8u8 >= mem::size_of::<Tags>() as u8 { 
+            panic!("too many tags - maximum number of supported tags is 64 by default, 128 with compile flag / feature '--feature sample128'") 
+        }
+        
+        // iterate backwards over all elements of the vector
+        for i in (1..vec.len()).rev() {
+            x += 1;
+            x <<= vec[i] - vec[i-1];
+        }
+
+        x += 1;
+        x <<= vec[0];
+
+        return Tags { val: x }
+    }
+
+    // turn Tags into Vec<u8>
+    pub fn to_u8_vec(&self) -> Vec<u8> {
+        let mut x = self.val;
+        let mut vec: Vec<u8> = Vec::new();
+
+        // do bit-wise right shifts trough u64
+        // each time first digit is 1 (is an odd number), push i to vec
+        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
+            if x % 2 != 0 {
+                vec.push(i)
+            }
+            x >>= 1;
+        }
+
+        return vec
+    }
+
+    // directly translate Tags to Vec<&str>
+    // str_map is translatror BiMap between u8 and &str 
+    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&str> {
+        let mut x = self.val;
+        let mut vec: Vec<&str> = Vec::new();
+
+        // iterate through bits of the u64
+        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
+            // check if odd number: current first bit is 1
+            if x % 2 != 0 {
+                match str_map.get_by_right(&(i as u8)) {
+                    Some(label) => vec.push(label),
+                    None => panic!("tried to access label that does not exist!"),
+                }
+            }
+            // shift the u64 bitise to rotate though it
+            x >>= 1;
+        }
+        return vec    
+    }
+
+    /// compares the value of the tags with another value (marker) with a bit-wise and,
+    /// returns true if the result is greater than 0:
+    /// `00101 & 01000 -> false`
+    /// `00101 & 00100 -> true`
+    #[cfg(feature = "sample128")]
+    pub fn bit_and(&self, marker: u128) -> bool {
+        (self.val & marker) > 0
+    }
+
+    /// compares the value of the tags with another value (marker) with a bit-wise and,
+    /// returns true if the result is greater than 0:
+    /// `00101 & 01000 -> false`
+    /// `00101 & 00100 -> true`
+    #[cfg(not(feature = "sample128"))]
+    pub fn bit_and(&self, marker: u64) -> bool {
+        (self.val & marker) > 0
+    }
+
+}
+
+impl fmt::Debug for Tags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.to_u8_vec())
+    }
+}
+
+

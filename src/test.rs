@@ -135,18 +135,22 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 mod tests {
 
     use crate::clean_graph::CleanGraph;
-    use crate::compression::{compress_graph, compress_kmers_with_hash, SimpleCompress};
-    use crate::graph::BaseGraph;
-    use crate::DnaBytes;
+    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
+    use crate::graph::{self, BaseGraph};
+    use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
+    use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
     use std::collections::{HashMap, HashSet};
+    use std::fmt::Write;
+    use std::fs::File;
     use std::iter::FromIterator;
+    use std::marker::PhantomData;
 
     use crate::dna_string::DnaString;
-    use crate::filter;
-    use crate::kmer::Kmer6;
+    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
+    use crate::kmer::{Kmer4, Kmer6};
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
@@ -241,11 +245,13 @@ mod tests {
             stranded,
             false,
             4,
+            true,
+            true,
         );
 
         let spec =
             SimpleCompress::new(|d1: u16, d2: &u16| ((d1 as u32 + *d2 as u32) % 65535) as u16);
-        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers).finish();
+        let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -296,7 +302,7 @@ mod tests {
 
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
-    fn reassemble_contigs<K: Kmer + Copy, V: Vmer + Clone>(contigs: Vec<Vec<u8>>, stranded: bool) {
+    fn reassemble_contigs<K: Kmer + Copy + Send + Sync, V: Vmer + Clone>(contigs: Vec<Vec<u8>>, stranded: bool) {
         let ctg_lens: Vec<_> = contigs.iter().map(std::vec::Vec::len).collect();
         println!("Reassembling contig sizes: {:?}", ctg_lens);
 
@@ -347,6 +353,8 @@ mod tests {
             stranded,
             false,
             4,
+            true,
+            true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
         for k in valid_kmers.iter().map(|x| x.0) {
@@ -383,7 +391,7 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
 
         // Check that all the lines have valid kmers,
         // and have extensions into other valid kmers
@@ -453,13 +461,15 @@ mod tests {
                 stranded,
                 false,
                 4,
+                true,
+                true
             );
 
             // Generate compress DBG for this shard
             let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
-            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers);
+            let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
             shard_asms.push(graph.clone());
             //graph.finish().print();
         }
@@ -505,13 +515,16 @@ mod tests {
 
     #[test]
     fn simple_tip_clean() {
-        let contigs = vec![random_dna(200), random_dna(200)];
+        let contigs = vec![random_dna(100), random_dna(100)];
         test_tip_cleaning::<IntKmer<u64>>(contigs, false);
     }
 
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
     fn test_tip_cleaning<K: Kmer + Sync + Send>(contigs: Vec<Vec<u8>>, stranded: bool) {
+
+        let mut rng = rand::thread_rng();
+        
         let mut clean_seqs = Vec::new();
         let mut all_seqs = Vec::new();
 
@@ -522,8 +535,8 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), ()));
-                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), ()));
+                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
+                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
             }
 
             let junk = random_dna(5);
@@ -531,9 +544,14 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), ()));
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), ()));
+            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
+            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
         }
+
+
+        // initialize global thread pool with x threads
+        let num_threads = 4;
+        rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
@@ -542,32 +560,188 @@ mod tests {
             stranded,
             false,
             4,
+            true,
+            true
         );
         let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false, true);
         let graph1 = graph.finish();
         graph1.print();
+        println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(filter::CountFilter::new(2)),
+            &Box::new(filter::CountFilterStats::new(2)),
             stranded,
             false,
             4,
+            true,
+            true,
         );
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs);
-        let graph2 = graph.finish();
-        graph2.print();
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
+            &all_seqs,
+            Box::new(CountFilterStats::new(1)),
+            1,
+            stranded,
+            false,
+            4,
+            true,
+            true,
+        );
+
+        println!("1: {:?}", valid_kmers_errs);
+        println!("2: {:?}", valid_kmers_errs2);
+
+        let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
+            &all_seqs,
+            Box::new(filter::CountFilter::new(1)),
+            1,
+            stranded,
+            false,
+            4,
+            true,
+            true
+        );
+        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
+            &all_seqs,
+            Box::new(CountFilterStats::new(1)),
+            1,
+            stranded,
+            false,
+            4,
+            true,
+            true
+        );
+
+        //println!("3: {:?}", valid_kmers_errs3);
+        //println!("4: {:?}", valid_kmers_errs4);
+
+        //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
+        let spec = ScmapCompress::new();
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, true, true);
+        println!("graph: {:?}", graph);
+        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false, true);
+        println!("graph: {:?}", graph);
+
+        let graph = graph.finish();
+        graph.print();
+        /* graph.to_dot("test_out", &|d| format!("{:?}", d));
+        graph.to_dot_parallel("test_out_par", &|d  format!("{:?}", d)); */
+        
+        println!("components i: {:?}", graph.components_i());
+        println!("components r: {:?}", graph.components_r());
+
+        for path in graph.max_path_comp(|_| 1., |_| true) {
+            println!("path m1: {:?}", graph.sequence_of_path(path.iter()))
+        }
+        
+        let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);
+
+        let mut file = File::create("test_fasta_out.fasta").unwrap();
+        graph.path_to_fasta(&mut file, path_iter);
+
+        for x in graph.iter_components() {
+            println!("component: {:?}", x);
+        }
+
+        for path in graph.iter_max_path_comp(|_| 1., |_| true) {
+            println!("path seq: {:?}", path);
+            println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
+        }
+
+        graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
+        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsCountData>| format!("{:?}", node.data()))).unwrap();
+        //let graph2 = graph.finish();
+        //graph2.print();
+        //graph.print();
+        //println!("components: {:?}", graph.components_r());
+        //let max_path = graph2.max_path(|d| *d as f32, |_| true);
+        //println!("one graph: {:?}", max_path); 
+        //let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
+        //println!("all graphs: {:?}", max_path_c); 
+        /* for i in 0..graph2.len() {
+            println!("node {}: {}", i,  graph2.get_node(i).sequence());
+            println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
+        } */
+        //let u_graph: BaseGraph<K, (Vec<()>, i32)> = uncompressed_graph(&valid_kmers_errs);
+        //let u_graph2 = u_graph.finish();
+        //println!("uncompressed graph: {:?}", u_graph2);
+        //u_graph2.print();
 
         // Now try to clean the tips.
-        let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
-        let nodes_to_censor = cleaner.find_bad_nodes(&graph2);
+        //let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
+        //let nodes_to_censor = cleaner.find_bad_nodes(&graph2);
 
-        println!("censor: {:?}", nodes_to_censor);
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
-        fixed.print();
+        //println!("censor: {:?}", nodes_to_censor);
+        //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
+        //let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
+        //fixed.print();
+    }
+
+    #[test]
+    fn test_tags() {
+        // translation hash map
+        let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
+        let mut str_map = BiMap::new();
+        for (i, str) in str_vec.into_iter().enumerate() {
+            str_map.insert(str, i as u8);
+        }
+
+        // build Tags from val
+        let tag = Tags::new(83);
+        assert_eq!(tag.val, 83);
+        assert_eq!(tag.to_u8_vec(), vec![0, 1, 4, 6]);
+        assert!(format!("{:064b}", tag.val).ends_with("1010011"));
+        assert_eq!(tag.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
+        
+        // build tags from u8 vec
+        let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let vec2 = Tags::from_u8_vec(vec![1, 2, 3, 4, 6]);
+
+        assert_eq!(vec.val, 83);
+        assert_eq!(vec2.val, 94);
+        assert_eq!(vec.to_u8_vec(), vec![0, 1, 4, 6]);
+        assert_eq!(vec2.to_u8_vec(), vec![1, 2, 3, 4, 6]);
+        assert_eq!(vec.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
+        assert_eq!(vec2.to_string_vec(&str_map), vec!["tag2", "tag3", "tag4", "tag5", "tag7"]);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(not(feature = "sample128"))]
+    fn test_tags_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 64]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "sample128"))]
+    fn test_tags_no_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 63]);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(feature = "sample128")]
+    fn test_tags_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 128]);
+    }
+
+    #[test]
+    #[cfg(feature = "sample128")]
+    fn test_tags_no_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 127]);
+    }
+
+    #[test]
+    fn kmer_experiment() {
+        let mut counts = [0; 256];
+        let max = (4usize.pow(6) - 1) as u16;
+        for i in 0..=max {
+            let kmer = crate::kmer::Kmer6::from(VarIntKmer { storage: i, phantom: PhantomData });
+            let min_rc = kmer.min_rc();
+            counts[filter::bucket(min_rc)] += 1;
+        }
+        println!("{:?}", counts);
     }
 }

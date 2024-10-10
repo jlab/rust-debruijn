@@ -818,6 +818,7 @@ impl PackedDnaStringSet {
             length += 1;
         }
         self.length.push(length as u32);
+        //debug!("add to sequence for loop {:?} iterations (pr seq len)", length);
     }
 }
 

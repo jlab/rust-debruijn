@@ -4,6 +4,8 @@
 
 use bit_set::BitSet;
 use log::{debug, trace};
+use rayon::prelude::*;
+use rayon::current_num_threads;
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
@@ -11,10 +13,10 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
-use std::fmt::{self, Debug};
-use std::fs::File;
+use std::fmt::{self, Debug, Display};
+use std::fs::{remove_file, File};
 use std::hash::Hash;
-use std::io::Error;
+use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
@@ -30,11 +32,7 @@ type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::Dir;
-use crate::Exts;
-use crate::Kmer;
-use crate::Mer;
-use crate::Vmer;
+use crate::{Dir, Exts, Kmer, Mer, Vmer};
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
 /// This type does not carry the sorted index arrays the allow the graph
@@ -121,7 +119,9 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
+                
             }
+            
             BoomHashMap::new_parallel(kmers, indices.clone())
         };
 
@@ -130,8 +130,10 @@ impl<K: Kmer + Send + Sync, D> BaseGraph<K, D> {
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
             }
+            
             BoomHashMap::new_parallel(kmers, indices)
         };
+        debug!("finish graph loops: 2x {}", self.len());
 
         DebruijnGraph {
             base: self,
@@ -147,17 +149,25 @@ impl<K: Kmer, D> BaseGraph<K, D> {
 
         let left_order = {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
+            let mut sequences: Vec<String> = Vec::new();
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
+                sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
+            println!("left kmers: {:?}", kmers);
+            println!("left seqs: {:?}", sequences);
             BoomHashMap::new(kmers, indices.clone())
         };
 
         let right_order = {
             let mut kmers: Vec<K> = Vec::with_capacity(self.len());
+            let mut sequences: Vec<String> = Vec::new();
             for idx in &indices {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
+                sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
+            println!("right kmers: {:?}", kmers);
+            println!("right seqs: {:?}", sequences);
             BoomHashMap::new(kmers, indices)
         };
 
@@ -166,6 +176,10 @@ impl<K: Kmer, D> BaseGraph<K, D> {
             left_order,
             right_order,
         }
+    }
+
+    pub fn remove_duplicate_kmers(self) {
+        
     }
 }
 
@@ -467,6 +481,164 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Vec::from_iter(path)
     }
 
+
+    /// Find the highest-scoring, unambiguous path in the graph. Each node get a score
+    /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
+    /// paths will be terminated if there are multiple valid paths emanating from a node.
+    /// Returns vec with path for each component
+    pub fn max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> Vec<VecDeque<(usize, Dir)>>
+    where
+        F: Fn(&D) -> f32,
+        F2: Fn(&D) -> bool,
+    {
+        if self.is_empty() {
+            let vec: Vec<VecDeque<(usize, Dir)>> = Vec::new();
+            return vec;
+        }
+
+        let components = self.iter_components();
+        let mut paths: Vec<VecDeque<(usize, Dir)>> = Vec::new();
+
+        for component in components {
+
+            let current_comp = &component;
+            
+
+            let mut best_node = current_comp[0];
+            let mut best_score = f32::MIN;
+            for i in 0..current_comp.len() {
+                let node = self.get_node(current_comp[i]);
+                let node_score = score(node.data());
+
+                if node_score > best_score {
+                    best_node = current_comp[i];
+                    best_score = node_score;
+                }
+            }
+
+            let oscore = |state| match state {
+                None => 0.0,
+                Some((id, _)) => score(self.get_node(id).data()),
+            };
+
+            let osolid_path = |state| match state {
+                None => false,
+                Some((id, _)) => solid_path(self.get_node(id).data()),
+            };
+
+            // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
+            // already put into the path
+            let mut used_nodes = HashSet::new();
+            let mut path = VecDeque::new();
+
+            // Start w/ initial state
+            used_nodes.insert(best_node);
+            path.push_front((best_node, Dir::Left));
+
+            for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
+                let &(start_node, dir, do_flip) = init;
+                let mut current = (start_node, dir);
+                debug!("start: {:?}", current);
+
+                loop {
+                    let mut next = None;
+                    let (cur_id, incoming_dir) = current;
+                    let node = self.get_node(cur_id);
+                    let edges = node.edges(incoming_dir.flip());
+                    debug!("{:?}", node);
+
+                    let mut solid_paths = 0;
+                    for (id, dir, _) in edges {
+                        let cand = Some((id, dir));
+                        if osolid_path(cand) {
+                            solid_paths += 1;
+                        }
+
+                        if oscore(cand) > oscore(next) {
+                            next = cand;
+                        }
+                    }
+
+                    if solid_paths > 1 {
+                        break;
+                    }
+
+                    match next {
+                        Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
+                            if do_flip {
+                                path.push_front((next_id, next_incoming.flip()));
+                            } else {
+                                path.push_back((next_id, next_incoming));
+                            }
+
+                            used_nodes.insert(next_id);
+                            current = (next_id, next_incoming);
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            
+            debug!("path len: {:?}", path.len());
+            paths.push(path);
+            //paths.push(Vec::from_iter(path));
+        }
+
+        paths
+    
+    }
+
+    pub fn iter_max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> PathCompIter<K, D, F, F2> 
+    where 
+    F: Fn(&D) -> f32,
+    F2: Fn(&D) -> bool
+    {
+        let component_iterator = self.iter_components();
+        PathCompIter { graph: &self, component_iterator, graph_pos: 0, score, solid_path }
+    }
+
+    /// write the paths from `iter_max_path_comp` to a fasta file
+    pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>)
+    where 
+    F: Fn(&D) -> f32,
+    F2: Fn(&D) -> bool
+    {
+        // width of fasta lines
+        let columns = 80;
+        // numerical ID of path seq
+        let mut seq_counter = 0;
+
+        for path in path_iter {
+            writeln!(f, ">path {}", seq_counter).unwrap();
+
+            // get dna sequence from path
+            let seq = self.sequence_of_path(path.iter());
+
+            // calculate how sequence has to be split up
+            let slices = (seq.len() / columns) + 1;
+            let mut ranges = Vec::with_capacity(slices);
+
+            let mut start = 0;
+            while start < seq.len() {
+                ranges.push(start..start + columns);
+                start += columns;
+            }
+
+            let last_start = ranges.pop().expect("no kmers in parallel ranges").start;
+            ranges.push(last_start..seq.len());
+            debug!("fasta ranges: {:?}", ranges);
+
+            // split up sequence and write to file accordingly
+            for range in ranges {
+                writeln!(f, "{:?}", seq.slice(range.start, range.end)).unwrap();
+            }
+
+            seq_counter += 1;
+        }    
+        
+    }
+
+
     /// Get the sequence of a path through the graph. The path is given as a sequence of node_id integers
     pub fn sequence_of_path<'a, I: 'a + Iterator<Item = &'a (usize, Dir)>>(
         &self,
@@ -524,7 +696,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
     }
 
-    /// Write the graph to a dot file.
+    /// Write the graph to a dot file in parallel
+    /// Will write in to n_threads files simultaniously,
+    /// then go though the files and add the contents to a larger file, 
+    /// and delete the small files.
+    /// 
+    /// The path does not need to contain the file ending.
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
         let mut f = File::create(path).expect("couldn't open file");
 
@@ -533,6 +710,67 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
+        debug!("large to dot loop: {}", self.len());
+    }
+
+    pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&D) -> String + Sync>(&self, path: P, node_label: &F) 
+    where 
+        D: Sync,
+        K: Sync
+    {        
+        let slices = current_num_threads();
+        let n_nodes = self.len();
+        let sz = n_nodes / slices + 1;
+
+        debug!("n_nodes: {}", n_nodes);
+        debug!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_nodes {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_nodes);
+        debug!("parallel ranges: {:?}", parallel_ranges);
+
+        let mut files = Vec::with_capacity(current_num_threads());
+
+        for i in 0..parallel_ranges.len() {
+            files.push(format!("{}-{}.dot", path, i));
+        } 
+    
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut f = File::create(&files[i]).expect("couldn't open file");
+
+            for i in range {
+                self.node_to_dot(&self.get_node(i), node_label, &mut f);
+            }
+        });
+
+        let mut out_file = File::create(format!("{}.dot", path)).unwrap();
+
+        writeln!(&mut out_file, "digraph {{").unwrap();
+
+        for file in files.iter() {
+            let open_file = File::open(file).expect("couldn't open file");
+            let mut reader = BufReader::new(open_file);
+            let mut buffer = [0; 8000];
+
+            loop {
+                let linecount = reader.read(&mut buffer).unwrap();
+                if linecount == 0 { break }
+                out_file.write_all(&buffer[..linecount]).unwrap();
+            }
+
+            remove_file(file).unwrap();
+        }
+
+        writeln!(&mut out_file, "}}").unwrap();
+
+
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(
@@ -629,6 +867,74 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..self.len() {
             let n = self.get_node(i);
             self.node_to_gfa(&n, &mut wtr, Some(&tag_func))?;
+        }
+
+        Ok(())
+    }
+
+    /// Write the graph to GFA format, with multithreading, 
+    /// pass `tag_func=None` to write without tags
+    pub fn to_gfa_otags_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<'_, K, D>) -> String>(
+        &self,
+        gfa_out: P,
+        tag_func: Option<&F>,
+    ) -> Result<(), Error> 
+    where 
+    K: Sync,
+    D: Sync,
+    F: Sync
+    {
+        // split into ranges according to thread count
+        let slices = current_num_threads();
+        let n_nodes = self.len();
+        let sz = n_nodes / slices + 1;
+
+        debug!("n_nodes: {}", n_nodes);
+        debug!("sz: {}", sz);
+
+        let mut parallel_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        while start < n_nodes {
+            parallel_ranges.push(start..start + sz);
+            start += sz;
+        }
+
+        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+        parallel_ranges.push(last_start..n_nodes);
+        debug!("parallel ranges: {:?}", parallel_ranges);
+
+        let mut files = Vec::with_capacity(current_num_threads());
+
+        for i in 0..parallel_ranges.len() {
+            files.push(format!("{}-{}.gfa", gfa_out, i));
+        } 
+        
+        
+        parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
+            let mut wtr = File::create(&files[i]).unwrap();
+
+            for i in range {
+                let n = self.get_node(i);
+                self.node_to_gfa(&n, &mut wtr, tag_func).unwrap();
+            }
+        });
+
+        // combine files
+        let mut out_file = File::create(format!("{}.gfa", gfa_out))?;
+        writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
+
+        for file in files.iter() {
+            let open_file = File::open(file).expect("couldn't open file");
+            let mut reader = BufReader::new(open_file);
+            let mut buffer = [0; 8000];
+
+            loop {
+                let linecount = reader.read(&mut buffer).unwrap();
+                if linecount == 0 { break }
+                out_file.write_all(&buffer[..linecount]).unwrap();
+            }
+
+            remove_file(file).unwrap();
         }
 
         Ok(())
@@ -839,6 +1145,105 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         new_states
     }
+
+
+    pub fn iter_components(&self) -> IterComponents<K, D> {
+        let mut visited: Vec<bool> = Vec::with_capacity(self.len());
+        let pos = 0;
+
+        for _i in 0..self.len() {
+            visited.push(false);
+        }
+
+        IterComponents { 
+            graph: self, 
+            visited, 
+            pos }
+    }
+
+
+    /// iteratively returns 2D Vec with node_ids grouped according to the connected components they form
+    pub fn components_i(&self) -> Vec<Vec<usize>> {
+        let mut components: Vec<Vec<usize>> = Vec::with_capacity(self.len());
+        let mut visited: Vec<bool> = Vec::with_capacity(self.len());
+
+        for _i in 0..self.len() {
+            visited.push(false);
+        }
+
+        for i in 0..self.len() {
+            if !visited[i] {
+                let comp = self.component_i(&mut visited, i);
+                components.push(comp);
+            }
+        }
+
+        components
+    }
+
+    /// recursively detects which nodes form separate graph components
+    /// returns 2D vector with node ids per component
+    /// (may lead to stack overflow)
+    pub fn components_r(&self) -> Vec<Vec<usize>> {
+        let mut components: Vec<Vec<usize>> = Vec::with_capacity(self.len());
+        let mut visited: Vec<bool> = Vec::with_capacity(self.len());
+
+        for _i in 0..self.len() {
+            visited.push(false);
+        }
+
+        for i in 0..self.len() {
+            if !visited[i] {
+                let mut comp: Vec<usize> = Vec::new();
+                self.component_r(&mut visited, i, &mut comp);
+                components.push(comp);
+            }
+        }
+
+        components
+
+    }
+
+    fn component_r<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize, comp: &'a mut Vec<usize>) {
+        
+        visited[i] = true;
+        comp.push(i);
+        let mut edges = self.find_edges(i, Dir::Left);
+        let mut r_edges = self.find_edges(i, Dir::Right);
+
+        edges.append(&mut r_edges);
+
+        for (edge, _, _) in edges.iter() {
+            if !visited[*edge] {
+                self.component_r(visited, *edge, comp);
+            }
+        }
+    }
+
+    fn component_i<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize) -> Vec<usize> {
+        let mut edges: Vec<usize> = Vec::new();
+        let mut comp: Vec<usize> = Vec::new();
+
+        edges.push(i);
+
+        while let Some(current_edge) = edges.pop() {
+            visited[current_edge] = true;
+            comp.push(current_edge);
+
+            let mut l_edges = self.find_edges(current_edge, Dir::Left);
+            let mut r_edges = self.find_edges(current_edge, Dir::Right);
+
+            l_edges.append(&mut r_edges);
+
+            for (new_edge, _, _) in l_edges.into_iter() {
+                if !visited[new_edge] {
+                    edges.push(new_edge);
+                }
+            }
+        }
+        comp
+    }
+
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1115,5 +1520,149 @@ where
             self.sequence().len(),
             self.data()
         )
+    }
+}
+
+pub struct IterComponents<'a, K: Kmer, D> {
+    graph: &'a DebruijnGraph<K, D>,
+    visited: Vec<bool>,
+    pos: usize,
+}
+
+impl<K: Kmer, D: Debug> Iterator for IterComponents<'_, K, D> {
+    type Item = Vec<usize>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.pos < self.graph.len() {
+            if !self.visited[self.pos] {
+                let comp = self.graph.component_i(&mut self.visited, self.pos);
+                self.pos += 1;
+                return Some(comp)
+            } else {
+                self.pos += 1;
+            }
+        }
+        return None
+    }
+    
+}
+
+pub struct PathCompIter<'a, K: Kmer, D: Debug, F, F2> 
+where 
+F: Fn(&D) -> f32,
+F2: Fn(&D) -> bool
+{
+    graph: &'a DebruijnGraph<K, D>,
+    component_iterator: IterComponents<'a, K, D>,
+    graph_pos: usize,
+    score: F,
+    solid_path: F2,
+}
+
+impl<K: Kmer, D: Debug, F, F2> Iterator for PathCompIter<'_, K, D, F, F2> 
+where 
+F: Fn(&D) -> f32,
+F2: Fn(&D) -> bool
+{
+    type Item = VecDeque<(usize, Dir)>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.graph_pos <= self.graph.len() {
+            match self.component_iterator.next() {
+                Some(component) => {
+                    let current_comp = component;
+                    
+        
+                    let mut best_node = current_comp[0];
+                    let mut best_score = f32::MIN;
+                    for i in 0..current_comp.len() {
+                        let node = self.graph.get_node(current_comp[i]);
+                        let node_score = (self.score)(node.data());
+        
+                        if node_score > best_score {
+                            best_node = current_comp[i];
+                            best_score = node_score;
+                        }
+                    }
+        
+                    let oscore = |state| match state {
+                        None => 0.0,
+                        Some((id, _)) => (self.score)(self.graph.get_node(id).data()),
+                    };
+        
+                    let osolid_path = |state| match state {
+                        None => false,
+                        Some((id, _)) => (self.solid_path)(self.graph.get_node(id).data()),
+                    };
+        
+                    // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
+                    // already put into the path
+                    let mut used_nodes = HashSet::new();
+                    let mut path = VecDeque::new();
+        
+                    // Start w/ initial state
+                    used_nodes.insert(best_node);
+                    path.push_front((best_node, Dir::Left));
+        
+                    for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
+                        let &(start_node, dir, do_flip) = init;
+                        let mut current = (start_node, dir);
+                        debug!("start: {:?}", current);
+        
+                        loop {
+                            let mut next = None;
+                            let (cur_id, incoming_dir) = current;
+                            let node = self.graph.get_node(cur_id);
+                            let edges = node.edges(incoming_dir.flip());
+                            debug!("{:?}", node);
+        
+                            let mut solid_paths = 0;
+                            for (id, dir, _) in edges {
+                                let cand = Some((id, dir));
+                                if osolid_path(cand) {
+                                    solid_paths += 1;
+
+                                    // second if clause is outside of first in original code (see max_path) 
+                                    // but would basically ignore path validity.
+                                    if oscore(cand) > oscore(next) {
+                                        next = cand;
+                                    }
+                                }
+        
+                                if oscore(cand) > oscore(next) {
+                                    next = cand;
+                                }
+                            }
+        
+                            if solid_paths > 1 {
+                                break;
+                            }
+        
+                            match next {
+                                Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
+                                    if do_flip {
+                                        path.push_front((next_id, next_incoming.flip()));
+                                    } else {
+                                        path.push_back((next_id, next_incoming));
+                                    }
+        
+                                    used_nodes.insert(next_id);
+                                    current = (next_id, next_incoming);
+                                }
+                                _ => break,
+                            }
+                        }
+                    }
+                    
+                    debug!("path len: {:?}", path.len());
+                    
+                    return Some(path)
+                }, 
+                None => {
+                    // should technically not need graph_pos after this 
+                    self.graph_pos += 1;
+                    return None
+                }
+            };
+        } 
+        return None
     }
 }
