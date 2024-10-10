@@ -681,30 +681,56 @@ mod tests {
 
     #[test]
     fn test_tags() {
-        let tag = Tags::new(83);
-        println!("tag as u64: {}, tag as u8 vec: {:?}", tag.val, tag.to_u8_vec());
-        println!("tag as bin: {:064b}", tag.val);
-        let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
-        println!("vec to tags: {:?}", vec.val); 
-        let vec = Tags::from_u8_vec(vec![0, 2, 3, 4, 6]);
-        println!("vec to tags: {:?}", vec.val); 
-        println!("tag as bin: {:064b}", vec.val);
-        println!("tag back to vec: {:?}", vec.to_u8_vec());
+        // translation hash map
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
         let mut str_map = BiMap::new();
         for (i, str) in str_vec.into_iter().enumerate() {
             str_map.insert(str, i as u8);
         }
-        println!("tags to string vec: {:?}", vec.to_string_vec(&str_map));
-        let comp = Tags::new(21);
-        println!("comp 8: {:?}", comp.bit_and(8));
-        println!("comp 12: {:?}", comp.bit_and(12));
-        println!("comp 16: {:?}", comp.bit_and(16));
-        println!("tag overflow: 63 {:?}", Tags::from_u8_vec(vec![1, 63]));
-        println!("tag overflow: 64 {:?}", Tags::from_u8_vec(vec![1, 64]));
-        println!("tag overflow: 65 {:?}", Tags::from_u8_vec(vec![1, 65]));
-        println!("tag overflow: 100 {:?}", Tags::from_u8_vec(vec![1, 100]));
-        println!("tag overflow: 128 {:?}", Tags::from_u8_vec(vec![1, 128]));
+
+        // build Tags from val
+        let tag = Tags::new(83);
+        assert_eq!(tag.val, 83);
+        assert_eq!(tag.to_u8_vec(), vec![0, 1, 4, 6]);
+        assert!(format!("{:064b}", tag.val).ends_with("1010011"));
+        assert_eq!(tag.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
+        
+        // build tags from u8 vec
+        let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let vec2 = Tags::from_u8_vec(vec![1, 2, 3, 4, 6]);
+
+        assert_eq!(vec.val, 83);
+        assert_eq!(vec2.val, 94);
+        assert_eq!(vec.to_u8_vec(), vec![0, 1, 4, 6]);
+        assert_eq!(vec2.to_u8_vec(), vec![1, 2, 3, 4, 6]);
+        assert_eq!(vec.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
+        assert_eq!(vec2.to_string_vec(&str_map), vec!["tag2", "tag3", "tag4", "tag5", "tag7"]);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(not(feature = "sample128"))]
+    fn test_tags_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 64]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "sample128"))]
+    fn test_tags_no_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 63]);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(feature = "sample128")]
+    fn test_tags_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 128]);
+    }
+
+    #[test]
+    #[cfg(feature = "sample128")]
+    fn test_tags_no_overflow() {
+        let _tags = Tags::from_u8_vec(vec![5, 127]);
     }
 
     #[test]
