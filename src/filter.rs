@@ -443,8 +443,20 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
     
-    // split ranges into slices according to linear probability distribition of kmers 
-    let bucket_ranges: Vec<std::ops::Range<usize>> = lin_dist_range(BUCKETS, slices);
+    // split ranges into slices according to constant probrbiliy dist. if stranded, else according to linear probability distribition
+    let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
+        let mut bucket_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        let sz = 256 / slices + 1;
+        while start < 256 {
+            bucket_ranges.push(start..start + sz);
+            start += sz;
+        }
+        bucket_ranges
+    } else {
+        lin_dist_range(BUCKETS, slices)
+    };
+        
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -792,8 +804,19 @@ where
     let max_mem: usize = memory_size * 10_usize.pow(9);
     let slices: usize = kmer_mem / max_mem + 1;
   
-    // split ranges into slices according to linear probability distribition of kmers 
-    let bucket_ranges: Vec<std::ops::Range<usize>> = lin_dist_range(BUCKETS, slices);
+    // split ranges into slices according to constant probrbiliy dist. if stranded, else according to linear probability distribition
+    let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
+        let mut bucket_ranges = Vec::with_capacity(slices);
+        let mut start = 0;
+        let sz = 256 / slices + 1;
+        while start < 256 {
+            bucket_ranges.push(start..start + sz);
+            start += sz;
+        }
+        bucket_ranges
+    } else {
+        lin_dist_range(BUCKETS, slices)
+    };
 
     debug!("bucket ranges: {:?}", bucket_ranges);
 
