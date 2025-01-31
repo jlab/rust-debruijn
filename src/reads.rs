@@ -1,3 +1,4 @@
+use std::ops::Range;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -77,8 +78,15 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
+
+    /// Length of the DNA sequence
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Number of reads
+    pub fn n_reads(&self) -> usize {
+        self.ends.len()
     }
 
     pub fn add_read(&mut self, read: DnaString, exts: Exts, data: D) {
@@ -131,6 +139,54 @@ impl<D: Clone + Copy> Reads<D> {
         (sequence, self.exts[i], self.data[i])
     }
 
+
+    /// Iterate over the reads as (DnaString, Exts, D).
+    pub fn iter(&self) -> ReadsIter<'_, D> {
+        ReadsIter {
+            reads: self,
+            i: 0,
+            end: self.n_reads()
+        }
+    }
+
+    /// Iterate over a range start reads as (DnaString, Exts, D).
+    pub fn partial_iter(&self, range: Range<usize>) -> ReadsIter<'_, D> {
+        assert!(range.end <= self.n_reads());
+        assert!(range.start < self.n_reads());
+        assert!(range.start < range.end);
+        ReadsIter {
+            reads: self,
+            i: range.start,
+            end: range.end
+        }
+    }
+
+
+
+}
+
+
+
+
+/// Iterator over values of a DnaStringoded sequence (values will be unpacked into bytes).
+pub struct ReadsIter<'a, D> {
+    reads: &'a Reads<D>,
+    i: usize,
+    end: usize,
+}
+
+impl<'a, D: Clone + Copy> Iterator for ReadsIter<'a, D> {
+    type Item = (DnaString, Exts, D);
+
+    fn next(&mut self) -> Option<(DnaString, Exts, D)> {
+        if (self.i < self.reads.n_reads()) && (self.i < self.end) {
+            let value = self.reads.get_read(self.i);
+            self.i += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 
@@ -167,6 +223,15 @@ mod tests {
         for i in 0..fastq.len() {
             //println!("read {}: {:?}", i, reads.get_read(i))
             assert_eq!(fastq[i], reads.get_read(i))
+        }
+
+        for (seq, _, _) in reads.iter() {
+            println!("{:?}, {}", seq, seq.len())
+        }
+        println!("");
+
+        for read in reads.partial_iter(5..7) {
+            println!("{:?}", read)
         }
     }
 }

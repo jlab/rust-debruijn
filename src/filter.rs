@@ -20,6 +20,7 @@ use num_traits::Pow;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
+use crate::reads::Reads;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -408,7 +409,8 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
 pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
-    seqs: &[(V, Exts, u8)],
+    //seqs: &[(V, Exts, u8)],
+    seqs: &Reads<u8>,
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
     _summarizer: Box<S>,
@@ -430,7 +432,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
-        .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -521,7 +523,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
             // first go trough all kmers to find the length of all buckets (to reserve capacity)
             let mut capacities = [0usize; BUCKETS];
-            for &(ref seq, _, _) in &seqs[range.clone()] { 
+            for (ref seq, _, _) in seqs.partial_iter(range.clone()) { 
                 // iterate through all kmers in seq
                 for kmer in seq.iter_kmers::<K>() {
                     // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -547,7 +549,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             for capacity in capacities.into_iter() {
                 kmer_buckets1d.push(Vec::with_capacity(capacity));
             }
-            for &(ref seq, seq_exts, ref d) in &seqs[range] {
+            for (ref seq, seq_exts, ref d) in seqs.partial_iter(range) {
                 for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                     let (min_kmer, flip_exts) = if rc_norm {
                         let (min_kmer, flip) = kmer.min_rc_flip();
@@ -771,8 +773,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
-    seqs: &[(V, Exts, D1)],
+pub fn filter_kmers<K: Kmer, V: Vmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
+    seqs: &Reads<D1>,
+    //seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
     report_all_kmers: bool,
@@ -790,7 +793,7 @@ where
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
-        .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -862,7 +865,7 @@ where
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut capacities: [usize; 256] = [0; BUCKETS];
 
-        for &(ref seq, _, _) in seqs {
+        for (ref seq, _, _) in seqs.iter() {
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
                 // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -890,7 +893,7 @@ where
         }
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
-        for &(ref seq, seq_exts, ref d) in seqs {
+        for (ref seq, seq_exts, ref d) in seqs.iter() {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                 // // if not stranded choose lexiographically lesser of kmer and rc of kmer, flip exts if needed
