@@ -408,7 +408,7 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
     //seqs: &[(V, Exts, u8)],
     seqs: &Reads<u8>,
     //summarizer: &dyn Deref<Target = S>,
@@ -773,7 +773,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
+pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
     seqs: &Reads<D1>,
     //seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
@@ -1097,5 +1097,40 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
         }
 
         (valid_kmers[idx].1).0 = new_exts;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use boomphf::hashmap::BoomHashMap2;
+
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, Exts};
+
+    #[test]
+    fn test_filter_kmers() {
+        let fastq = [
+            (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+        }
+
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
+            &reads, 
+            &Box::new(CountFilterComb::new(1)),
+            false, 
+            false, 
+            1,
+            false,
+            false
+         );
+
+         println!("{:?}", hm);
+
     }
 }

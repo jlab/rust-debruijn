@@ -137,6 +137,7 @@ mod tests {
     use crate::clean_graph::CleanGraph;
     use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
+    use crate::reads::Reads;
     use crate::{DnaBytes, Mer, Tags};
     use crate::{Dir, Exts, Kmer};
     use bimap::BiMap;
@@ -147,9 +148,10 @@ mod tests {
     use std::fs::File;
     use std::iter::FromIterator;
     use std::marker::PhantomData;
+    use std::time;
 
     use crate::dna_string::DnaString;
-    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
+    use crate::filter::{self, filter_kmers, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
     use crate::kmer::{Kmer4, Kmer6};
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
@@ -240,7 +242,7 @@ mod tests {
             .map(|x| (DnaBytes(x), Exts::empty(), ()))
             .collect();
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &seqs,
+            &Reads::from_vmer_vec(&seqs),
             &Box::new(filter::CountFilter::new(1)),
             stranded,
             false,
@@ -300,6 +302,7 @@ mod tests {
         assert!(got_slot.iter().all(|x| *x));
     }
 
+
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
     fn reassemble_contigs<K: Kmer + Copy + Send + Sync, V: Vmer + Clone>(contigs: Vec<Vec<u8>>, stranded: bool) {
@@ -348,7 +351,7 @@ mod tests {
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &seqs,
+            &Reads::from_vmer_vec(&seqs),
             &Box::new(filter::CountFilter::new(2)),
             stranded,
             false,
@@ -456,7 +459,7 @@ mod tests {
         for seqs in shards.values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-                seqs,
+                &Reads::from_vmer_vec(seqs),
                 &Box::new(filter::CountFilter::new(2)),
                 stranded,
                 false,
@@ -525,8 +528,8 @@ mod tests {
 
         let mut rng = rand::thread_rng();
         
-        let mut clean_seqs = Vec::new();
-        let mut all_seqs = Vec::new();
+        let mut clean_seqs = Reads::new();
+        let mut all_seqs = Reads::new();
 
         // Generate 5x coverage of the main sequences & add some tips
         for c in contigs {
@@ -535,8 +538,8 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
-                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
+                clean_seqs.add_read(DnaString::from_acgt_bytes(&c), Exts::empty(), rng.gen_range(0, 10) as u8);
+                all_seqs.add_read(DnaString::from_acgt_bytes(&c), Exts::empty(), rng.gen_range(0, 10) as u8);
             }
 
             let junk = random_dna(5);
@@ -544,8 +547,8 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
+            all_seqs.add_read(DnaString::from_acgt_bytes(&err_ctg), Exts::empty(), 3u8);
+            all_seqs.add_read(DnaString::from_acgt_bytes(&err_ctg), Exts::empty(), 3u8);
         }
 
 
@@ -744,4 +747,54 @@ mod tests {
         }
         println!("{:?}", counts);
     }
+
+    #[test]
+    fn test_speed_calculation() {
+        let max_len = 150;
+        const WIDTH: i32 = 2;
+        let start = time::Instant::now();
+        for _i in 0..100000000 {
+            let _ = (max_len as f64 / 32.).ceil() as usize;
+        }
+        let after_simple = start.elapsed();
+        let start = time::Instant::now();
+        for _i in 0..100000000 {
+            let _ = ((max_len * WIDTH) >> 6) + (if (max_len * WIDTH) & 0x3F > 0 { 1 } else { 0 });
+        }
+        let after_complicated = start.elapsed();
+        println!("simple method: {} s\ncomplicated method: {} s", after_simple.as_secs_f32(), after_complicated.as_nanos());
+
+    }
+
+
+    #[test]
+    fn test_filter_kmers() {
+        let fastq = [
+            (DnaString::from_dna_string("ACGATCGATCGTAGCTACG"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("ATGCAGCTATTGCGAGCTACTTCAG"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("GTCGCAGATCGACTGAGCTAGC"), Exts::empty(), 7u8),
+            (DnaString::from_dna_string("GCGATCTACTGACGGATCTATCGGAGCTA"), Exts::empty(), 3u8),
+            (DnaString::from_dna_string("GCGATCTAGCGGATCTGCGAGCTATGC"), Exts::empty(), 6u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+        }
+
+        let hm: (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
+            &reads, 
+            &Box::new(CountFilterComb::new(1)),
+            false, 
+            false, 
+            1,
+            false,
+            false
+         );
+
+         println!("{:?}", hm);
+
+    }
 }
+

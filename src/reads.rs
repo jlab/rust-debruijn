@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::usize;
 use crate::dna_string::{DnaString, PackedDnaStringSet};
-use crate::Exts;
+use crate::{Exts, Vmer};
 
 
 /// Reads Structure: Option 1
@@ -89,13 +89,39 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.len()
     }
 
-    pub fn add_read(&mut self, read: DnaString, exts: Exts, data: D) {
+    pub fn add_read<V: Vmer>(&mut self, read: V, exts: Exts, data: D) {
         for base in read.iter() {
             self.push_base(base);
         }
         self.ends.push(self.len());
         self.data.push(data);
         self.exts.push(exts);
+
+        self.storage.shrink_to_fit();
+        self.data.shrink_to_fit();
+        self.exts.shrink_to_fit();
+        self.ends.shrink_to_fit();
+    }
+
+    
+
+    pub fn from_vmer_vec<V: Vmer>(vec: &[(V, Exts, D)]) -> Self {
+        let mut reads = Reads::new();
+        for (vmer, exts, data) in vec {
+            for base in vmer.iter() {
+                reads.push_base(base);
+            }
+            reads.ends.push(reads.len());
+            reads.data.push(*data);
+            reads.exts.push(*exts);
+        }
+
+        reads.storage.shrink_to_fit();
+        reads.data.shrink_to_fit();
+        reads.exts.shrink_to_fit();
+        reads.ends.shrink_to_fit();
+        
+        reads
     }
 
     fn push_base(&mut self, base: u8) {
@@ -160,8 +186,6 @@ impl<D: Clone + Copy> Reads<D> {
             end: range.end
         }
     }
-
-
 
 }
 
