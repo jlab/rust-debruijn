@@ -142,6 +142,7 @@ mod tests {
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
+    use core::str;
     use std::collections::{HashMap, HashSet};
     use std::fs::File;
     use std::iter::FromIterator;
@@ -536,8 +537,9 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.add_read(DnaString::from_acgt_bytes(&c), Exts::empty(), rng.gen_range(0, 10) as u8);
-                all_seqs.add_read(DnaString::from_acgt_bytes(&c), Exts::empty(), rng.gen_range(0, 10) as u8);
+                let read = DnaString::from_bytes(&c);
+                clean_seqs.add_read(read.clone(), Exts::empty(), rng.gen_range(0, 10) as u8);
+                all_seqs.add_read(read, Exts::empty(), rng.gen_range(0, 10) as u8);
             }
 
             let junk = random_dna(5);
@@ -545,8 +547,8 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.add_read(DnaString::from_acgt_bytes(&err_ctg), Exts::empty(), 3u8);
-            all_seqs.add_read(DnaString::from_acgt_bytes(&err_ctg), Exts::empty(), 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
         }
 
 
@@ -615,8 +617,8 @@ mod tests {
             true
         );
 
-        //println!("3: {:?}", _valid_kmers_errs3);
-        //println!("4: {:?}", _valid_kmers_errs4);
+        println!("3: {:?}", _valid_kmers_errs3);
+        println!("4: {:?}", _valid_kmers_errs4);
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();
