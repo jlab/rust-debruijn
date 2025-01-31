@@ -37,6 +37,7 @@ use std::mem;
 pub mod clean_graph;
 pub mod compression;
 pub mod dna_string;
+pub mod reads;
 pub mod filter;
 pub mod graph;
 pub mod kmer;
