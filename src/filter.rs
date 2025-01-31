@@ -467,13 +467,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     if bucket_ranges.len() > 1 {
         debug!(
             "{} sequences, {} kmers, {} passes",
-            seqs.len(),
+            seqs.n_reads(),
             input_kmers,
             bucket_ranges.len()
         );
     }
 
-    debug!("n of seqs: {}", seqs.len());
+    debug!("n of seqs: {}", seqs.n_reads());
 
     let mut time_picking_par = 0.;
     let mut time_picking = 0.;
@@ -497,7 +497,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
         // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
 
         let n_threads = current_num_threads();
-        let n_reads = seqs.len();
+        let n_reads = seqs.n_reads();
         let sz = n_reads / n_threads + 1;
 
         debug!("n_reads: {}", n_reads);
@@ -513,6 +513,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
         parallel_ranges.push(last_start..n_reads);
         debug!("parallel ranges: {:?}", parallel_ranges);
+        println!("parallel ranges: {:?}", parallel_ranges);
 
 
         let kmer_buckets = Arc::new(Mutex::new(vec![Vec::new(); n_threads]));
@@ -832,13 +833,13 @@ where
     if bucket_ranges.len() > 1 {
         debug!(
             "{} sequences, {} kmers, {} passes",
-            seqs.len(),
+            seqs.n_reads(),
             input_kmers,
             bucket_ranges.len()
         );
     }
 
-    debug!("n of seqs: {}", seqs.len());
+    debug!("n of seqs: {}", seqs.n_reads());
 
 
     let mut all_kmers = Vec::new();
@@ -1125,6 +1126,38 @@ mod tests {
             &Box::new(CountFilterComb::new(1)),
             false, 
             false, 
+            1,
+            false,
+            false
+         );
+
+         println!("{:?}", hm);
+
+    }
+
+    #[test]
+    fn test_filter_kmers_parallel() {
+        let fastq = [
+            (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+
+        }
+
+        rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
+
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
+            &reads, 
+            Box::new(CountFilterComb::new(1)),
+            1, 
+            false, 
+            false,
             1,
             false,
             false

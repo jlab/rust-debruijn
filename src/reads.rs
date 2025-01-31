@@ -78,12 +78,6 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
-
-    /// Length of the DNA sequence
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
     /// Number of reads
     pub fn n_reads(&self) -> usize {
         self.ends.len()
@@ -93,7 +87,7 @@ impl<D: Clone + Copy> Reads<D> {
         for base in read.iter() {
             self.push_base(base);
         }
-        self.ends.push(self.len());
+        self.ends.push(self.len);
         self.data.push(data);
         self.exts.push(exts);
 
@@ -103,7 +97,7 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.shrink_to_fit();
     }
 
-    
+
 
     pub fn from_vmer_vec<V: Vmer>(vec: &[(V, Exts, D)]) -> Self {
         let mut reads = Reads::new();
@@ -111,7 +105,7 @@ impl<D: Clone + Copy> Reads<D> {
             for base in vmer.iter() {
                 reads.push_base(base);
             }
-            reads.ends.push(reads.len());
+            reads.ends.push(reads.len);
             reads.data.push(*data);
             reads.exts.push(*exts);
         }
@@ -125,7 +119,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     fn push_base(&mut self, base: u8) {
-        let bit = (self.len() % 32) * 2;
+        let bit = (self.len % 32) * 2;
         //println!("bit: {}, base: {}", bit, base);
         if bit != 0 {
             match self.storage.pop() {
