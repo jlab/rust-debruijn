@@ -513,7 +513,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
         let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
         parallel_ranges.push(last_start..n_reads);
         debug!("parallel ranges: {:?}", parallel_ranges);
-        println!("parallel ranges: {:?}", parallel_ranges);
 
 
         let kmer_buckets = Arc::new(Mutex::new(vec![Vec::new(); n_threads]));

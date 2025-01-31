@@ -134,25 +134,23 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
 
-    use crate::clean_graph::CleanGraph;
-    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers_with_hash, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
     use crate::reads::Reads;
-    use crate::{DnaBytes, Mer, Tags};
+    use crate::{DnaBytes, Tags};
     use crate::{Dir, Exts, Kmer};
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
     use std::collections::{HashMap, HashSet};
-    use std::fmt::Write;
     use std::fs::File;
     use std::iter::FromIterator;
     use std::marker::PhantomData;
     use std::time;
 
     use crate::dna_string::DnaString;
-    use crate::filter::{self, filter_kmers, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
-    use crate::kmer::{Kmer4, Kmer6};
+    use crate::filter::{self, filter_kmers, CountFilterComb, CountFilterStats, KmerSummarizer, TagsCountData};
+    use crate::kmer::Kmer6;
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
@@ -242,7 +240,7 @@ mod tests {
             .map(|x| (DnaBytes(x), Exts::empty(), ()))
             .collect();
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &Reads::from_vmer_vec(&seqs),
+            &Reads::from_vmer_vec(seqs),
             &Box::new(filter::CountFilter::new(1)),
             stranded,
             false,
@@ -351,7 +349,7 @@ mod tests {
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &Reads::from_vmer_vec(&seqs),
+            &Reads::from_vmer_vec(seqs),
             &Box::new(filter::CountFilter::new(2)),
             stranded,
             false,
@@ -456,7 +454,7 @@ mod tests {
         let mut shard_asms = Vec::new();
 
         // Do a subassembly in each shard
-        for seqs in shards.values() {
+        for seqs in shards.into_values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
                 &Reads::from_vmer_vec(seqs),
@@ -596,7 +594,7 @@ mod tests {
         println!("1: {:?}", valid_kmers_errs);
         println!("2: {:?}", valid_kmers_errs2);
 
-        let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
+        let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(filter::CountFilter::new(1)),
             1,
@@ -606,7 +604,7 @@ mod tests {
             true,
             true
         );
-        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
+        let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
             Box::new(CountFilterStats::new(1)),
             1,
@@ -617,8 +615,8 @@ mod tests {
             true
         );
 
-        //println!("3: {:?}", valid_kmers_errs3);
-        //println!("4: {:?}", valid_kmers_errs4);
+        //println!("3: {:?}", _valid_kmers_errs3);
+        //println!("4: {:?}", _valid_kmers_errs4);
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();

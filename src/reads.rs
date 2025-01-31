@@ -3,60 +3,18 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::usize;
-use crate::dna_string::{DnaString, PackedDnaStringSet};
+use crate::dna_string::DnaString;
 use crate::{Exts, Vmer};
 
-
-/// Reads Structure: Option 1
-/// storage: a constant no of u64s for each read, 2-bit encoded, space for 32 bases in each u64 (len n * 5 probably u64)
-/// lens: actual length of read (rest of last u64 is 00) (len n u32) (could be u16)
-/// max_len: maximum length of read, space which is reserved for each read - eg. 151 bases -> 5 u64s are reserved
-/// exts: exts (probably empty) for each read (len n u8)
-/// data: data (label/color) for each read (len n (u8))
+/// Store many DNA sequences together with an Exts and data each compactly packed together
 /// 
-/// would require methods to increads max_length -> add 0u64s after every read
-#[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
-pub struct ReadsConst<D> {
-    storage: Vec<u64>,
-    lens: Vec<u32>,
-    max_len: usize,
-    exts: Vec<Exts>, 
-    data: Vec<D>,
-}
-
-/// Packed Reads Structure: Option 2
-/// seqs: PackedDnaStringSet containing all reads, packed in u64s, their positions and lengths
-///     contains one Vec (len n * 4.2 avg u64) for reads as u64s , a Vec (len n u32) for lengths and a Vec (len n usize) for Positions
-/// exts: exts (probably empty) for each read (len n u8)
-/// data: data (label/color) for each read (len n (u8))
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ReadsPacked<D> {
-    seqs: PackedDnaStringSet,
-    exts: Vec<Exts>, 
-    data: Vec<D>,
-}
-
-/// Unpacked Packed Reads Structure: Option 3
-/// (basically same as above)
-/// storage + lens + start: basically PackedDnaString
-/// exts: exts (probably empty) for each read (len n u8)
-/// data: data (label/color) for each read (len n (u8))
-#[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
-pub struct ReadsUnPacked<D> {
-    storage: Vec<u64>,
-    lens: Vec<u32>,
-    start: Vec<usize>,
-    exts: Vec<Exts>, 
-    data: Vec<D>,
-}
-
-/// Var Reads Structure: Option 4
-/// storage: reads as u64s, also packed (len n * 4.2 probably u64)
-/// ends: end position of each read in the u64 encoding (e.g. 120 would be somewhere in second u64)
-///     length of each read can be calculated with distance to previous number, index by dividing by 32 and % (len n usize)
-///     exceptions need to made for first read
-/// exts: exts (probably empty) for each read (len n u8)
-/// data: data (label/color) for each read (len n (u8))
+/// #### fields:
+/// 
+/// * `storage`: `Vec` with 2-bit encoded DNA bases of all sequences
+/// * `ends`:  `Vec` with the ends (exclusive) of the separate sequences in the `Reads`
+/// * `exts`: `Vec` with one Exts for each sequence
+/// * `data`: `Vec` with data for each sequence
+/// * `len`: length of all sequences together
 #[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct Reads<D> {
     storage: Vec<u64>,
@@ -68,6 +26,7 @@ pub struct Reads<D> {
 
 impl<D: Clone + Copy> Reads<D> {
 
+    /// Returns a new `Reads`
     pub fn new() -> Self {
         Reads {
             storage: Vec::new(),
@@ -78,11 +37,12 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
-    /// Number of reads
+    /// Returns the number of reads stored
     pub fn n_reads(&self) -> usize {
         self.ends.len()
     }
 
+    /// Adds a new read to the `Reads`
     pub fn add_read<V: Vmer>(&mut self, read: V, exts: Exts, data: D) {
         for base in read.iter() {
             self.push_base(base);
@@ -98,16 +58,17 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
 
-
-    pub fn from_vmer_vec<V: Vmer>(vec: &[(V, Exts, D)]) -> Self {
+    /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
+    // TODO test if memory efficient
+    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S) -> Self {
         let mut reads = Reads::new();
-        for (vmer, exts, data) in vec {
+        for (vmer, exts, data) in vec_iter {
             for base in vmer.iter() {
                 reads.push_base(base);
             }
             reads.ends.push(reads.len);
-            reads.data.push(*data);
-            reads.exts.push(*exts);
+            reads.data.push(data);
+            reads.exts.push(exts);
         }
 
         reads.storage.shrink_to_fit();
@@ -118,14 +79,13 @@ impl<D: Clone + Copy> Reads<D> {
         reads
     }
 
+    /// Add new base to the `Reads`
     fn push_base(&mut self, base: u8) {
         let bit = (self.len % 32) * 2;
-        //println!("bit: {}, base: {}", bit, base);
         if bit != 0 {
             match self.storage.pop() {
                 Some(last) => {
                     let last = last + ((base as u64) << (64 - bit - 2));
-                    //println!("{:#066b}", last);
                     self.storage.push(last);
                 },
                 None => panic!("tried to push base to empty vector (?)")
