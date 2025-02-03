@@ -249,6 +249,37 @@ impl DnaString {
         dna_string
     }
 
+    /// Create a DnaString from an ASCII ACGT-encoded byte slice.
+    /// Non ACGT positions will cause panic
+    pub fn from_acgt_bytes_strict(bytes: &[u8]) -> DnaString {
+        let mut dna_string = DnaString::with_capacity(bytes.len());
+
+        // Accelerated avx2 mode. Should run on most machines made since 2013.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if is_x86_feature_detected!("avx2") {
+                for chunk in bytes.chunks(32) {
+                    if chunk.len() == 32 {
+                        let (conv_chunk, correct) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
+                        if !correct { panic!("A sequence contained a base ouside of ACGT/acgt - please filter your reads properly or use less strict function")}
+                        let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
+                        dna_string.storage.push(packed);
+                    } else {
+                        let b = chunk.iter().map(|c| base_to_bits(*c));
+                        dna_string.extend(b);
+                    }
+                }
+
+                dna_string.len = bytes.len();
+                return dna_string;
+            }
+        }
+
+        let b = bytes.iter().map(|c| base_to_bits(*c));
+        dna_string.extend(b);
+        dna_string
+    }
+
     /// Create a DnaString from an ACGT-encoded byte slice,
     /// Non ACGT positions will be converted to repeatable random base determined
     /// by a hash of the read name and the position within the string.
