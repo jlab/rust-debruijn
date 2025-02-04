@@ -142,7 +142,6 @@ mod tests {
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
-    use core::str;
     use std::collections::{HashMap, HashSet};
     use std::fs::File;
     use std::iter::FromIterator;

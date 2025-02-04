@@ -75,6 +75,18 @@ pub fn base_to_bits(c: u8) -> u8 {
     }
 }
 
+/// Convert an ASCII-encoded DNA base to a 2-bit representation
+#[inline]
+pub fn base_to_bits_checked(c: u8) -> (u8, bool) {
+    match c {
+        b'A' | b'a' => (0u8, true),
+        b'C' | b'c' => (1u8, true),
+        b'G' | b'g' => (2u8, true),
+        b'T' | b't' => (3u8, true),
+        _ => (0u8, false)
+    }
+}
+
 #[inline]
 pub fn dna_only_base_to_bits(c: u8) -> Option<u8> {
     match c {
