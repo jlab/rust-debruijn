@@ -50,7 +50,13 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.push(self.len);
         self.data.push(data);
         self.exts.push(exts);
+       
+    }
 
+    /// shrink the vectors' capacity to fit the length
+    /// 
+    /// use sparsely
+    pub fn shrink_to_fit(&mut self)  {
         self.storage.shrink_to_fit();
         self.data.shrink_to_fit();
         self.exts.shrink_to_fit();
@@ -96,6 +102,7 @@ impl<D: Clone + Copy> Reads<D> {
         self.len += 1; 
     }
 
+    #[inline(always)]
     fn addr(&self, i: &usize) -> (usize, usize) {
         (i / 32, (i % 32 ) * 2)
     }
