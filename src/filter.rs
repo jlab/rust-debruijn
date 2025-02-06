@@ -572,7 +572,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
             // clone and lock kmer_buckets to safely share across threads
             let _kb_clone = Arc::clone(&kmer_buckets);
-            debug!("{}", Arc::strong_count(&kmer_buckets));
+            debug!("arc count: {}", Arc::strong_count(&kmer_buckets));
             let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
             // replace empty vec too keep order
             kb2d[i] = kmer_buckets1d;

@@ -63,7 +63,8 @@ pub fn bits_to_ascii(c: u8) -> u8 {
     }
 }
 
-/// Convert an ASCII-encoded DNA base to a 2-bit representation
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// transforming bytes outside of ACGTacgt to A
 #[inline]
 pub fn base_to_bits(c: u8) -> u8 {
     match c {
@@ -75,7 +76,8 @@ pub fn base_to_bits(c: u8) -> u8 {
     }
 }
 
-/// Convert an ASCII-encoded DNA base to a 2-bit representation
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// second value is `false` if the base was ambiguous
 #[inline]
 pub fn base_to_bits_checked(c: u8) -> (u8, bool) {
     match c {

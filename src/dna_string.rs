@@ -282,15 +282,18 @@ impl DnaString {
             }
         }
 
-        let b = bytes.iter().map(|c| base_to_bits(*c));
-        dna_string.extend(b);
+        let (b, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
+        let correct = corrects.iter().contains(&false);
+        if !correct { 
+            panic!("A sequence contained a base ouside of ACGT/acgt - please filter your reads properly or use a less strict meethod for ascii conversion.")
+        }
+        dna_string.extend(b.into_iter());
         dna_string
     }
 
-    /// FIXME does sometimes not recognize Ns 
     /// Create a DnaString from an ASCII ACGT-encoded byte slice.
-    /// Second element in tuple is false if there are ambiguous bases in the DnaString
-    pub fn from_acgt_bytes_report_ambig(bytes: &[u8]) -> Option<DnaString> {
+    /// Will return `None` if there are ambiguous bases in the DnaString
+    pub fn from_acgt_bytes_checked(bytes: &[u8]) -> Option<DnaString> {
         let mut dna_string = DnaString::with_capacity(bytes.len());
 
         // Accelerated avx2 mode. Should run on most machines made since 2013.
@@ -317,7 +320,7 @@ impl DnaString {
         }
         
         let (b, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
-        let correct = corrects.iter().contains(&true);
+        let correct = corrects.iter().contains(&false);
         if !correct { return None }
         dna_string.extend(b.into_iter());
 
@@ -1066,6 +1069,7 @@ mod tests {
     #[test]
     fn test_dna_string_ambig() {
         let dna = [
+            "TTTTTTTTTTTTTTTTTTTTTTTT".as_bytes(),
             "NAGCGGAGATTATTCACGAGCATCGCGTAC".as_bytes(),
             "GATCGATGCATGCTAGN".as_bytes(),
             "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAANAAAAATTATANTAACGT".as_bytes(),
@@ -1080,7 +1084,7 @@ mod tests {
         //let ascii = dna.as_bytes();
         for seq in dna {
             println!("{:?}", DnaString::from_acgt_bytes(seq));
-            println!("{:?}", DnaString::from_acgt_bytes_report_ambig(seq));
+            println!("{:?}", DnaString::from_acgt_bytes_checked(seq));
             //println!("{:?}", DnaString::from_acgt_bytes_strict(seq));
         }
     }

@@ -1,10 +1,11 @@
 use std::ops::Range;
+use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::usize;
+use std::{str, usize};
 use crate::dna_string::DnaString;
-use crate::{Exts, Vmer};
+use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
 /// Store many DNA sequences together with an Exts and data each compactly packed together
 /// 
@@ -37,12 +38,14 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
+    #[inline(always)]
     /// Returns the number of reads stored
     pub fn n_reads(&self) -> usize {
         self.ends.len()
     }
 
     /// Adds a new read to the `Reads`
+    // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
     pub fn add_read<V: Vmer>(&mut self, read: V, exts: Exts, data: D) {
         for base in read.iter() {
             self.push_base(base);
@@ -52,17 +55,6 @@ impl<D: Clone + Copy> Reads<D> {
         self.exts.push(exts);
        
     }
-
-    /// shrink the vectors' capacity to fit the length
-    /// 
-    /// use sparsely
-    pub fn shrink_to_fit(&mut self)  {
-        self.storage.shrink_to_fit();
-        self.data.shrink_to_fit();
-        self.exts.shrink_to_fit();
-        self.ends.shrink_to_fit();
-    }
-
 
     /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
     // TODO test if memory efficient
@@ -85,7 +77,122 @@ impl<D: Clone + Copy> Reads<D> {
         reads
     }
 
-    /// Add new base to the `Reads`
+
+    /// add ASCII encoded bases to the Reads
+    /// 
+    /// will transform all ascii characters outside of ACGTacgt into A
+    /// see also: [`Reads::add_from_bytes_checked`]
+    pub fn add_from_bytes(&mut self, bytes: &[u8], exts: Exts, data: D) {
+        
+        // fill the last incomplete u64 block
+        let missing = 32 - (self.len % 32);
+        if missing != 0 {
+            if  missing > bytes.len() {
+                let fill = bytes.iter().map(|c| base_to_bits(*c));
+                self.extend(fill);
+                self.exts.push(exts);
+                self.data.push(data);
+                self.ends.push(self.len);
+                return;
+            } else {
+                let fill = bytes[0..missing].iter().map(|c| base_to_bits(*c));
+                self.extend(fill);
+            }
+        }
+        
+        // Accelerated avx2 mode. Should run on most machines made since 2013.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if is_x86_feature_detected!("avx2") {
+                for chunk in bytes[missing..bytes.len()].chunks(32) {
+                    if chunk.len() == 32 {
+                        let (conv_chunk, _) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
+                        let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
+                        self.storage.push(packed);
+                        self.len += 32;
+                    } else {
+                        let b = chunk.iter().map(|c| base_to_bits(*c));
+                        self.extend(b);
+                    }
+                }
+
+                self.exts.push(exts);
+                self.data.push(data);
+                self.ends.push(self.len);
+                return;
+            }
+        }
+
+        let b = bytes.iter().map(|c| base_to_bits(*c));
+        self.extend(b);
+
+        self.exts.push(exts);
+        self.data.push(data);
+        self.ends.push(self.len);
+        
+    }
+
+    /// add ASCII encoded bases to the Reads
+    /// 
+    /// will return `false` if the bytes contained characters outside of `ACGTacgt`, otherwise return true and add the bases
+    /// see also: [`Reads::add_from_bytes`]
+    pub fn add_from_bytes_checked(&mut self, bytes: &[u8], exts: Exts, data: D) -> bool {
+
+        let (_, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
+        if corrects.iter().contains(&false) { return false }
+
+        
+        // fill the last incomplete u64 block
+        let missing = 32 - (self.len % 32);
+        if missing != 0 {
+            if  missing > bytes.len() {
+                let fill = bytes.iter().map(|c| base_to_bits(*c));
+                self.extend(fill);
+                self.exts.push(exts);
+                self.data.push(data);
+                self.ends.push(self.len);
+                return true;
+            } else {
+                let fill = bytes[0..missing].iter().map(|c| base_to_bits(*c));
+                self.extend(fill);
+            }
+        }
+        
+        // Accelerated avx2 mode. Should run on most machines made since 2013.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if is_x86_feature_detected!("avx2") {
+                for chunk in bytes[missing..bytes.len()].chunks(32) {
+                    if chunk.len() == 32 {
+                        let (conv_chunk, _) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
+                        let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
+                        self.storage.push(packed);
+                        self.len += 32;
+                    } else {
+                        let b = chunk.iter().map(|c| base_to_bits(*c));
+                        self.extend(b);
+                    }
+                }
+
+                self.exts.push(exts);
+                self.data.push(data);
+                self.ends.push(self.len);
+                return true;
+            }
+        }
+
+        let b = bytes.iter().map(|c| base_to_bits(*c));
+        self.extend(b);
+
+        self.exts.push(exts);
+        self.data.push(data);
+        self.ends.push(self.len);
+
+        true         
+    }
+
+
+    /// Add new 2-bit encoded base to the `Reads`
     fn push_base(&mut self, base: u8) {
         let bit = (self.len % 32) * 2;
         if bit != 0 {
@@ -102,13 +209,50 @@ impl<D: Clone + Copy> Reads<D> {
         self.len += 1; 
     }
 
+
+    /// extend the reads' storage by 2-bit encoded bases
+    fn extend(&mut self, mut bytes: impl Iterator<Item = u8>) {
+        // fill the last incomplete u64 block
+        while self.len % 32 != 0 {
+            match bytes.next() {
+                Some(b) => self.push_base(b),
+                None => return,
+            }
+        }
+
+        let mut bytes = bytes.peekable();
+
+        // chunk the remaining items into groups of at most 32 and handle them together
+        while bytes.peek().is_some() {
+            let mut val: u64 = 0;
+            let mut offset = 62;
+            let mut n_added = 0;
+
+            for _ in 0..32 {
+                if let Some(b) = bytes.next() {
+                    assert!(b < 4);
+                    val |= (b as u64) << offset;
+                    offset -= 2;
+                    n_added += 1;
+                } else {
+                    break;
+                }
+            }
+
+            self.storage.push(val);
+            self.len += n_added;
+        }
+    }
+
     #[inline(always)]
     fn addr(&self, i: &usize) -> (usize, usize) {
         (i / 32, (i % 32 ) * 2)
     }
 
     /// get the `i`th read in a `Reads`
-    pub fn get_read(&self, i: usize) -> (DnaString, Exts, D) {
+    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D)> {
+        if i >= self.n_reads() { return None }
+
         let mut sequence = DnaString::new();
         let end = self.ends[i];
         //let start = if i != 0 { self.ends[i-1] } else { 0 };
@@ -123,8 +267,20 @@ impl<D: Clone + Copy> Reads<D> {
             sequence.push(base);
         }
 
-        (sequence, self.exts[i], self.data[i])
+        Some((sequence, self.exts[i], self.data[i]))
     }
+
+
+    /// shrink the vectors' capacity to fit the length
+    /// 
+    /// use sparsely
+    pub fn shrink_to_fit(&mut self)  {
+        self.storage.shrink_to_fit();
+        self.data.shrink_to_fit();
+        self.exts.shrink_to_fit();
+        self.ends.shrink_to_fit();
+    }
+
 
 
     /// Iterate over the reads as (DnaString, Exts, D).
@@ -148,6 +304,13 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
+    pub fn print_bin(&self) {
+        for element in self.storage.iter() {
+            print!("{:#066b} - ", element)
+        }
+        println!("")
+    }
+
 }
 
 
@@ -167,16 +330,26 @@ impl<'a, D: Clone + Copy> Iterator for ReadsIter<'a, D> {
         if (self.i < self.reads.n_reads()) && (self.i < self.end) {
             let value = self.reads.get_read(self.i);
             self.i += 1;
-            Some(value)
+            value
         } else {
             None
         }
     }
 }
 
+impl<D: Clone + Copy + Debug> Display for Reads<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let vec: Vec<(DnaString, Exts, D)> = self.iter().collect();
+        write!(f, "{:?}", vec)
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
+    use itertools::enumerate;
+    use rand::random;
+
     use crate::{dna_string::DnaString, Exts};
     use super::Reads;
 
@@ -207,7 +380,7 @@ mod tests {
 
         for i in 0..fastq.len() {
             //println!("read {}: {:?}", i, reads.get_read(i))
-            assert_eq!(fastq[i], reads.get_read(i))
+            assert_eq!(fastq[i], reads.get_read(i).unwrap())
         }
 
         for (seq, _, _) in reads.iter() {
@@ -217,6 +390,80 @@ mod tests {
 
         for read in reads.partial_iter(5..7) {
             println!("{:?}", read)
+        }
+    }
+
+    #[test]
+    fn test_get_read() {
+        let mut reads = Reads::new();
+        //reads.add_read(DnaString::from_acgt_bytes("AGCTAGCTAGC".as_bytes()), Exts::empty(), 67u8);
+        reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), Exts::empty(), 67u8);
+        let read = reads.get_read(0);
+        println!("{:?}", read);
+        println!("{:#066b}", reads.storage[0]);
+        println!("{:?}", reads)
+    }
+
+    #[test]
+    fn test_add_from_bytes() {
+        let dna = [
+            "AAGCGGAGATTATTCACGAGCATCGCGTAC".as_bytes(),
+            "GATCGATGCATGCTAGA".as_bytes(),
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAAAAAAAATTATAATAACGT".as_bytes(),
+            "AGCTAGCTAGCTGACTGAGCGACTGA".as_bytes(),
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC".as_bytes(),
+            "TTTTTTTTTTTTTTTTTTTTTTTT".as_bytes(),
+            "ACGATCGAATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(),
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
+        ];
+
+        let mut reads: Reads<u8> = Reads::new();
+        for seq in dna {
+            reads.add_from_bytes(seq, Exts::empty(), random());
+
+        }
+
+        for (i, seq) in enumerate(reads.iter()) {
+            let sequence = DnaString::from_acgt_bytes(dna[i]);
+            assert_eq!(seq.0, sequence);
+        }
+    }
+
+    #[test]
+    fn test_add_from_bytes_checked() {
+        let dna = [
+            "AAGCGGAGATTATTCACGAGCATCGCGTAC".as_bytes(),
+            "GATCGATGCATGCTAGA".as_bytes(),
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAANTTATATAACGTAACGTAAAAAAAAAAATTATAATAACGT".as_bytes(),
+            "AGCTAGCTAGCTGACNGAGCGACTGA".as_bytes(),
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC".as_bytes(),
+            "TTTTTTTTTTTTTTTTTTTTTTTT".as_bytes(),
+            "ACGATCGAATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACNNNTGATCGATCG".as_bytes(),
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
+            "A".as_bytes(),
+            "AAAAN".as_bytes(),
+            "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
+        ];
+
+        let mut reads: Reads<u8> = Reads::new();
+        let mut corrects = Vec::new();
+        for seq in dna {
+            corrects.push(reads.add_from_bytes_checked(seq, Exts::empty(), random()));
+        }
+
+        let mut read_counter = 0;
+
+        for (i, correct) in enumerate(corrects) {
+            let sequence = DnaString::from_acgt_bytes_checked(dna[i]);
+            match correct {
+                true => {
+                    let read = reads.get_read(read_counter).unwrap();
+                    assert_eq!(sequence.unwrap(), read.0);
+                    read_counter += 1;
+
+                },
+                false => assert_eq!(sequence,None),
+            }
         }
     }
 }
