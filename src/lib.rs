@@ -37,6 +37,7 @@ use std::mem;
 pub mod clean_graph;
 pub mod compression;
 pub mod dna_string;
+pub mod reads;
 pub mod filter;
 pub mod graph;
 pub mod kmer;
@@ -62,7 +63,8 @@ pub fn bits_to_ascii(c: u8) -> u8 {
     }
 }
 
-/// Convert an ASCII-encoded DNA base to a 2-bit representation
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// transforming bytes outside of ACGTacgt to A
 #[inline]
 pub fn base_to_bits(c: u8) -> u8 {
     match c {
@@ -71,6 +73,19 @@ pub fn base_to_bits(c: u8) -> u8 {
         b'G' | b'g' => 2u8,
         b'T' | b't' => 3u8,
         _ => 0u8,
+    }
+}
+
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// second value is `false` if the base was ambiguous
+#[inline]
+pub fn base_to_bits_checked(c: u8) -> (u8, bool) {
+    match c {
+        b'A' | b'a' => (0u8, true),
+        b'C' | b'c' => (1u8, true),
+        b'G' | b'g' => (2u8, true),
+        b'T' | b't' => (3u8, true),
+        _ => (0u8, false)
     }
 }
 
@@ -912,7 +927,7 @@ impl Tags {
 
     // directly translate Tags to Vec<&str>
     // str_map is translatror BiMap between u8 and &str 
-    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&str> {
+    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&'a str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::new();
 

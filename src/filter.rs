@@ -20,6 +20,7 @@ use num_traits::Pow;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
+use crate::reads::Reads;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -407,8 +408,9 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
-    seqs: &[(V, Exts, u8)],
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
+    //seqs: &[(V, Exts, u8)],
+    seqs: &Reads<u8>,
     //summarizer: &dyn Deref<Target = S>,
     // summarizer without wrapper, why wrapper???
     _summarizer: Box<S>,
@@ -430,7 +432,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
-        .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -465,13 +467,13 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
     if bucket_ranges.len() > 1 {
         debug!(
             "{} sequences, {} kmers, {} passes",
-            seqs.len(),
+            seqs.n_reads(),
             input_kmers,
             bucket_ranges.len()
         );
     }
 
-    debug!("n of seqs: {}", seqs.len());
+    debug!("n of seqs: {}", seqs.n_reads());
 
     let mut time_picking_par = 0.;
     let mut time_picking = 0.;
@@ -495,7 +497,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
         // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
 
         let n_threads = current_num_threads();
-        let n_reads = seqs.len();
+        let n_reads = seqs.n_reads();
         let sz = n_reads / n_threads + 1;
 
         debug!("n_reads: {}", n_reads);
@@ -521,7 +523,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
             // first go trough all kmers to find the length of all buckets (to reserve capacity)
             let mut capacities = [0usize; BUCKETS];
-            for &(ref seq, _, _) in &seqs[range.clone()] { 
+            for (ref seq, _, _) in seqs.partial_iter(range.clone()) { 
                 // iterate through all kmers in seq
                 for kmer in seq.iter_kmers::<K>() {
                     // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -547,7 +549,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
             for capacity in capacities.into_iter() {
                 kmer_buckets1d.push(Vec::with_capacity(capacity));
             }
-            for &(ref seq, seq_exts, ref d) in &seqs[range] {
+            for (ref seq, seq_exts, ref d) in seqs.partial_iter(range) {
                 for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                     let (min_kmer, flip_exts) = if rc_norm {
                         let (min_kmer, flip) = kmer.min_rc_flip();
@@ -570,7 +572,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 
             // clone and lock kmer_buckets to safely share across threads
             let _kb_clone = Arc::clone(&kmer_buckets);
-            debug!("{}", Arc::strong_count(&kmer_buckets));
+            debug!("arc count: {}", Arc::strong_count(&kmer_buckets));
             let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
             // replace empty vec too keep order
             kb2d[i] = kmer_buckets1d;
@@ -771,8 +773,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, DO, DS: Clon
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, V: Vmer, D1: Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
-    seqs: &[(V, Exts, D1)],
+pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
+    seqs: &Reads<D1>,
+    //seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
     report_all_kmers: bool,
@@ -790,7 +793,7 @@ where
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
         .iter()
-        .map(|&(ref vmer, _, _)| vmer.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -829,13 +832,13 @@ where
     if bucket_ranges.len() > 1 {
         debug!(
             "{} sequences, {} kmers, {} passes",
-            seqs.len(),
+            seqs.n_reads(),
             input_kmers,
             bucket_ranges.len()
         );
     }
 
-    debug!("n of seqs: {}", seqs.len());
+    debug!("n of seqs: {}", seqs.n_reads());
 
 
     let mut all_kmers = Vec::new();
@@ -862,7 +865,7 @@ where
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut capacities: [usize; 256] = [0; BUCKETS];
 
-        for &(ref seq, _, _) in seqs {
+        for (ref seq, _, _) in seqs.iter() {
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
                 // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -890,7 +893,7 @@ where
         }
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
-        for &(ref seq, seq_exts, ref d) in seqs {
+        for (ref seq, seq_exts, ref d) in seqs.iter() {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                 // // if not stranded choose lexiographically lesser of kmer and rc of kmer, flip exts if needed
@@ -1094,5 +1097,72 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
         }
 
         (valid_kmers[idx].1).0 = new_exts;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use boomphf::hashmap::BoomHashMap2;
+
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, Exts};
+
+    #[test]
+    fn test_filter_kmers() {
+        let fastq = [
+            (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+        }
+
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
+            &reads, 
+            &Box::new(CountFilterComb::new(1)),
+            false, 
+            false, 
+            1,
+            false,
+            false
+         );
+
+         println!("{:?}", hm);
+
+    }
+
+    #[test]
+    fn test_filter_kmers_parallel() {
+        let fastq = [
+            (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+
+        }
+
+        rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
+
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
+            &reads, 
+            Box::new(CountFilterComb::new(1)),
+            1, 
+            false, 
+            false,
+            1,
+            false,
+            false
+         );
+
+         println!("{:?}", hm);
+
     }
 }
