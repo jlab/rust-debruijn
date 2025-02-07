@@ -39,6 +39,7 @@ pub mod compression;
 pub mod dna_string;
 pub mod reads;
 pub mod filter;
+pub mod summarizer;
 pub mod graph;
 pub mod kmer;
 pub mod msp;

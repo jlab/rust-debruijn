@@ -103,6 +103,38 @@ where
     }
 }
 
+/// CompressionSpec with check and function
+pub struct CheckCompress<D, F1, F2> {
+    reduce_func: F1,
+    join_func: F2,
+    d: PhantomData<D>
+} 
+
+impl<D, F1, F2> CheckCompress<D, F1, F2> {
+    pub fn new(reduce_func: F1, join_func: F2) -> Self {
+        CheckCompress {
+            reduce_func,
+            join_func,
+            d: PhantomData,
+        }
+    }
+}
+
+impl<D, F1, F2> CompressionSpec<D> for CheckCompress<D, F1, F2>
+where
+    for<'r> F1: Fn(D, &'r D) -> D,
+    for<'r> F2: Fn(&'r D, &'r D) -> bool
+{
+    fn reduce(&self, d: D, other: &D) -> D {
+        (self.reduce_func)(d, other)
+    }
+
+    fn join_test(&self, d: &D, other: &D) -> bool {
+        (self.join_func)(d, other)
+    }
+}
+
+
 struct CompressFromGraph<'a, 'b, K: 'a + Kmer, D: 'a + PartialEq, S: CompressionSpec<D>> {
     stranded: bool,
     d: PhantomData<D>,

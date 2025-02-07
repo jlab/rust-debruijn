@@ -4,7 +4,6 @@
 
 use core::f32;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::Deref;
 use std::ops::Range;
@@ -12,7 +11,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use bimap::BiMap;
 use boomphf::hashmap::BoomHashMap2;
 use itertools::Itertools;
 use log::debug;
@@ -21,11 +19,13 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::Reads;
+use crate::summarizer::SummaryData;
+use crate::summarizer::KmerSummarizer;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
-use crate::Tags;
 use crate::Vmer;
+
 
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
     (kmer.get(0) as usize) << 6
@@ -57,318 +57,6 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
     return bucket_ranges_lin
 }
 
-/// Trait for the output of the KmerSummarizers
-pub trait SummaryData<D> {
-    /// Make a new `SummaryData<D>`
-    fn new(data: D) -> Self;
-    /// does not actually print but format
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String;
-    /// If the `SummaryData` contains sufficient information, return `Vec<u8>` of the tags and the count
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)>;
-    /// If the `SummaryData` contains sufficient information, return the Tags and the count 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)>;
-    /// return a score (the sum of the kmer appearances), `Vec<D>` simply returns `1`
-    fn score(&self) -> f32;
-    /// return the size of the structure, including contents of slices
-    fn mem(&self) -> usize;
-}
-
-impl<> SummaryData<u16> for u16 {
-    fn new(data: u16) -> Self {
-        data
-    }
-
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
-        format!("count: {}", self).replace("\"", "\'")
-    }
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
-
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
-
-    fn score(&self) -> f32 {
-        *self as f32
-    }
-
-    fn mem(&self) -> usize {
-        mem::align_of_val(&*self)
-    }
-
-}
-
-impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
-    fn new(data: Vec<D>) -> Self {
-        data
-    }
-
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}", self).replace("\"", "\'")
-    }
-    
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
-    
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
-
-    fn score(&self) -> f32 {
-        1.
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(&**self) + mem::size_of_val(&*self)
-    }
-
-}
-
-#[derive(Debug, Clone, PartialEq)]
-// aligned would be 16 Bytes, packed is 12 Bytes
-#[repr(packed)]
-pub struct TagsSumData {
-    tags: Tags,
-    sum: i32,
-}
-
-impl SummaryData<(Tags, i32)> for TagsSumData {
-    fn new(data: (Tags, i32)) -> Self {
-        TagsSumData { tags: data.0, sum: data.1 }
-    }
-
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
-        // need to copy fields to local variable because repr(packed) results in unaligned struct
-        let tags = self.tags;
-        let sum = self.sum;
-        // replace " with ' to avoid conflicts in dot file
-        format!("tags: {:?}, sum: {}", tags.to_string_vec(tag_translator), sum).replace("\"", "\'")
-    }
-
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
-        // need to copy fields to local variable because repr(packed) results in unaligned struct
-        let tags = self.tags;
-        Some((tags.to_u8_vec(), self.sum))
-    }
-
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
-        Some((self.tags, self.sum))
-    }
-
-    fn score(&self) -> f32 {
-        self.sum as f32
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(&*self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TagsCountData {
-    tags: Tags,
-    sum: i32,
-    counts: Box<[u32]>,
-}
-
-impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
-    fn new(data: (Tags, Box<[u32]>, i32)) -> Self {
-        TagsCountData { tags: data.0, counts: data.1, sum: data.2 }
-    }
-
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum).replace("\"", "\'")
-    }
-
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
-        Some((self.tags.to_u8_vec(), self.sum))
-    }
-
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
-        Some((self.tags, self.sum))
-    }
-
-    fn score(&self) -> f32 {
-        self.sum as f32
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
-    }
-
-}
-
-
-/// Implement this trait to control how multiple observations of a kmer
-/// are carried forward into a DeBruijn graph.
-pub trait KmerSummarizer<DI, DO: SummaryData<SD>, SD> {
-    /// The input `items` is an iterator over kmer observations. Input observation
-    /// is a tuple of (kmer, extensions, data). The summarize function inspects the
-    /// data and returns a tuple indicating:
-    /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
-    /// * the accumulated Exts of the kmer
-    /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
-    
-    fn new(min_kmer_obs: usize) -> Self;
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F) -> (bool, Exts, DO);
-}
-
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is the number of times it was observed, capped at 2^16.
-pub struct CountFilter<D> {
-    min_kmer_obs: usize,
-    phantom: PhantomData<D>
-}
-
-impl<D> KmerSummarizer<D, u16, u16> for CountFilter<D> {
-    fn new(min_kmer_obs: usize) -> Self {
-        CountFilter {
-            min_kmer_obs,
-            phantom: PhantomData,
-        }
-    }
-
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, u16) {
-        let mut all_exts = Exts::empty();
-        let mut count = 0u16;
-        for (_, exts, _) in items {
-            count = count.saturating_add(1);
-            all_exts = all_exts.add(exts);
-        }
-
-        (count as usize >= self.min_kmer_obs, all_exts, count)
-    }
-}
-
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
-pub struct CountFilterSet<D> {
-    min_kmer_obs: usize,
-    phantom: PhantomData<D>,
-}
-
-impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, Vec<D>> for CountFilterSet<D> {
-    fn new(min_kmer_obs: usize) -> Self {
-        CountFilterSet {
-            min_kmer_obs,
-            phantom: PhantomData,
-        }
-    }
-
-    fn summarize<K, F: Iterator<Item = (K, Exts, D)>>(&self, items: F) -> (bool, Exts, Vec<D>) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<D> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d);
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-        out_data.dedup();
-        out_data.shrink_to_fit();
-        
-        (nobs as usize >= self.min_kmer_obs, all_exts, out_data)
-        
-    }
-}
-
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
-pub struct CountFilterComb {
-    min_kmer_obs: usize,
-    pub sum_datas: u64,
-    phantom: PhantomData<u8>,
-}
-
-impl KmerSummarizer<u8, TagsSumData, (Tags, i32)> for CountFilterComb {
-    fn new(min_kmer_obs: usize) -> Self {
-        CountFilterComb {
-            min_kmer_obs,
-            sum_datas: 0,
-            phantom: PhantomData,
-        }
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, TagsSumData) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); // uses a shit ton of heap memory
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-        out_data.dedup();
-
-        (nobs as usize >= self.min_kmer_obs, all_exts, TagsSumData::new((Tags::from_u8_vec(out_data), nobs)))
-    }
-}
-
-
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
-pub struct CountFilterStats {
-    min_kmer_obs: usize,
-    phantom: PhantomData<u8>,
-}
-
-impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterStats {
-    fn new(min_kmer_obs: usize) -> Self {
-        CountFilterStats {
-            min_kmer_obs,
-            phantom: PhantomData,
-        }
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F) -> (bool, Exts, TagsCountData) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
-
-        let tag_counts: Box<[u32]> = tag_counts.into();
-
-        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountData::new((Tags::from_u8_vec(out_data), tag_counts, nobs))) 
-    }
-}
 
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
@@ -421,6 +109,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     memory_size: usize,
     time: bool,
     progress: bool,
+    markers: (u64, u64),
+    signigificant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     // take timestamp before all processes
@@ -624,8 +314,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let summarizer = S::new(min_kmer_obs);
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
+                let summarizer = S::new(min_kmer_obs, markers);
+                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, signigificant);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -782,6 +472,7 @@ pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, 
     memory_size: usize,
     time: bool,
     progress: bool,
+    signigificant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 where
     DS: Debug,
@@ -971,7 +662,7 @@ where
             // group the tuples by the k-mers and iterate over the groups
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter);
+                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, signigificant);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -1104,7 +795,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
 
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -1122,12 +813,13 @@ mod tests {
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1)),
+            &Box::new(CountFilterComb::new(1, (0u64, 0u64))),
             false, 
             false, 
             1,
             false,
-            false
+            false,
+            None
          );
 
          println!("{:?}", hm);
@@ -1153,13 +845,15 @@ mod tests {
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
             &reads, 
-            Box::new(CountFilterComb::new(1)),
+            Box::new(CountFilterComb::new(1, (0u64, 0u64))),
             1, 
             false, 
             false,
             1,
             false,
-            false
+            false,
+            (0u64, 0u64),
+            None
          );
 
          println!("{:?}", hm);
