@@ -3,7 +3,7 @@ use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::{str, usize};
+use std::{mem, str, usize};
 use crate::dna_string::DnaString;
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
@@ -42,6 +42,10 @@ impl<D: Clone + Copy> Reads<D> {
     /// Returns the number of reads stored
     pub fn n_reads(&self) -> usize {
         self.ends.len()
+    }
+
+    pub fn mem(&self) -> usize {
+        mem::size_of_val(&*self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + size_of_val(&*self.exts)
     }
 
     /// Adds a new read to the `Reads`
@@ -369,10 +373,14 @@ mod tests {
 
         ];
 
+
         let mut reads = Reads::new();
         for (read, ext, data) in fastq.clone() {
             reads.add_read(read, ext, data);
         }
+
+        println!("reads: {:#?}", reads);
+
 
         /* for no in reads.storage.iter() {
             println!("{:#b}", no)
@@ -393,6 +401,8 @@ mod tests {
         for read in reads.partial_iter(5..7) {
             println!("{:?}", read)
         }
+
+        println!("memory usage: {}", reads.mem())
     }
 
     #[test]
