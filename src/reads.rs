@@ -347,6 +347,8 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
 
 #[cfg(test)]
 mod tests {
+    use std::time;
+
     use itertools::enumerate;
     use rand::random;
 
@@ -465,5 +467,52 @@ mod tests {
                 false => assert_eq!(sequence,None),
             }
         }
+    }
+
+    #[test]
+    fn test_speed_from_bytes() {
+        let dnas = [
+            "AAGCGGAGATTATTCACGAGCATCGCGTAC".as_bytes(),
+            "GATCGATGCATGCTAGA".as_bytes(),
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAANTTATATAACGTAACGTAAAAAAAAAAATTATAATAACGT".as_bytes(),
+            "AGCTAGCTAGCTGACNGAGCGACTGA".as_bytes(),
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC".as_bytes(),
+            "TTTTTTTTTTTTTTTTTTTTTTTT".as_bytes(),
+            "ACGATCGAATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACNNNTGATCGATCG".as_bytes(),
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
+            "A".as_bytes(),
+            "AAAAN".as_bytes(),
+            "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
+        ];
+
+        const REPS: usize = 5000000;
+        /*
+        test with 5 ml:
+            through DnaString: 88.09323 s 
+            direct to Read: 44.41913 s
+         */
+
+
+        let ds_start= time::Instant::now();
+        let mut reads: Reads<u8> = Reads::new();
+        for _i in 0..REPS {
+            for dna in dnas {
+                reads.add_read(DnaString::from_acgt_bytes(dna), Exts::empty(), random());
+            }
+        }
+        let ds_finish = ds_start.elapsed();
+
+        let r_start= time::Instant::now();
+        let mut reads: Reads<u8> = Reads::new();
+        for _i in 0..REPS {
+            for dna in dnas {
+                reads.add_from_bytes(dna, Exts::empty(), random());
+            }
+        }
+        let r_finish = r_start.elapsed();
+
+        println!("through DnaString: {} s \n direct to Read: {} s", ds_finish.as_secs_f32(), r_finish.as_secs_f32())
+
+
     }
 }
