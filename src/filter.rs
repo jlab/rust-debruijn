@@ -26,7 +26,7 @@ use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
 
-
+// FIXME does not work with k < 4
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
     (kmer.get(0) as usize) << 6
         | (kmer.get(1) as usize) << 4
@@ -110,7 +110,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     time: bool,
     progress: bool,
     markers: (u64, u64),
-    signigificant: Option<u32>,
+    significant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     // take timestamp before all processes
@@ -225,7 +225,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
                     };
 
                     // calculate which bucket this kmer belongs to
-                    let bucket = bucket(min_kmer);
+                    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+                    //let bucket = bucket(min_kmer);
                     // check if bucket is in current range and if so, add one to needed capacity
                     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                     if in_range { 
@@ -250,8 +251,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
                     };
 
                     // calculate which bucket this kmer belongs to
-                    let bucket = bucket(min_kmer);
-
+                    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+                    //let bucket = bucket(min_kmer);
                     // check if bucket is in current range and if so, push kmer to bucket
                     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                     if in_range {
@@ -315,7 +316,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 let summarizer = S::new(min_kmer_obs, markers);
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, signigificant);
+                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, significant);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -568,8 +569,8 @@ where
                 };
 
                 // calculate which bucket this kmer belongs to
-                let bucket = bucket(min_kmer);
-                // check if bucket is in current range and if so, add one to needed capacity
+                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+                //let bucket = bucket(min_kmer);                // check if bucket is in current range and if so, add one to needed capacity
                 let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                 if in_range { capacities[bucket] += 1 }
             }
@@ -597,8 +598,8 @@ where
                 };
 
                 // calculate which bucket this kmer belongs to
-                let bucket = bucket(min_kmer);
-
+                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+                //let bucket = bucket(min_kmer);
                 // check if bucket is in current range and if so, push kmer to bucket
                 let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                 if in_range {

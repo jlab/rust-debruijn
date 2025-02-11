@@ -1,6 +1,6 @@
 use bimap::BiMap;
-use crate::{Exts, Kmer, Tags};
-use std::{fmt::Debug, marker::PhantomData, mem};
+use crate::{dna_string::DnaString, reads::Reads, Exts, Kmer, Tags};
+use std::{fmt::Debug, marker::PhantomData, mem, path::MAIN_SEPARATOR};
 
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer
@@ -155,6 +155,7 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
 }
 
 /// Structure for Summarizer Data which contains the tags and the count for each tag
+#[derive(Debug, Clone, PartialEq)]
 pub struct TagsCountsData {
     tags: Tags,
     counts: Box<[u32]>
@@ -193,6 +194,7 @@ impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupCountData {
     group1: u32,
     group2: u32,
@@ -233,6 +235,7 @@ impl SummaryData<(u32, u32)> for GroupCountData {
 
 
 /// Data container to store the relative amount of k-mers (in percent) in group 1 and the overall count
+#[derive(Debug, Clone, PartialEq)]
 pub struct RelCountData {
     percent: u32,
     count: u32
@@ -543,20 +546,22 @@ impl KmerSummarizer<u8, GroupCountData, (u32, u32)> for CountsFilterGroups {
         let mut nobs = 0i32;
         for (_, exts, d) in items {
             let tag = 2u64.pow(d as u32);
-            let group1 = self.marker1 & tag;
-            let group2 = self.marker2 & tag;
-            if (group1 + group2) > 1 { panic!("should not happen")}
+            let group1 = ((self.marker1 & tag) > 1) as u32;
+            let group2 = ((self.marker2 & tag) > 1) as u32;
+
+            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker1, self.marker2, group1, group2)}
             count1 += group1;
             count2 += group2;
-            all_exts = all_exts.add(exts);
             nobs += 1;
+            all_exts = all_exts.add(exts);
         }
 
         let counts = match significant {
-            Some(digits) => (round_digits(count1 as u32, digits), round_digits(count2 as u32, digits)),
-            None => (count1 as u32, count2 as u32)
+            Some(digits) => (round_digits(count1, digits), round_digits(count2, digits)),
+            None => (count1, count2)
         };
 
+        assert_eq!((count1 + count2),nobs as u32);
         (nobs as usize >= self.min_kmer_obs, all_exts, GroupCountData::new(counts))
     }
 }
@@ -589,22 +594,194 @@ impl KmerSummarizer<u8, RelCountData, (u32, u32)> for CountsFilterRel {
         let mut nobs = 0i32;
         for (_, exts, d) in items {
             let tag = 2u64.pow(d as u32);
-            let group1 = self.marker1 & tag;
-            let group2 = self.marker2 & tag;
-            if (group1 + group2) > 1 { panic!("should not happen")}
+            let group1 = ((self.marker1 & tag) > 1) as u32;
+            let group2 = ((self.marker2 & tag) > 1) as u32;
+
+            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker1, self.marker2, group1, group2)}
             count1 += group1;
             count2 += group2;
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
 
-        let percent = (count1 as f64 / (count1 + count2) as f64 * 100.) as u32;
+        assert_eq!(count1 + count2, nobs as u32);
+
+
+        let percent = (count1 as f64 / nobs as f64 * 100.) as u32;
         let count = match significant {
-            Some(digits) => round_digits((count1 + count2) as u32, digits),
-            None => (count1 + count2) as u32
+            Some(digits) => round_digits(nobs as u32, digits),
+            None => nobs as u32
         };
 
         (nobs as usize >= self.min_kmer_obs, all_exts, RelCountData::new((percent, count))) 
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use std::fmt::Debug;
+
+    use bimap::BiMap;
+    use boomphf::hashmap::BoomHashMap2;
+
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer12, Kmer14, Kmer16, Kmer20, Kmer3, Kmer32, Kmer4, Kmer6, Kmer8}, reads::Reads, summarizer::{self, CountFilter, CountsFilterGroups, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SummaryData, TagsCountsData}, test::random_dna, Exts, Kmer};
+
+    #[test]
+    fn test_summarizers() {
+
+        // generate three reads
+        let mut reads = Reads::new();
+
+        let repeats = 200;
+        let read_len = 150;
+
+        for _i in 0..repeats {
+            let dna_string = DnaString::from_bytes(&random_dna(read_len));
+            reads.add_read(dna_string, Exts::empty(), 1u8);
+        }
+
+        for _i in 0..repeats {
+            let dna_string = DnaString::from_bytes(&random_dna(read_len));
+            reads.add_read(dna_string, Exts::empty(), 2u8);
+        }
+
+        for _i in 0..repeats {
+            let dna_string = DnaString::from_bytes(&random_dna(read_len));
+            reads.add_read(dna_string, Exts::empty(), 3u8);
+        }
+
+        // markers: 
+        let markers = (2, 12);
+        // 0010 => 2
+        // 1100 => 12
+
+        // tag translator
+        let mut tag_translator: bimap::BiHashMap<&str, u8> = BiMap::new();
+        tag_translator.insert("1", 1);
+        tag_translator.insert("2", 2);
+        tag_translator.insert("3", 3);
+
+        let significant= Some(4);
+        let min_kmer_obs = 1;
+        type K = Kmer12;
+
+        let pr = false;
+
+        if pr { println!("{}", reads) };
+
+
+        //construct and compress graph with CountFilter
+        let summarizer= CountFilter::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<u32> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+
+        graph.to_gfa_with_tags("test_cf.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("cf graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterGroups
+        let summarizer= CountsFilterGroups::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfg graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterRel
+        let summarizer= CountsFilterRel::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfr graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterStats
+        let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfs graph size: {}", graph.len());
+
+
+
+        // same but with less significant digits
+        let significant= Some(2);
+
+        //construct and compress graph with CountFilter
+        let summarizer= CountFilter::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<u32> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_cf.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("cf graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterGroups
+        let summarizer= CountsFilterGroups::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfg graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterRel
+        let summarizer= CountsFilterRel::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfr graph size: {}", graph.len());
+
+
+        // construct and compress graph with CountsFilterStats
+        let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        //graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        println!("csfs graph size: {}", graph.len());
+
+
+    }
+
+
+    fn test_summarizer<K: Kmer + Send + Sync, T: KmerSummarizer<u8, D, SD>, CS: CompressionSpec<D> + Send + Sync, D: SummaryData<SD> + Debug + PartialEq + Clone + Send + Sync, SD>(reads: &Reads<u8>, summarizer: T, spec: CS, sig: Option<u32>) -> DebruijnGraph<K, D> {
+        // construct and compress graph with CountsFilterStats
+        //let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
+
+        let memory = 1;
+        let pr = false;
+
+        let (k_mers, _): (BoomHashMap2<K, Exts, D>, _)  = filter_kmers(&reads,
+            &Box::new(summarizer),
+            false, 
+            false, 
+            memory, 
+            false, 
+            false, 
+            sig
+        );
+        if pr { println!("kmers CountsFilterStats: {:?}", k_mers) };
+
+        let graph = compress_kmers_with_hash(false, &spec, &k_mers, false, false, false);
+        if pr { println!("graph CountsFilterStats: {:?}\n", graph) };
+
+        //graph.finish().to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tt)).unwrap();
+        graph.finish()
+    }
+}
+
 
