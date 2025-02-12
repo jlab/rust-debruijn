@@ -1,6 +1,7 @@
 use bimap::BiMap;
-use crate::{dna_string::DnaString, reads::Reads, Exts, Kmer, Tags};
-use std::{fmt::Debug, marker::PhantomData, mem, path::MAIN_SEPARATOR};
+use serde::{Deserialize, Serialize};
+use crate::{Exts, Kmer, Tags};
+use std::{fmt::Debug, marker::PhantomData, mem};
 
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer
@@ -80,7 +81,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed is 12 Bytes
 #[repr(packed)]
 pub struct TagsSumData {
@@ -120,7 +121,7 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountData {
     tags: Tags,
     sum: i32,
@@ -155,7 +156,7 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
 }
 
 /// Structure for Summarizer Data which contains the tags and the count for each tag
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsData {
     tags: Tags,
     counts: Box<[u32]>
@@ -194,7 +195,7 @@ impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupCountData {
     group1: u32,
     group2: u32,
@@ -235,7 +236,7 @@ impl SummaryData<(u32, u32)> for GroupCountData {
 
 
 /// Data container to store the relative amount of k-mers (in percent) in group 1 and the overall count
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelCountData {
     percent: u32,
     count: u32
