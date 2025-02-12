@@ -666,6 +666,7 @@ mod tests {
 
         graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
         graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsCountData>| format!("{:?}", node.data()))).unwrap();
+
         //let graph2 = graph.finish();
         //graph2.print();
         //graph.print();
