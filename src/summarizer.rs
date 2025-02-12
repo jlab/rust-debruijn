@@ -624,6 +624,8 @@ mod test {
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
+    use itertools::enumerate;
+    use rand::Rng;
 
     use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer12, Kmer14, Kmer16, Kmer20, Kmer3, Kmer32, Kmer4, Kmer6, Kmer8}, reads::Reads, summarizer::{self, CountFilter, CountsFilterGroups, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SummaryData, TagsCountsData}, test::random_dna, Exts, Kmer};
 
@@ -633,24 +635,43 @@ mod test {
         // generate three reads
         let mut reads = Reads::new();
 
-        let repeats = 200;
+        let dnas = ["CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+            "CGATCGAGCTACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+            "ACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGCACGATGCTAGCTGACTAGC".as_bytes(),
+            "CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGCGGACTAGCGAG".as_bytes(),
+            "ACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+        ];
+
+        let mut rng = rand::thread_rng();
+        for dna in dnas {
+            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(1, 4));
+        }
+
+
+        /* let repeats = 2000;
         let read_len = 150;
 
         for _i in 0..repeats {
-            let dna_string = DnaString::from_bytes(&random_dna(read_len));
-            reads.add_read(dna_string, Exts::empty(), 1u8);
+            let dna =  random_dna((1.5*read_len as f32) as usize);
+            let dna_string1 = DnaString::from_bytes(&dna[0..read_len + read_len/2]);
+            let dna_string2 = DnaString::from_bytes(&dna[read_len + read_len/2..(1.5*read_len as f32) as usize]);
+            reads.add_read(dna_string1.clone(), Exts::empty(), 1u8);
+            if rand::random::<bool>() { reads.add_read(dna_string2, Exts::empty(), 2u8) };
         }
 
         for _i in 0..repeats {
-            let dna_string = DnaString::from_bytes(&random_dna(read_len));
-            reads.add_read(dna_string, Exts::empty(), 2u8);
+            let dna =  random_dna((1.5*read_len as f32) as usize);
+            let dna_string1 = DnaString::from_bytes(&dna[0..read_len + read_len/2]);
+            let dna_string2 = DnaString::from_bytes(&dna[read_len + read_len/2..(1.5*read_len as f32) as usize]);            
+            reads.add_read(dna_string1.clone(), Exts::empty(), 2u8);
+            if rand::random::<bool>() { reads.add_read(dna_string2, Exts::empty(), 3u8) };
         }
 
         for _i in 0..repeats {
             let dna_string = DnaString::from_bytes(&random_dna(read_len));
             reads.add_read(dna_string, Exts::empty(), 3u8);
         }
-
+ */
         // markers: 
         let markers = (2, 12);
         // 0010 => 2
@@ -658,9 +679,9 @@ mod test {
 
         // tag translator
         let mut tag_translator: bimap::BiHashMap<&str, u8> = BiMap::new();
-        tag_translator.insert("1", 1);
-        tag_translator.insert("2", 2);
-        tag_translator.insert("3", 3);
+        tag_translator.insert("sample 1", 1);
+        tag_translator.insert("sample 2", 2);
+        tag_translator.insert("sample 3", 3);
 
         let significant= Some(4);
         let min_kmer_obs = 1;
@@ -706,21 +727,21 @@ mod test {
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
         let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
 
-        //graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
         println!("csfs graph size: {}", graph.len());
 
 
 
         // same but with less significant digits
-        let significant= Some(2);
+        let significant= Some(1);
 
         //construct and compress graph with CountFilter
         let summarizer= CountFilter::new(min_kmer_obs, markers);
         let spec: ScmapCompress<u32> = ScmapCompress::new();
         let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
 
-        //graph.to_gfa_with_tags("test_cf.gfa",|n| n.data().print(&tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_cf-1.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
         println!("cf graph size: {}", graph.len());
 
