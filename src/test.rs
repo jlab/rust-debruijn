@@ -154,7 +154,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterSet, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData};
+    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterStats, KmerSummarizer, TagsCountData};
 
     use super::*;
     use pretty_assertions::assert_eq;

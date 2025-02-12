@@ -868,7 +868,7 @@ pub struct Tags {
 }
 
 /// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 #[cfg(not(feature = "sample128"))]
 pub struct Tags {
     pub val: u64,
