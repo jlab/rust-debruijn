@@ -700,7 +700,7 @@ mod tests {
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
         let mut str_map = BiMap::new();
         for (i, str) in str_vec.into_iter().enumerate() {
-            str_map.insert(str, i as u8);
+            str_map.insert(str.to_string(), i as u8);
         }
 
         // build Tags from val

@@ -17,7 +17,7 @@ pub trait SummaryData<D> {
     /// Make a new `SummaryData<D>`
     fn new(data: D) -> Self;
     /// does not actually print but format
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String;
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String;
     /// If the `SummaryData` contains sufficient information, return `Vec<u8>` of the tags and the count
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)>;
     /// If the `SummaryData` contains sufficient information, return the Tags and the count 
@@ -33,7 +33,7 @@ impl<> SummaryData<u32> for u32 {
         data
     }
 
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
@@ -59,7 +59,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
         data
     }
 
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("tags: {:?}", self).replace("\"", "\'")
     }
     
@@ -94,7 +94,7 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
         TagsSumData { tags: data.0, sum: data.1 }
     }
 
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
         // need to copy fields to local variable because repr(packed) results in unaligned struct
         let tags = self.tags;
         let sum = self.sum;
@@ -133,7 +133,7 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
         TagsCountData { tags: data.0, counts: data.1, sum: data.2 }
     }
 
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
         format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum).replace("\"", "\'")
     }
 
@@ -174,7 +174,7 @@ impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
         TagsCountsData { tags: data.0, counts: data.1 }
     }
 
-    fn print(&self, tag_translator: &BiMap<&str, u8>) -> String {
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
         format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
     }
 
@@ -213,7 +213,7 @@ impl SummaryData<(u32, u32)> for GroupCountData {
         GroupCountData { group1: data.0, group2: data.1 }
     }
     
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
@@ -247,7 +247,7 @@ impl SummaryData<(u32, u32)> for RelCountData {
         RelCountData { percent: data.0, count: data.1 }
     }
     
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
@@ -273,7 +273,7 @@ impl SummaryData<f32> for f32 {
         data
     }
 
-    fn print(&self, _: &BiMap<&str, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("relative count group 1: {}", self)
     }
 
@@ -679,10 +679,10 @@ mod test {
         // 1100 => 12
 
         // tag translator
-        let mut tag_translator: bimap::BiHashMap<&str, u8> = BiMap::new();
-        tag_translator.insert("sample 1", 1);
-        tag_translator.insert("sample 2", 2);
-        tag_translator.insert("sample 3", 3);
+        let mut tag_translator: bimap::BiHashMap<String, u8> = BiMap::new();
+        tag_translator.insert("sample 1".to_string(), 1);
+        tag_translator.insert("sample 2".to_string(), 2);
+        tag_translator.insert("sample 3".to_string(), 3);
 
         let significant= Some(4);
         let min_kmer_obs = 1;
