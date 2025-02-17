@@ -751,14 +751,14 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         });
 
-        let mut out_file = BufWriter::with_capacity(8000, File::create(format!("{}.dot", path)).unwrap());
+        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.dot", path)).unwrap());
 
         writeln!(&mut out_file, "digraph {{").unwrap();
 
         for file in files.iter() {
             let open_file = File::open(file).expect("error creating combined dot file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 8000];
+            let mut buffer = [0; 64*1024];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
@@ -921,13 +921,13 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         });
 
         // combine files
-        let mut out_file = BufWriter::with_capacity(8000, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
+        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         for file in files.iter() {
             let open_file = File::open(file).expect("error opening parallel gfa file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 8000];
+            let mut buffer = [0; 64*1024];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
