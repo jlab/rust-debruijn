@@ -16,6 +16,7 @@ use std::f32;
 use std::fmt::{self, Debug, Display};
 use std::fs::{remove_file, File};
 use std::hash::Hash;
+use std::io::BufWriter;
 use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
@@ -837,7 +838,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format
     pub fn to_gfa<P: AsRef<Path>>(&self, gfa_out: P) -> Result<(), Error> {
-        let wtr = File::create(gfa_out)?;
+        let wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out)?);
         self.write_gfa(&mut std::io::BufWriter::new(wtr))
     }
 
@@ -911,7 +912,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         
         
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut wtr = File::create(&files[i]).unwrap();
+            let mut wtr = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel gfa file"));
 
             for i in range {
                 let n = self.get_node(i);
