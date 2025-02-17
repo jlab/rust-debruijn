@@ -704,7 +704,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// 
     /// The path does not need to contain the file ending.
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
-        let mut f = File::create(path).expect("couldn't open file");
+        let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
         writeln!(&mut f, "digraph {{").unwrap();
         for i in 0..self.len() {
@@ -744,7 +744,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut f = File::create(&files[i]).expect("couldn't open file");
+            let mut f = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel dot file"));
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
@@ -756,7 +756,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut out_file, "digraph {{").unwrap();
 
         for file in files.iter() {
-            let open_file = File::open(file).expect("couldn't open file");
+            let open_file = File::open(file).expect("error creating combined dot file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; 8000];
 
@@ -838,7 +838,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format
     pub fn to_gfa<P: AsRef<Path>>(&self, gfa_out: P) -> Result<(), Error> {
-        let wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out)?);
+        let wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creating gfa file"));
         self.write_gfa(&mut std::io::BufWriter::new(wtr))
     }
 
@@ -862,7 +862,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         gfa_out: P,
         tag_func: F,
     ) -> Result<(), Error> {
-        let mut wtr = File::create(gfa_out)?;
+        let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creatinf gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         for i in 0..self.len() {
@@ -925,7 +925,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         for file in files.iter() {
-            let open_file = File::open(file).expect("couldn't open file");
+            let open_file = File::open(file).expect("error creating combined gfa file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; 8000];
 
