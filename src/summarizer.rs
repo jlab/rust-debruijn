@@ -681,11 +681,17 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMaj 
 
         let tags = Tags::from_u8_vec(out_data.clone());
 
-        
+        let dist0= tags.bit_and_dist(self.marker.marker0);
+        let dist1= tags.bit_and_dist(self.marker.marker1);
+
+        let valid = (nobs as usize >= self.min_kmer_obs)
+            && ((self.marker.count0 as f32 / dist0 as f32 > 0.33) 
+                | (self.marker.count1 as f32 / dist1 as f32 > 0.33));
+
 
         let tag_counts: Box<[u32]> = tag_counts.into();
 
-        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountsData::new((Tags::from_u8_vec(out_data), tag_counts))) 
+        (valid, all_exts, TagsCountsData::new((Tags::from_u8_vec(out_data), tag_counts))) 
     }
 }
 
@@ -849,7 +855,13 @@ mod test {
     }
 
 
-    fn test_summarizer<K: Kmer + Send + Sync, T: KmerSummarizer<u8, D, SD>, CS: CompressionSpec<D> + Send + Sync, D: SummaryData<SD> + Debug + PartialEq + Clone + Send + Sync, SD>(reads: &Reads<u8>, summarizer: T, spec: CS, sig: Option<u32>) -> DebruijnGraph<K, D> {
+    fn test_summarizer<K, T, CS, D, SD>(reads: &Reads<u8>, summarizer: T, spec: CS, sig: Option<u32>) -> DebruijnGraph<K, D> 
+    where  
+        K: Kmer + Send + Sync, 
+        T: KmerSummarizer<u8, D, SD>, 
+        CS: CompressionSpec<D> + Send + Sync, 
+        D: SummaryData<SD> + Debug + PartialEq + Clone + Send + Sync,
+    {
         // construct and compress graph with CountsFilterStats
         //let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
 
@@ -872,6 +884,13 @@ mod test {
 
         //graph.finish().to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tt)).unwrap();
         graph.finish()
+    }
+
+    #[test]
+    fn test_maj_summarizers() {
+
+        todo!()
+
     }
 }
 
