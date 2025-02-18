@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use std::vec::IntoIter;
 
-const BUF: usize = 70000;
+const BUF: usize = 64*1024;
 
 pub struct FastqReader<R: BufRead> {
     buf_reader: R,
