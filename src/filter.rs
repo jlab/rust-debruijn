@@ -19,8 +19,10 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::Reads;
+use crate::summarizer::Marker;
 use crate::summarizer::SummaryData;
 use crate::summarizer::KmerSummarizer;
+use crate::summarizer::M;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -109,7 +111,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     memory_size: usize,
     time: bool,
     progress: bool,
-    markers: (u64, u64),
+    markers: Marker,
     significant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
@@ -796,7 +798,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
 
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{CountFilterComb, M}, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -812,9 +814,12 @@ mod tests {
             reads.add_read(read, exts, data);
         }
 
+        let markers = Marker::new(0, 0, 0, 0);
+
+
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1, (0u64, 0u64))),
+            &Box::new(CountFilterComb::new(1, markers)),
             false, 
             false, 
             1,
@@ -844,16 +849,19 @@ mod tests {
 
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
+        let markers = Marker::new(0, 0, 0, 0);
+
+
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
             &reads, 
-            Box::new(CountFilterComb::new(1, (0u64, 0u64))),
+            Box::new(CountFilterComb::new(1, markers)),
             1, 
             false, 
             false,
             1,
             false,
             false,
-            (0u64, 0u64),
+            markers,
             None
          );
 

@@ -3,6 +3,26 @@ use serde::{Deserialize, Serialize};
 use crate::{Exts, Kmer, Tags};
 use std::{fmt::Debug, marker::PhantomData, mem};
 
+#[cfg(not(feature = "sample128"))]
+pub type M = u64;
+
+#[cfg(feature = "sample128")]
+pub type M = u128;
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+pub struct Marker {
+    marker0: M,
+    marker1: M,
+    count0: u8,
+    count1: u8,
+}
+
+impl Marker {
+    pub fn new(marker0: M, marker1: M, count0: u8, count1: u8) -> Self {
+        Marker { marker0, marker1, count0, count1 }
+    }
+}
+
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer
 pub fn round_digits(number: u32, digits: u32) -> u32 {
@@ -304,7 +324,7 @@ pub trait KmerSummarizer<DI, DO: SummaryData<SD>, SD> {
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
     
-    fn new(min_kmer_obs: usize, markers: (u64, u64)) -> Self;
+    fn new(min_kmer_obs: usize, markers: Marker) -> Self;
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F, significant: Option<u32>) -> (bool, Exts, DO);
 }
 
@@ -317,7 +337,7 @@ pub struct CountFilter<D> {
 }
 
 impl<D> KmerSummarizer<D, u32, u32> for CountFilter<D> {
-    fn new(min_kmer_obs: usize, _: (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, _: Marker) -> Self {
         CountFilter {
             min_kmer_obs,
             phantom: PhantomData,
@@ -350,7 +370,7 @@ pub struct CountFilterSet<D> {
 }
 
 impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, Vec<D>> for CountFilterSet<D> {
-    fn new(min_kmer_obs: usize, _: (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, _: Marker) -> Self {
         CountFilterSet {
             min_kmer_obs,
             phantom: PhantomData,
@@ -387,7 +407,7 @@ pub struct CountFilterComb {
 }
 
 impl KmerSummarizer<u8, TagsSumData, (Tags, i32)> for CountFilterComb {
-    fn new(min_kmer_obs: usize, _: (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, _: Marker) -> Self {
         CountFilterComb {
             min_kmer_obs,
             phantom: PhantomData,
@@ -423,7 +443,7 @@ pub struct CountFilterStats {
 }
 
 impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterStats {
-    fn new(min_kmer_obs: usize, _: (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, _: Marker) -> Self {
         CountFilterStats {
             min_kmer_obs,
             phantom: PhantomData,
@@ -476,7 +496,7 @@ pub struct CountsFilterStats {
 }
 
 impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterStats {
-    fn new(min_kmer_obs: usize, _: (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, _: Marker) -> Self {
         CountsFilterStats {
             min_kmer_obs,
             phantom: PhantomData,
@@ -524,17 +544,15 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterStat
 /// is a vector of the unique data values observed for that kmer.
 pub struct CountsFilterGroups {
     min_kmer_obs: usize,
-    marker1: u64,
-    marker2: u64,
+    marker: Marker,
     phantom: PhantomData<u8>,
 }
 
 impl KmerSummarizer<u8, GroupCountData, (u32, u32)> for CountsFilterGroups {
-    fn new(min_kmer_obs: usize, (marker1, marker2): (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, marker: Marker) -> Self {
         CountsFilterGroups {
             min_kmer_obs,
-            marker1,
-            marker2,
+            marker,
             phantom: PhantomData,
         }
     }
@@ -546,11 +564,11 @@ impl KmerSummarizer<u8, GroupCountData, (u32, u32)> for CountsFilterGroups {
 
         let mut nobs = 0i32;
         for (_, exts, d) in items {
-            let tag = 2u64.pow(d as u32);
-            let group1 = ((self.marker1 & tag) > 1) as u32;
-            let group2 = ((self.marker2 & tag) > 1) as u32;
+            let tag = (2 as M).pow(d as u32);
+            let group1 = ((self.marker.marker0 & tag) > 1) as u32;
+            let group2 = ((self.marker.marker1 & tag) > 1) as u32;
 
-            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker1, self.marker2, group1, group2)}
+            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker.marker0, self.marker.marker1, group1, group2)}
             count1 += group1;
             count2 += group2;
             nobs += 1;
@@ -572,17 +590,15 @@ impl KmerSummarizer<u8, GroupCountData, (u32, u32)> for CountsFilterGroups {
 /// is a vector of the unique data values observed for that kmer.
 pub struct CountsFilterRel{
     min_kmer_obs: usize,
-    marker1: u64,
-    marker2: u64,
+    marker: Marker,
     phantom: PhantomData<u8>,
 }
 
 impl KmerSummarizer<u8, RelCountData, (u32, u32)> for CountsFilterRel {
-    fn new(min_kmer_obs: usize, (marker1, marker2): (u64, u64)) -> Self {
+    fn new(min_kmer_obs: usize, marker: Marker) -> Self {
         CountsFilterRel {
             min_kmer_obs,
-            marker1,
-            marker2,
+            marker,
             phantom: PhantomData,
         }
     }
@@ -594,11 +610,11 @@ impl KmerSummarizer<u8, RelCountData, (u32, u32)> for CountsFilterRel {
 
         let mut nobs = 0i32;
         for (_, exts, d) in items {
-            let tag = 2u64.pow(d as u32);
-            let group1 = ((self.marker1 & tag) > 1) as u32;
-            let group2 = ((self.marker2 & tag) > 1) as u32;
+            let tag = (2 as M).pow(d as u32);
+            let group1 = ((self.marker.marker0 & tag) > 1) as u32;
+            let group2 = ((self.marker.marker1 & tag) > 1) as u32;
 
-            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker1, self.marker2, group1, group2)}
+            if (group1 + group2) != 1 { panic!("should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", tag, self.marker.marker0, self.marker.marker1, group1, group2)}
             count1 += group1;
             count2 += group2;
             all_exts = all_exts.add(exts);
@@ -618,6 +634,60 @@ impl KmerSummarizer<u8, RelCountData, (u32, u32)> for CountsFilterRel {
     }
 }
 
+pub struct CountsFilterMaj {
+    min_kmer_obs: usize,
+    marker: Marker,
+    phantom: PhantomData<u8>,
+}
+
+
+impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMaj {
+    fn new(min_kmer_obs: usize, marker: Marker) -> Self {
+        CountsFilterMaj {
+            min_kmer_obs,
+            marker,
+            phantom: PhantomData,
+        }
+    }
+
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F, _: Option<u32>) -> (bool, Exts, TagsCountsData) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+        out_data.dedup(); 
+
+        let tags = Tags::from_u8_vec(out_data.clone());
+
+        
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+
+        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountsData::new((Tags::from_u8_vec(out_data), tag_counts))) 
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -625,10 +695,9 @@ mod test {
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
-    use itertools::enumerate;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer12, Kmer14, Kmer16, Kmer20, Kmer3, Kmer32, Kmer4, Kmer6, Kmer8}, reads::Reads, summarizer::{self, CountFilter, CountsFilterGroups, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SummaryData, TagsCountsData}, test::random_dna, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::Kmer12, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, Marker, RelCountData, SummaryData, TagsCountsData}, Exts, Kmer};
 
     #[test]
     fn test_summarizers() {
@@ -674,7 +743,7 @@ mod test {
         }
  */
         // markers: 
-        let markers = (2, 12);
+        let markers = Marker { marker0: 2, marker1: 12, count0: 1, count1: 2 };
         // 0010 => 2
         // 1100 => 12
 
