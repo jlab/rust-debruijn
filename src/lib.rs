@@ -991,7 +991,6 @@ impl Tags {
     pub fn bit_and_dist(&self, marker: u64) -> usize {
         let mut overlap = self.val & marker;
         let mut dist = 0;
-        println!("overlap:  {:064b}", overlap);
         for _i in 0..64 {
             if overlap % 2 != 0 { dist += 1 }
             overlap = overlap >> 1;

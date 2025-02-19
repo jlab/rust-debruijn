@@ -679,19 +679,24 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMaj 
         tag_counts.push(tag_counter);
         out_data.dedup(); 
 
-        let tags = Tags::from_u8_vec(out_data.clone());
+        let tags = Tags::from_u8_vec(out_data);
 
+        // get amount of labels in tags from each group
         let dist0= tags.bit_and_dist(self.marker.marker0);
         let dist1= tags.bit_and_dist(self.marker.marker1);
 
-        let valid = (nobs as usize >= self.min_kmer_obs)
-            && ((self.marker.count0 as f32 / dist0 as f32 > 0.33) 
-                | (self.marker.count1 as f32 / dist1 as f32 > 0.33));
+        assert_eq!(dist0 + dist1, tags.to_u8_vec().len());
 
+        // valid if:
+        // - n obs >= min obs AND
+        // - observed in at least one third of samples in one group
+        let valid = (nobs as usize >= self.min_kmer_obs)
+            && ((dist0 as f32 / self.marker.count0 as f32 > 0.333333) 
+                | (dist1 as f32 / self.marker.count1 as f32 > 0.333333));
 
         let tag_counts: Box<[u32]> = tag_counts.into();
 
-        (valid, all_exts, TagsCountsData::new((Tags::from_u8_vec(out_data), tag_counts))) 
+        (valid, all_exts, TagsCountsData::new((tags, tag_counts))) 
     }
 }
 
@@ -703,7 +708,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::Kmer12, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, Marker, RelCountData, SummaryData, TagsCountsData}, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterMaj, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, Marker, RelCountData, SummaryData, TagsCountsData}, Exts, Kmer};
 
     #[test]
     fn test_summarizers() {
@@ -888,8 +893,50 @@ mod test {
 
     #[test]
     fn test_maj_summarizers() {
+        // generate three reads
+        let mut reads = Reads::new();
 
-        todo!()
+        let dnas = ["CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+            "CGATCGAGCTACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+            "ACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGCACGATGCTAGCTGACTAGC".as_bytes(),
+            "CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGCGGACTAGCGAG".as_bytes(),
+            "ACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
+        ];
+
+        let repeats = 2;
+
+        let mut rng = rand::thread_rng();
+        for _i in 0..repeats {
+            for dna in dnas {
+            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(0, 12));
+            }
+        }
+
+        /*
+        markers: 
+        - 111111100000 = 4064
+        - 000000011111 = 31*/
+        
+
+        type K = Kmer12;
+
+        let markers = Marker { marker0: 4064, marker1: 31, count0: 7, count1: 5 };
+        let min_kmer_obs = 1;
+        let significant = None;
+
+        // construct and compress graph with CountsFilterMaj
+        let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        graph.print();
+
+        // construct and compress graph with CountsFilterMaj
+        let summarizer= CountsFilterMaj::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        graph.print();
 
     }
 }
