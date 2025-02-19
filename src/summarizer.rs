@@ -11,10 +11,10 @@ pub type M = u128;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SampleInfo {
-    pub marker0: M,
-    pub marker1: M,
-    pub count0: u8,
-    pub count1: u8,
+    marker0: M,
+    marker1: M,
+    count0: u8,
+    count1: u8,
     sample_kmers: Vec<u64>,
     
 }
