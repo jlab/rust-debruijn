@@ -15,12 +15,12 @@ pub struct SampleInfo {
     pub marker1: M,
     pub count0: u8,
     pub count1: u8,
-    sample_kmers: Vec<u32>,
+    sample_kmers: Vec<u64>,
     
 }
 
 impl SampleInfo {
-    pub fn new(marker0: M, marker1: M, count0: u8, count1: u8, sample_kmers: Vec<u32>) -> Self {
+    pub fn new(marker0: M, marker1: M, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
         SampleInfo { marker0, marker1, count0, count1, sample_kmers }
     }
 
