@@ -19,7 +19,7 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::Reads;
-use crate::summarizer::Marker;
+use crate::summarizer::SampleInfo;
 use crate::summarizer::SummaryData;
 use crate::summarizer::KmerSummarizer;
 use crate::summarizer::M;
@@ -111,7 +111,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     memory_size: usize,
     time: bool,
     progress: bool,
-    markers: Marker,
+    sample_info: SampleInfo,
     significant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
@@ -317,7 +317,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let summarizer = S::new(min_kmer_obs, markers);
+                let summarizer = S::new(min_kmer_obs, sample_info.clone());
                 let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, significant);
                 if report_all_kmers {
                     all_kmers.push(kmer);
@@ -468,7 +468,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 #[inline(never)]
 pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
     seqs: &Reads<D1>,
-    //seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
     report_all_kmers: bool,
@@ -814,12 +813,12 @@ mod tests {
             reads.add_read(read, exts, data);
         }
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1, markers)),
+            &Box::new(CountFilterComb::new(1, sample_info)),
             false, 
             false, 
             1,
@@ -849,19 +848,19 @@ mod tests {
 
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
             &reads, 
-            Box::new(CountFilterComb::new(1, markers)),
+            Box::new(CountFilterComb::new(1, sample_info.clone())),
             1, 
             false, 
             false,
             1,
             false,
             false,
-            markers,
+            sample_info,
             None
          );
 

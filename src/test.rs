@@ -154,7 +154,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterStats, KmerSummarizer, Marker, TagsCountData};
+    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterStats, KmerSummarizer, SampleInfo, TagsCountData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -240,7 +240,7 @@ mod tests {
             .drain(..)
             .map(|x| (DnaBytes(x), Exts::empty(), ()))
             .collect();
-        let markers = Marker::new(0, 0, 0, 0);
+        let markers = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &Reads::from_vmer_vec(seqs),
@@ -351,7 +351,7 @@ mod tests {
         // Raw kmers and BSP kmers match
         assert!(kmer_set == msp_kmers);
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
 
 
         // Check the correctness of the process_kmer_shard kmer filtering function
@@ -461,7 +461,7 @@ mod tests {
 
         let mut shard_asms = Vec::new();
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
 
 
         // Do a subassembly in each shard
@@ -469,7 +469,7 @@ mod tests {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
                 &Reads::from_vmer_vec(seqs),
-                &Box::new(CountFilter::new(2, markers)),
+                &Box::new(CountFilter::new(2, markers.clone())),
                 stranded,
                 false,
                 4,
@@ -562,7 +562,7 @@ mod tests {
             all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
         }
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
 
 
         // initialize global thread pool with x threads
@@ -572,7 +572,7 @@ mod tests {
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &clean_seqs,
-            &Box::new(CountFilter::new(2, markers)),
+            &Box::new(CountFilter::new(2, markers.clone())),
             stranded,
             false,
             4,
@@ -589,7 +589,7 @@ mod tests {
         // Assemble w/ tips
         let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(CountFilterStats::new(2, markers)),
+            &Box::new(CountFilterStats::new(2, markers.clone())),
             stranded,
             false,
             4,
@@ -599,14 +599,14 @@ mod tests {
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, markers)),
+            Box::new(CountFilterStats::new(1, markers.clone())),
             1,
             stranded,
             false,
             4,
             true,
             true,
-            markers,
+            markers.clone(),
             None
         );
 
@@ -615,19 +615,19 @@ mod tests {
 
         let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilter::new(1,markers)),
+            Box::new(CountFilter::new(1,markers.clone())),
             1,
             stranded,
             false,
             4,
             true,
             true,
-            markers,
+            markers.clone(),
             None
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, markers)),
+            Box::new(CountFilterStats::new(1, markers.clone())),
             1,
             stranded,
             false,
@@ -805,7 +805,7 @@ mod tests {
             reads.add_read(read, exts, data);
         }
 
-        let markers = Marker::new(0, 0, 0, 0);
+        let markers = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
         let hm: (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
