@@ -1,5 +1,6 @@
 use bimap::BiMap;
 use serde::{Deserialize, Serialize};
+use statrs::distribution::{Continuous, StudentsT};
 use crate::{Exts, Kmer, Tags};
 use std::{fmt::Debug, marker::PhantomData, mem};
 
@@ -317,6 +318,47 @@ impl SummaryData<f32> for f32 {
 
     fn mem(&self) -> usize {
         mem::size_of_val(&*self)
+    }
+}
+
+/// Structure for Summarizer Data which contains the tags and the count for each tag
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagsCountsPData {
+    tags: Tags,
+    counts: Box<[u32]>,
+    p_value: f32
+}
+
+impl TagsCountsPData {
+    #[inline]
+    pub fn sum(&self) -> i32 {
+        self.counts.iter().sum::<u32>() as i32
+    }
+}
+
+impl SummaryData<(Tags, Box<[u32]>, f32)> for TagsCountsPData{
+    fn new(data: (Tags, Box<[u32]>, f32)) -> Self {
+        TagsCountsPData { tags: data.0, counts: data.1, p_value: data.2 }
+    }
+
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
+        format!("tags: {:?}, counts: {:?}, p-value: {}", self.tags.to_string_vec(tag_translator), self.counts, self.p_value).replace("\"", "\'")
+    }
+
+    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+        Some((self.tags.to_u8_vec(), self.sum()))
+    }
+
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+        Some((self.tags, self.sum()))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum() as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts) + size_of::<f32>()
     }
 }
 
@@ -772,6 +814,106 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMajB
     }
 }
 
+
+/// A simple KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. The metadata returned about a Kmer
+/// is a vector of the unique data values observed for that kmer.
+pub struct CountsFilterStat {
+    min_kmer_obs: usize,
+    sample_info: SampleInfo,
+    phantom: PhantomData<u8>,
+}
+
+impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilterStat {
+    fn new(min_kmer_obs: usize, sample_info: SampleInfo) -> Self {
+        CountsFilterStat {
+            min_kmer_obs,
+            sample_info,
+            phantom: PhantomData,
+        }
+    }
+
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F, _: Option<u32>) -> (bool, Exts, TagsCountsPData) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        // caluclate p-value
+
+        /*
+        steps:
+        - get separate vecs for each group
+        - calculate mean for each group
+        - calculate variance for each group
+        - calculate degrees of freedom
+        - calculate test score
+        - make StudentT Distribution (-> statrs)
+        - get p value
+         */
+
+        // TODO test calculaiton
+
+        let mut counts_g0 = Vec::new();
+        let mut counts_g1 = Vec::new();
+
+        let (m0, m1) = self.sample_info.get_marker();
+
+        for (label, count) in out_data.iter().zip(&tag_counts) {
+            let bin_rep = (2 as M).pow(*label as u32);
+            if m0 & bin_rep > 0 { counts_g0.push(*count); }
+            if m1 & bin_rep > 0 { counts_g1.push(*count); }
+        }
+
+        let mean0 = counts_g0.iter().sum::<u32>() as f64 / self.sample_info.count0 as f64;
+        let mean1 = counts_g1.iter().sum::<u32>() as f64 / self.sample_info.count1 as f64;
+
+        let n0 = self.sample_info.count0 as usize;
+        let n1 = self.sample_info.count1 as usize;
+
+        let df = (n0 + n1 - 2) as f64;
+
+        let var0 = (counts_g0.iter().map(|count| (*count as f64 - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len()) as f64 * mean0.powf(2.)) / (n0 - 1) as f64;
+        let var1 = (counts_g1.iter().map(|count| (*count as f64 - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len()) as f64 * mean1.powf(2.)) / (n1 - 1) as f64;
+
+        let s = ((1./n0 as f64 + 1./n1 as f64) * ((n0 - 1) as f64 * var0 + (n1 - 1) as f64 * var1) / df).sqrt();
+
+        let t = (mean0 - mean1) / s;
+
+        let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist");
+
+        let p_value = t_dist.pdf(t) as f32;
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+
+        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountsPData::new((Tags::from_u8_vec(out_data), tag_counts, p_value))) 
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
@@ -780,7 +922,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterMaj, CountsFilterMajB, CountsFilterRel, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SampleInfo, SummaryData, TagsCountsData}, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterMaj, CountsFilterMajB, CountsFilterRel, CountsFilterStat, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer};
 
     #[test]
     fn test_summarizers() {
@@ -966,7 +1108,7 @@ mod test {
     #[test]
     fn test_maj_summarizers() {
         // generate three reads
-        let mut reads = Reads::new();
+        /* let mut reads = Reads::new();
 
         let dnas = ["CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
             "CGATCGAGCTACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGC".as_bytes(),
@@ -984,6 +1126,41 @@ mod test {
             }
         }
 
+        let dnas = ["ACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATCGATC".as_bytes(),
+            "ACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATCGATCGACTGATCGATGCATCGACGATC".as_bytes(),
+            "GACGACTGATCGAGCTACGAGCACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATGCATCGACGATC".as_bytes(),
+        ];
+
+        let mut rng = rand::thread_rng();
+        for _i in 0..repeats {
+            for dna in dnas {
+            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(0, 5));
+            }
+        }
+
+        let dnas = ["GACGCCGAGATCATTATCGCGCGCGTATTATATATCGCGGAATATATCCG".as_bytes(),
+            "GACGCCGAGATCATTATCGCGCGCGTATTATATGCGTAATATATATTCGGCATTAATCGCGGAATATATCCG".as_bytes(),
+            "GACGCCGAGATCATTATCGCGCGCGTATTATATATCGCGGAATATATCCGAGCTGACTGATCGA".as_bytes(),
+        ];
+
+        let mut rng = rand::thread_rng();
+        for _i in 0..repeats {
+            for dna in dnas {
+            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(5, 12));
+            }
+        } */
+
+        let mut rng = rand::thread_rng();
+        let repeats = 5;
+        let mut reads = Reads::new();
+
+        for _i in 0..repeats {
+            reads.add_from_bytes("AGCTAGCTAGCTACGA".as_bytes(), Exts::empty(), rng.gen_range(0, 12));
+            reads.add_from_bytes("GCATCGATGCACTGACGACT".as_bytes(), Exts::empty(), rng.gen_range(0, 5));
+            reads.add_from_bytes("CGATCGATGCTACGACTAGCGACTG".as_bytes(), Exts::empty(), rng.gen_range(5, 12));
+        }
+        
+
         /*
         markers: 
         - 111111100000 = 4064
@@ -997,23 +1174,37 @@ mod test {
         let significant = None;
 
         // construct and compress graph with CountsFilterMaj
-        let summarizer= CountsFilterStats::new(min_kmer_obs, markers.clone());
+        let summarizer = CountFilter::new(min_kmer_obs, markers.clone());
+        let spec: ScmapCompress<u32> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+
+        graph.print();
+
+        // construct and compress graph with CountsFilterMaj
+        let summarizer = CountsFilterStats::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
         let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
 
         graph.print();
 
         // construct and compress graph with CountsFilterMaj
-        let summarizer= CountsFilterMaj::new(min_kmer_obs, markers.clone());
+        let summarizer = CountsFilterMaj::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
         let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
 
         graph.print();
 
-        // construct and compress graph with CountsFilterMaj
-        let summarizer= CountsFilterMajB::new(min_kmer_obs, markers);
+        // construct and compress graph with CountsFilterMajB
+        let summarizer = CountsFilterMajB::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
         let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+
+        graph.print();
+
+        // construct and compress graph with CountsFilterStat
+        let summarizer = CountsFilterStat::new(min_kmer_obs, markers);
+        let spec: ScmapCompress<TagsCountsPData> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, TagsCountsPData> = test_summarizer(&reads, summarizer, spec, significant);
 
         graph.print();
 
