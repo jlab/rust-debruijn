@@ -55,6 +55,7 @@ pub trait SummaryData<D> {
     fn mem(&self) -> usize;
 }
 
+/// for CountFilter
 impl<> SummaryData<u32> for u32 {
     fn new(data: u32) -> Self {
         data
@@ -81,6 +82,7 @@ impl<> SummaryData<u32> for u32 {
 
 }
 
+/// for CountFilterSet
 impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
     fn new(data: Vec<D>) -> Self {
         data
@@ -108,6 +110,7 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
 
 }
 
+/// For CountFilterComb
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed is 12 Bytes
 #[repr(packed)]
@@ -148,6 +151,7 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     }
 }
 
+/// For CountFilterStats
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountData {
     tags: Tags,
@@ -371,14 +375,15 @@ pub trait KmerSummarizer<DI, DO: SummaryData<SD>, SD> {
     /// * whether this kmer passes the filtering criteria (e.g. is there a sufficient number of observation)
     /// * the accumulated Exts of the kmer
     /// * a summary data object of type `DO` that will be used as a color annotation in the DeBruijn graph.
+    /// 
     
-    fn new(min_kmer_obs: usize, markers: SampleInfo) -> Self;
+    fn new(min_kmer_obs: usize, sample_info: SampleInfo) -> Self;
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F, significant: Option<u32>) -> (bool, Exts, DO);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is the number of times it was observed, capped at 2^16.
+/// is the number of times it was observed, capped at 2^32.
 pub struct CountFilter<D> {
     min_kmer_obs: usize,
     phantom: PhantomData<D>
@@ -448,7 +453,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>, Vec<D>> for CountFilterSet<D> {
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// are the tags the k-mer occured with as a `Tags` and its numver if observations.
 pub struct CountFilterComb {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -484,7 +489,8 @@ impl KmerSummarizer<u8, TagsSumData, (Tags, i32)> for CountFilterComb {
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// are the tags the k-mer was observed with as a `Tags`, how many times 
+/// it was observed with each tag, and how many times it was observed overall
 pub struct CountFilterStats {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -537,7 +543,8 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// are the tags the k-mer was observed with as a `Tags`, and how many times 
+/// it was observed with each tag.
 pub struct CountsFilterStats {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -589,7 +596,8 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterStat
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// is how many times the k-mer was observed with tags from each the two groups
+/// saved in the `SampleInfo`.
 pub struct CountsFilterGroups {
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -635,7 +643,9 @@ impl KmerSummarizer<u8, GroupCountData, (u32, u32)> for CountsFilterGroups {
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// is how many percent of the observations of the k-mer were with tags
+/// from group 1 in the `SanpleInfo` and how many times the k-mer was 
+/// observed overall.
 pub struct CountsFilterRel{
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -682,12 +692,17 @@ impl KmerSummarizer<u8, RelCountData, (u32, u32)> for CountsFilterRel {
     }
 }
 
+
+/// A KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times and that were observed with at least 
+/// a third of the tags in at least one of the groups in the `SampleInfo`. 
+/// The metadata returned about a Kmer are the tags the k-mer was observed 
+/// with as a `Tags`, and how many times it was observed with each tag.
 pub struct CountsFilterMaj {
     min_kmer_obs: usize,
     marker: SampleInfo,
     phantom: PhantomData<u8>,
 }
-
 
 impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMaj {
     fn new(min_kmer_obs: usize, marker: SampleInfo) -> Self {
@@ -748,12 +763,17 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMaj 
     }
 }
 
+
+/// A KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times and that were observed with at least 
+/// a third of the tags in both of the groups in the `SampleInfo`. 
+/// The metadata returned about a Kmer are the tags the k-mer was observed 
+/// with as a `Tags`, and how many times it was observed with each tag.
 pub struct CountsFilterMajB {
     min_kmer_obs: usize,
     marker: SampleInfo,
     phantom: PhantomData<u8>,
 }
-
 
 impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMajB {
     fn new(min_kmer_obs: usize, marker: SampleInfo) -> Self {
@@ -815,9 +835,11 @@ impl KmerSummarizer<u8, TagsCountsData, (Tags, Box<[u32]>)> for CountsFilterMajB
 }
 
 
-/// A simple KmerSummarizer that only accepts kmers that are observed
-/// at least a given number of times. The metadata returned about a Kmer
-/// is a vector of the unique data values observed for that kmer.
+/// A KmerSummarizer that only accepts kmers that are observed
+/// at least a given number of times. 
+/// The metadata returned about a Kmer are the tags the k-mer was observed 
+/// with as a `Tags`, how many times it was observed with each tag, and a 
+/// p-value from an unpaired t-test comparing the groups in the `SampleInfo`.
 pub struct CountsFilterStat {
     min_kmer_obs: usize,
     sample_info: SampleInfo,
