@@ -881,26 +881,28 @@ impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilt
         let mut counts_g0 = Vec::new();
         let mut counts_g1 = Vec::new();
 
+
         let (m0, m1) = self.sample_info.get_marker();
 
         for (label, count) in out_data.iter().zip(&tag_counts) {
             let bin_rep = (2 as M).pow(*label as u32);
-            if m0 & bin_rep > 0 { counts_g0.push(*count); }
-            if m1 & bin_rep > 0 { counts_g1.push(*count); }
+            let norm = *count as f64 / self.sample_info.sample_kmers[*label as usize] as f64;
+            if m0 & bin_rep > 0 { counts_g0.push(norm); }
+            if m1 & bin_rep > 0 { counts_g1.push(norm); }
         }
 
-        let mean0 = counts_g0.iter().sum::<u32>() as f64 / self.sample_info.count0 as f64;
-        let mean1 = counts_g1.iter().sum::<u32>() as f64 / self.sample_info.count1 as f64;
+        let mean0 = counts_g0.iter().sum::<f64>() as f64 / self.sample_info.count0 as f64;
+        let mean1 = counts_g1.iter().sum::<f64>() as f64 / self.sample_info.count1 as f64;
 
-        let n0 = self.sample_info.count0 as usize;
-        let n1 = self.sample_info.count1 as usize;
+        let n0 = self.sample_info.count0 as f64;
+        let n1 = self.sample_info.count1 as f64;
 
-        let df = (n0 + n1 - 2) as f64;
+        let df = n0 + n1 - 2.;
 
-        let var0 = (counts_g0.iter().map(|count| (*count as f64 - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len()) as f64 * mean0.powf(2.)) / (n0 - 1) as f64;
-        let var1 = (counts_g1.iter().map(|count| (*count as f64 - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len()) as f64 * mean1.powf(2.)) / (n1 - 1) as f64;
+        let var0 = (counts_g0.iter().map(|count| (*count - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powf(2.)) / (n0 - 1.);
+        let var1 = (counts_g1.iter().map(|count| (*count - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powf(2.)) / (n1 - 1.);
 
-        let s = ((1./n0 as f64 + 1./n1 as f64) * ((n0 - 1) as f64 * var0 + (n1 - 1) as f64 * var1) / df).sqrt();
+        let s = ((1./n0 + 1./n1) * ((n0 - 1.) * var0 + (n1 - 1.) * var1) / df).sqrt();
 
         let t = (mean0 - mean1) / s;
 
@@ -1150,15 +1152,46 @@ mod test {
             }
         } */
 
+        type K = Kmer12;
+
+
         let mut rng = rand::thread_rng();
-        let repeats = 5;
+        let repeats = 8;
         let mut reads = Reads::new();
 
-        for _i in 0..repeats {
-            reads.add_from_bytes("AGCTAGCTAGCTACGA".as_bytes(), Exts::empty(), rng.gen_range(0, 12));
-            reads.add_from_bytes("GCATCGATGCACTGACGACT".as_bytes(), Exts::empty(), rng.gen_range(0, 5));
-            reads.add_from_bytes("CGATCGATGCTACGACTAGCGACTG".as_bytes(), Exts::empty(), rng.gen_range(5, 12));
+        let dnas = [
+            "AGCTAGCTAGCTACGA".as_bytes(), 
+            "GCATCGATGCACTGACGACT".as_bytes(),
+            "CGATCGATGCTACGACTAGCGACTG".as_bytes()
+        ];
+
+        let mut sample_kmers = vec![0; 12];
+
+        let mut dna_kmers = Vec::new();
+
+        for dna in dnas {
+            let kmers = dna.len().saturating_sub(K::k() -1) as u64;
+            dna_kmers.push(kmers);
         }
+
+
+        for _i in 0..repeats {
+            let group0 = rng.gen_range(0, 12);
+            reads.add_from_bytes(dnas[0], Exts::empty(), group0 as u8);
+            sample_kmers[group0] += dna_kmers[0];
+
+            let group1 = rng.gen_range(0, 5);
+            reads.add_from_bytes(dnas[1], Exts::empty(), group1 as u8);
+            sample_kmers[group1] += dna_kmers[1];
+            
+            let group2 = rng.gen_range(5, 12);
+            reads.add_from_bytes(dnas[2], Exts::empty(), group2 as u8);
+            sample_kmers[group2] += dna_kmers[2];
+        
+        }
+
+        
+        println!("sample kmers: {:?}", sample_kmers);
         
 
         /*
@@ -1167,9 +1200,9 @@ mod test {
         - 000000011111 = 31*/
         
 
-        type K = Kmer12;
 
-        let markers = SampleInfo { marker0: 4064, marker1: 31, count0: 7, count1: 5, sample_kmers: Vec::new() };
+
+        let markers = SampleInfo { marker0: 4064, marker1: 31, count0: 7, count1: 5, sample_kmers};
         let min_kmer_obs = 1;
         let significant = None;
 
