@@ -1,6 +1,6 @@
 use bimap::BiMap;
 use serde::{Deserialize, Serialize};
-use statrs::distribution::{Continuous, StudentsT};
+use statrs::distribution::{Continuous, ContinuousCDF, StudentsT};
 use crate::{Exts, Kmer, Tags};
 use std::{fmt::Debug, marker::PhantomData, mem};
 
@@ -909,15 +909,15 @@ impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilt
         for (label, count) in out_data.iter().zip(&tag_counts) {
             let bin_rep = (2 as M).pow(*label as u32);
             let norm = *count as f64 / self.sample_info.sample_kmers[*label as usize] as f64;
-            if m0 & bin_rep > 0 { counts_g0.push(norm); }
-            if m1 & bin_rep > 0 { counts_g1.push(norm); }
+            if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
+            if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
         }
-
-        let mean0 = counts_g0.iter().sum::<f64>() as f64 / self.sample_info.count0 as f64;
-        let mean1 = counts_g1.iter().sum::<f64>() as f64 / self.sample_info.count1 as f64;
 
         let n0 = self.sample_info.count0 as f64;
         let n1 = self.sample_info.count1 as f64;
+
+        let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
+        let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
 
         let df = n0 + n1 - 2.;
 
@@ -930,7 +930,15 @@ impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilt
 
         let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist");
 
-        let p_value = t_dist.pdf(t) as f32;
+        let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
+
+/*         println!("n:    {}      {}", n0, n1);
+        println!("mean: {}      {}", mean0, mean1);
+        println!("var:  {}      {}", var0, var1);
+        println!("s:    {}", s);
+        println!("df:   {}", df);
+        println!("t:    {}", t); */
+        
 
         let tag_counts: Box<[u32]> = tag_counts.into();
 
@@ -966,31 +974,6 @@ mod test {
             reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(1, 4));
         }
 
-
-        /* let repeats = 2000;
-        let read_len = 150;
-
-        for _i in 0..repeats {
-            let dna =  random_dna((1.5*read_len as f32) as usize);
-            let dna_string1 = DnaString::from_bytes(&dna[0..read_len + read_len/2]);
-            let dna_string2 = DnaString::from_bytes(&dna[read_len + read_len/2..(1.5*read_len as f32) as usize]);
-            reads.add_read(dna_string1.clone(), Exts::empty(), 1u8);
-            if rand::random::<bool>() { reads.add_read(dna_string2, Exts::empty(), 2u8) };
-        }
-
-        for _i in 0..repeats {
-            let dna =  random_dna((1.5*read_len as f32) as usize);
-            let dna_string1 = DnaString::from_bytes(&dna[0..read_len + read_len/2]);
-            let dna_string2 = DnaString::from_bytes(&dna[read_len + read_len/2..(1.5*read_len as f32) as usize]);            
-            reads.add_read(dna_string1.clone(), Exts::empty(), 2u8);
-            if rand::random::<bool>() { reads.add_read(dna_string2, Exts::empty(), 3u8) };
-        }
-
-        for _i in 0..repeats {
-            let dna_string = DnaString::from_bytes(&random_dna(read_len));
-            reads.add_read(dna_string, Exts::empty(), 3u8);
-        }
- */
         // markers: 
         let markers = SampleInfo { marker0: 2, marker1: 12, count0: 1, count1: 2, sample_kmers: Vec::new() };
         // 0010 => 2
@@ -1224,7 +1207,8 @@ mod test {
 
 
 
-        let markers = SampleInfo { marker0: 4064, marker1: 31, count0: 7, count1: 5, sample_kmers};
+        let markers = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
+        println!("markers: {:?}", markers);
         let min_kmer_obs = 1;
         let significant = None;
 
@@ -1262,6 +1246,119 @@ mod test {
         let graph: DebruijnGraph<K, TagsCountsPData> = test_summarizer(&reads, summarizer, spec, significant);
 
         graph.print();
+
+    }
+
+    #[test]
+    fn test_p_value() {
+
+        /*
+        group 1: 111111100000 = 4064
+        group 2: 000000011111 = 31
+         */
+
+        let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
+        let sumarizer = CountsFilterStat::new(1, sample_info);
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 2u8),
+            (Kmer8::from_u64(12), Exts::new(1), 3u8),
+            (Kmer8::from_u64(12), Exts::new(1), 4u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),           
+        ];
+
+        let summarized = sumarizer.summarize(input.into_iter(), None);
+        println!("{:?}", summarized);
+
+        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5);
+
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 7u8),
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),
+            (Kmer8::from_u64(12), Exts::new(1), 9u8),
+            (Kmer8::from_u64(12), Exts::new(1), 10u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+        ];
+
+        let summarized = sumarizer.summarize(input.into_iter(), None);
+        println!("{:?}", summarized);
+
+        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2345);
+
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 7u8),
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),
+            (Kmer8::from_u64(12), Exts::new(1), 9u8),
+            (Kmer8::from_u64(12), Exts::new(1), 10u8),
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+        ];
+
+        let summarized = sumarizer.summarize(input.into_iter(), None);
+        println!("{:?}", summarized);
+
+        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5995);
+
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 7u8),
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),
+            (Kmer8::from_u64(12), Exts::new(1), 9u8),
+            (Kmer8::from_u64(12), Exts::new(1), 10u8),
+            (Kmer8::from_u64(12), Exts::new(1), 11u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+        ];
+
+        let summarized = sumarizer.summarize(input.into_iter(), None);
+        println!("{:?}", summarized);
+
+        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 924);
+
+
+        // with different kmer counts
+
+        let sample_kmers = vec![12, 3345, 3478, 87, 1, 2, 666, 98111, 23982938, 555, 122, 7238];
+        /*
+        0: 0.08333333333333333
+        1: 0.00029895366218236175
+        2: 0.0002875215641173088
+        3: 0.011494252873563218
+        4: 1
+        5: 0.5
+        6: 0.0015015015015015015
+        7: 0.000010192537024390741
+        8: 0.00000004169630926786368
+        9: 0.0018018018018018018
+        10: 0.00819672131147541
+        11: 0.00013815971262779773
+         */
+/*         for i in sample_kmers.iter() {
+            println!("{}", 1. / *i as f64 )
+        } */
+        let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
+        let sumarizer = CountsFilterStat::new(1, sample_info);
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 7u8), 
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),
+            (Kmer8::from_u64(12), Exts::new(1), 9u8),
+            (Kmer8::from_u64(12), Exts::new(1), 10u8),
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+        ];
+
+        let summarized = sumarizer.summarize(input.into_iter(), None);
+        println!("{:?}", summarized);
+
+        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2955);
+
+
+
 
     }
 }
