@@ -1,7 +1,7 @@
 use bimap::BiMap;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{Continuous, ContinuousCDF, StudentsT};
-use crate::{Exts, Kmer, Tags};
+use crate::{dna_string, Exts, Kmer, Tags};
 use std::{fmt::Debug, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
@@ -53,6 +53,12 @@ pub trait SummaryData<D> {
     fn score(&self) -> f32;
     /// return the size of the structure, including contents of slices
     fn mem(&self) -> usize;
+    /// If the `SummaryData` contains sufficient information, return the number of observations
+    fn count(&self) -> Option<usize>;
+    /// If the `SummaryData` contains sufficient information, return the p-value
+    fn p_value(&self) -> Option<f32>;
+    /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
+    fn sample_count(&self) -> Option<usize>;
 }
 
 /// for CountFilter
@@ -64,6 +70,7 @@ impl<> SummaryData<u32> for u32 {
     fn print(&self, _: &BiMap<String, u8>) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
+
     fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
         None
     }
@@ -78,6 +85,18 @@ impl<> SummaryData<u32> for u32 {
 
     fn mem(&self) -> usize {
         mem::align_of_val(&*self)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(*self as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        None
     }
 
 }
@@ -108,12 +127,24 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
         mem::size_of_val(&**self) + mem::size_of_val(&*self)
     }
 
+    fn count(&self) -> Option<usize> {
+        None
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.len())
+    }
+
 }
 
 /// For CountFilterComb
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed is 12 Bytes
-#[repr(packed)]
+//#[repr(packed)]
 pub struct TagsSumData {
     tags: Tags,
     sum: i32,
@@ -149,6 +180,19 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
     fn mem(&self) -> usize {
         mem::size_of_val(&*self)
     }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.sum as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.tags.len())
+    }
+
 }
 
 /// For CountFilterStats
@@ -182,6 +226,18 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
 
     fn mem(&self) -> usize {
         mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.sum as usize)
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len() as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
     }
 
 }
@@ -224,6 +280,19 @@ impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
     fn mem(&self) -> usize {
         mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
     }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -263,6 +332,19 @@ impl SummaryData<(u32, u32)> for GroupCountData {
     fn mem(&self) -> usize {
         mem::size_of_val(&*self)
     }
+
+    fn count(&self) -> Option<usize> {
+        Some((self.group1 + self.group2) as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        None
+    }
+
 }
 
 
@@ -297,6 +379,19 @@ impl SummaryData<(u32, u32)> for RelCountData {
     fn mem(&self) -> usize {
         mem::size_of_val(&*self)
     }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.count as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        None
+    }
+    
 }
 
 impl SummaryData<f32> for f32 {
@@ -322,6 +417,18 @@ impl SummaryData<f32> for f32 {
 
     fn mem(&self) -> usize {
         mem::size_of_val(&*self)
+    }
+
+    fn count(&self) -> Option<usize> {
+        None
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        None
     }
 }
 
@@ -364,6 +471,19 @@ impl SummaryData<(Tags, Box<[u32]>, f32)> for TagsCountsPData{
     fn mem(&self) -> usize {
         mem::size_of_val(&*self) + mem::size_of_val(&*self.counts) + size_of::<f32>()
     }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.sum() as usize)
+    }
+
+    fn p_value(&self) -> Option<f32> {
+        Some(self.p_value)
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
 }
 
 /// Implement this trait to control how multiple observations of a kmer

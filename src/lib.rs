@@ -889,6 +889,23 @@ impl Tags {
         return Tags { val }
     }
 
+    /// get number of labels saved in the Tags
+    pub fn len(&self) -> usize {
+        let mut len = 0;
+        let mut x = self.val;
+
+        // do bit-wise right shifts trough u64
+        // each time first digit is 1 (is an odd number), add 1 to len
+        for _i in 0..(mem::size_of::<Tags>()*8) as u8 {
+            if x % 2 != 0 {
+                len += 1;
+            }
+            x >>= 1;
+        }
+
+        len
+    }
+
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
     pub fn from_u8_vec(vec: Vec<u8>) -> Self {
         let mut x = 0;
@@ -1018,22 +1035,31 @@ mod tests {
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
+        assert_eq!(tags.len(), 3);
 
         let tags = Tags::from_u8_vec(vec![1, 5, 19, 25, 32]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
+        assert_eq!(tags.len(), 5);
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 64]);
+        let tags = Tags::from_u8_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
+        assert_eq!(tags.len(), 9);
 
-        let tags = Tags::from_u8_vec(vec![31, 32, 128]);
+        let tags = Tags::from_u8_vec(vec![31]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
 
+        let tags = Tags::from_u8_vec(vec![63]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
     }
 }
 
