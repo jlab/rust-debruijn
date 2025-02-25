@@ -601,7 +601,7 @@ where
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
         let pb = ProgressBar::new(seqs.n_reads() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
-        pb.set_message(format!("filling buckets in bucket range #{} ...", i));
+        pb.set_message(format!("filling buckets in bucket range #{} ...", i+1));
 
         for (ref seq, seq_exts, ref d) in seqs.iter().progress_with(pb) {
             // iterate trough all kmers in seq
@@ -658,7 +658,7 @@ where
         // go trough all buckets and summarize the contents
         let pb = ProgressBar::new(kmer_buckets.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
-        pb.set_message("finding bucket lengths ...");
+        pb.set_message("summarizing k-mers in buckets ...");
 
         for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
             debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());
