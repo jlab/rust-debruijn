@@ -556,7 +556,7 @@ where
     pb_bucket_ranges.set_message("bucket ranges");
 
     // iterate over the bucket ranges
-    for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
+    for (i, bucket_range) in bucket_ranges.into_iter().progress_with(pb_bucket_ranges).enumerate() {
         debug!("Processing slice {} of {}", i+1, n_buckets);
 
         let before_kmer_picking = Instant::now();
@@ -604,7 +604,7 @@ where
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
         let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_style(style.clone());
         pb.set_message(format!("filling buckets in bucket range #{} ...", i+1));
 
         for (ref seq, seq_exts, ref d) in seqs.iter().progress_with(pb) {
@@ -661,7 +661,7 @@ where
 
         // go trough all buckets and summarize the contents
         let pb = multi_pb.add(ProgressBar::new(kmer_buckets.len() as u64));
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_style(style.clone());
         pb.set_message("summarizing k-mers in buckets ...");
 
         for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
