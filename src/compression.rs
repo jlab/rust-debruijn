@@ -2,6 +2,7 @@
 
 //! Create compressed DeBruijn graphs from uncompressed DeBruijn graphs, or a collection of disjoint DeBruijn graphs.
 use bit_set::BitSet;
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::debug;
 use rayon::current_num_threads;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -874,7 +875,12 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             print!("\n");
         }
 
-        for kmer_counter in 0..n_kmers {
+        let pb = ProgressBar::new(n_kmers as u64);
+        pb.set_style(ProgressStyle::with_template("[{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_message("compressing graph ...");
+
+
+        for kmer_counter in (0..n_kmers).progress_with(pb) {
             if progress {
                     if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
             }

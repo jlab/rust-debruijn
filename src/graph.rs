@@ -16,6 +16,7 @@ use std::f32;
 use std::fmt::{self, Debug, Display};
 use std::fs::{remove_file, File};
 use std::hash::Hash;
+use std::io::BufWriter;
 use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
@@ -598,7 +599,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// write the paths from `iter_max_path_comp` to a fasta file
-    pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>)
+    pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>, return_lens: bool) -> (Vec<usize>, Vec<usize>)
     where 
     F: Fn(&D) -> f32,
     F2: Fn(&D) -> bool
@@ -607,8 +608,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let columns = 80;
         // numerical ID of path seq
         let mut seq_counter = 0;
+        // sizes of components and of paths
+        let mut comp_sizes = Vec::new();
+        let mut path_lens = Vec::new();
 
-        for path in path_iter {
+        for (comp_size, path_len, path) in path_iter {
             writeln!(f, ">path {}", seq_counter).unwrap();
 
             // get dna sequence from path
@@ -634,7 +638,14 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
 
             seq_counter += 1;
+
+            if return_lens {
+                comp_sizes.push(comp_size);
+                path_lens.push(path_len);
+            }
         }    
+
+        (comp_sizes, path_lens)
         
     }
 
@@ -703,7 +714,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// 
     /// The path does not need to contain the file ending.
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
-        let mut f = File::create(path).expect("couldn't open file");
+        let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
         writeln!(&mut f, "digraph {{").unwrap();
         for i in 0..self.len() {
@@ -743,21 +754,21 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut f = File::create(&files[i]).expect("couldn't open file");
+            let mut f = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel dot file"));
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
             }
         });
 
-        let mut out_file = File::create(format!("{}.dot", path)).unwrap();
+        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.dot", path)).unwrap());
 
         writeln!(&mut out_file, "digraph {{").unwrap();
 
         for file in files.iter() {
-            let open_file = File::open(file).expect("couldn't open file");
+            let open_file = File::open(file).expect("error creating combined dot file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 8000];
+            let mut buffer = [0; 64*1024];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
@@ -837,7 +848,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format
     pub fn to_gfa<P: AsRef<Path>>(&self, gfa_out: P) -> Result<(), Error> {
-        let wtr = File::create(gfa_out)?;
+        let wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creating gfa file"));
         self.write_gfa(&mut std::io::BufWriter::new(wtr))
     }
 
@@ -861,7 +872,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         gfa_out: P,
         tag_func: F,
     ) -> Result<(), Error> {
-        let mut wtr = File::create(gfa_out)?;
+        let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creatinf gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         for i in 0..self.len() {
@@ -911,7 +922,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         
         
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut wtr = File::create(&files[i]).unwrap();
+            let mut wtr = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel gfa file"));
 
             for i in range {
                 let n = self.get_node(i);
@@ -920,13 +931,13 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         });
 
         // combine files
-        let mut out_file = File::create(format!("{}.gfa", gfa_out))?;
+        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         for file in files.iter() {
-            let open_file = File::open(file).expect("couldn't open file");
+            let open_file = File::open(file).expect("error opening parallel gfa file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 8000];
+            let mut buffer = [0; 64*1024];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
@@ -1558,17 +1569,19 @@ F2: Fn(&D) -> bool
     solid_path: F2,
 }
 
+/// returns size of graph component, length of the found path, and the path
 impl<K: Kmer, D: Debug, F, F2> Iterator for PathCompIter<'_, K, D, F, F2> 
 where 
 F: Fn(&D) -> f32,
 F2: Fn(&D) -> bool
 {
-    type Item = VecDeque<(usize, Dir)>;
+    type Item = (usize, usize, VecDeque<(usize, Dir)>,);
     fn next(&mut self) -> Option<Self::Item> {
         while self.graph_pos <= self.graph.len() {
             match self.component_iterator.next() {
                 Some(component) => {
                     let current_comp = component;
+                    let comp_len = current_comp.len();
                     
         
                     let mut best_node = current_comp[0];
@@ -1654,7 +1667,7 @@ F2: Fn(&D) -> bool
                     
                     debug!("path len: {:?}", path.len());
                     
-                    return Some(path)
+                    return Some((comp_len, path.len(), path))
                 }, 
                 None => {
                     // should technically not need graph_pos after this 

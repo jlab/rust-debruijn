@@ -1,6 +1,6 @@
 [package]
 name = "debruijn"
-version = "0.3.4"
+version = "0.4.0"
 authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 license = "MIT"
 edition = '2021'
@@ -22,6 +22,8 @@ itertools = ">=0.7"
 log = "0.4"
 rayon = "1.10.0"
 bimap = "0.6.3"
+statrs = "0.18.0"
+indicatif = {version = "0.17.11", features = ["rayon"]}
 
 [dev-dependencies]
 pretty_assertions = "1.3"

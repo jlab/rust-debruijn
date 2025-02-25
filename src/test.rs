@@ -154,7 +154,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterStats, KmerSummarizer, TagsCountData};
+    use crate::summarizer::{CountFilter, CountFilterComb, CountFilterStats, KmerSummarizer, SampleInfo, TagsCountData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -240,9 +240,11 @@ mod tests {
             .drain(..)
             .map(|x| (DnaBytes(x), Exts::empty(), ()))
             .collect();
+        let markers = SampleInfo::new(0, 0, 0, 0, Vec::new());
+
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &Reads::from_vmer_vec(seqs),
-            &Box::new(CountFilter::new(1, (0, 0))),
+            &Box::new(CountFilter::new(1, markers)),
             stranded,
             false,
             4,
@@ -349,10 +351,13 @@ mod tests {
         // Raw kmers and BSP kmers match
         assert!(kmer_set == msp_kmers);
 
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
+
+
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &Reads::from_vmer_vec(seqs),
-            &Box::new(CountFilter::new(2, (0, 0))),
+            &Box::new(CountFilter::new(2, markers)),
             stranded,
             false,
             4,
@@ -456,12 +461,15 @@ mod tests {
 
         let mut shard_asms = Vec::new();
 
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
+
+
         // Do a subassembly in each shard
         for seqs in shards.into_values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
                 &Reads::from_vmer_vec(seqs),
-                &Box::new(CountFilter::new(2, (0, 0))),
+                &Box::new(CountFilter::new(2, markers.clone())),
                 stranded,
                 false,
                 4,
@@ -554,6 +562,8 @@ mod tests {
             all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
         }
 
+        let markers = SampleInfo::new(0, 0, 0, 0,Vec::new());
+
 
         // initialize global thread pool with x threads
         let num_threads = 4;
@@ -562,7 +572,7 @@ mod tests {
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &clean_seqs,
-            &Box::new(CountFilter::new(2, (0, 0))),
+            &Box::new(CountFilter::new(2, markers.clone())),
             stranded,
             false,
             4,
@@ -579,7 +589,7 @@ mod tests {
         // Assemble w/ tips
         let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(CountFilterStats::new(2, (0, 0))),
+            &Box::new(CountFilterStats::new(2, markers.clone())),
             stranded,
             false,
             4,
@@ -589,14 +599,14 @@ mod tests {
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, (0, 0))),
+            Box::new(CountFilterStats::new(1, markers.clone())),
             1,
             stranded,
             false,
             4,
             true,
             true,
-            (0, 0),
+            markers.clone(),
             None
         );
 
@@ -605,26 +615,26 @@ mod tests {
 
         let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilter::new(1,(0, 0))),
+            Box::new(CountFilter::new(1,markers.clone())),
             1,
             stranded,
             false,
             4,
             true,
             true,
-            (0, 0),
+            markers.clone(),
             None
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, (0, 0))),
+            Box::new(CountFilterStats::new(1, markers.clone())),
             1,
             stranded,
             false,
             4,
             true,
             true,
-            (0, 0),
+            markers,
             None,
         );
 
@@ -653,7 +663,7 @@ mod tests {
         let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);
 
         let mut file = File::create("test_fasta_out.fasta").unwrap();
-        graph.path_to_fasta(&mut file, path_iter);
+        graph.path_to_fasta(&mut file, path_iter, false);
 
         for x in graph.iter_components() {
             println!("component: {:?}", x);
@@ -661,7 +671,7 @@ mod tests {
 
         for path in graph.iter_max_path_comp(|_| 1., |_| true) {
             println!("path seq: {:?}", path);
-            println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
+            println!("path seq: {:?}", graph.sequence_of_path(path.2.iter()));
         }
 
         graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
@@ -700,7 +710,7 @@ mod tests {
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
         let mut str_map = BiMap::new();
         for (i, str) in str_vec.into_iter().enumerate() {
-            str_map.insert(str, i as u8);
+            str_map.insert(str.to_string(), i as u8);
         }
 
         // build Tags from val
@@ -795,9 +805,11 @@ mod tests {
             reads.add_read(read, exts, data);
         }
 
+        let markers = SampleInfo::new(0, 0, 0, 0, Vec::new());
+
         let hm: (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1,(0, 0))),
+            &Box::new(CountFilterComb::new(1, markers)),
             false, 
             false, 
             1,

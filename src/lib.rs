@@ -45,6 +45,7 @@ pub mod kmer;
 pub mod msp;
 pub mod neighbors;
 pub mod vmer;
+pub mod fastq;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod bitops_avx2;
@@ -861,7 +862,7 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
 }
 
 /// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 #[cfg(feature = "sample128")]
 pub struct Tags {
     pub val: u128,
@@ -886,6 +887,23 @@ impl Tags {
     #[cfg(feature = "sample128")]
     pub fn new(val: u128) -> Self {
         return Tags { val }
+    }
+
+    /// get number of labels saved in the Tags
+    pub fn len(&self) -> usize {
+        let mut len = 0;
+        let mut x = self.val;
+
+        // do bit-wise right shifts trough u64
+        // each time first digit is 1 (is an odd number), add 1 to len
+        for _i in 0..(mem::size_of::<Tags>()*8) as u8 {
+            if x % 2 != 0 {
+                len += 1;
+            }
+            x >>= 1;
+        }
+
+        len
     }
 
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
@@ -928,7 +946,7 @@ impl Tags {
 
     // directly translate Tags to Vec<&str>
     // str_map is translatror BiMap between u8 and &str 
-    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&'a str> {
+    pub fn to_string_vec<'a>(&'a self, str_map: &'a BiMap<String, u8>) -> Vec<&'a str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::new();
 
@@ -965,11 +983,83 @@ impl Tags {
         (self.val & marker) > 0
     }
 
+    /// compares the value of the tags with another value (marker) with a bit-wise and
+    /// counts the overlaps:
+    /// `00101 & 01000 -> 0`
+    /// `00101 & 00100 -> 1`
+    /// `00101 & 00101 -> 2`
+    #[cfg(feature = "sample128")]
+    pub fn bit_and_dist(&self, marker: u128) -> usize {
+        let mut overlap = self.val & marker;
+        let mut dist = 0;
+        for _i in 0..128 {
+            if overlap % 2 != 0 { dist += 1 }
+            overlap = overlap >> 1;
+        }
+        dist
+    }
+
+    /// compares the value of the tags with another value (marker) with a bit-wise and
+    /// counts the overlaps:
+    /// `00101 & 01000 -> 0`
+    /// `00101 & 00100 -> 1`
+    /// `00101 & 00101 -> 2`
+    #[cfg(not(feature = "sample128"))]
+    pub fn bit_and_dist(&self, marker: u64) -> usize {
+        let mut overlap = self.val & marker;
+        let mut dist = 0;
+        for _i in 0..64 {
+            if overlap % 2 != 0 { dist += 1 }
+            overlap = overlap >> 1;
+        }
+        dist
+    }
 }
 
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_u8_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{summarizer::M, Tags};
+
+    #[test]
+    fn test_bit_and_dist() {
+        let marker: M = 0b1111000011110000111100001111000011110000111100001111000011110000;
+        println!("marker:   {:064b}", marker);
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 3);
+
+        let tags = Tags::from_u8_vec(vec![1, 5, 19, 25, 32]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 5);
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 9);
+
+        let tags = Tags::from_u8_vec(vec![31]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
+
+        let tags = Tags::from_u8_vec(vec![63]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
     }
 }
 

@@ -12,6 +12,10 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use boomphf::hashmap::BoomHashMap2;
+use indicatif::ParallelProgressIterator;
+use indicatif::ProgressBar;
+use indicatif::ProgressIterator;
+use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
 use num_traits::Pow;
@@ -19,6 +23,7 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::Reads;
+use crate::summarizer::SampleInfo;
 use crate::summarizer::SummaryData;
 use crate::summarizer::KmerSummarizer;
 use crate::Dir;
@@ -109,12 +114,14 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
     memory_size: usize,
     time: bool,
     progress: bool,
-    markers: (u64, u64),
+    sample_info: SampleInfo,
     significant: Option<u32>,
 ) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
 {
     // take timestamp before all processes
     let before_all = Instant::now();
+
+    let style = ProgressStyle::with_template("{human_pos} {msg}").unwrap();
 
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
@@ -263,7 +270,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
             // clone and lock kmer_buckets to safely share across threads
             let _kb_clone = Arc::clone(&kmer_buckets);
-            debug!("arc count: {}", Arc::strong_count(&kmer_buckets));
             let mut kb2d = kmer_buckets.lock().expect("lock kmer buckets 2d");
             // replace empty vec too keep order
             kb2d[i] = kmer_buckets1d;
@@ -298,6 +304,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
             print!("|");
             print!("\n");
         }
+
+        let progress_len = new_buckets.len();
         
         // parallel start
         new_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
@@ -315,7 +323,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
 
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let summarizer = S::new(min_kmer_obs, markers);
+                let summarizer = S::new(min_kmer_obs, sample_info.clone());
                 let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, significant);
                 if report_all_kmers {
                     all_kmers.push(kmer);
@@ -466,7 +474,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 #[inline(never)]
 pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
     seqs: &Reads<D1>,
-    //seqs: &[(V, Exts, D1)],
     summarizer: &dyn Deref<Target = S>,
     stranded: bool,
     report_all_kmers: bool,
@@ -544,6 +551,7 @@ where
 
     if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
+    // iterate over the bucket ranges
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
         debug!("Processing slice {} of {}", i+1, n_buckets);
 
@@ -554,10 +562,16 @@ where
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
 
+   
+
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
+        let pb = ProgressBar::new(seqs.n_reads() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_message("finding bucket lengths ...");
+
         let mut capacities: [usize; 256] = [0; BUCKETS];
 
-        for (ref seq, _, _) in seqs.iter() {
+        for (ref seq, _, _) in seqs.iter().progress_with(pb) {
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
                 // if not stranded choose lexiographically lesser of kmer and rc of kmer
@@ -585,7 +599,11 @@ where
         }
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
-        for (ref seq, seq_exts, ref d) in seqs.iter() {
+        let pb = ProgressBar::new(seqs.n_reads() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_message(format!("filling buckets in bucket range #{} ...", i+1));
+
+        for (ref seq, seq_exts, ref d) in seqs.iter().progress_with(pb) {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                 // // if not stranded choose lexiographically lesser of kmer and rc of kmer, flip exts if needed
@@ -637,7 +655,12 @@ where
 
         let mut progress_counter = 0;
 
-        for mut kmer_vec in kmer_buckets {
+        // go trough all buckets and summarize the contents
+        let pb = ProgressBar::new(kmer_buckets.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
+        pb.set_message("summarizing k-mers in buckets ...");
+
+        for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
             debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());
             progress_counter += 1;
             //debug!("kmers in this bucket: {}", kmer_vec.len());
@@ -795,8 +818,9 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
+    use rayon::iter::empty;
 
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, test::random_dna, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -812,9 +836,12 @@ mod tests {
             reads.add_read(read, exts, data);
         }
 
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+
+
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1, (0u64, 0u64))),
+            &Box::new(CountFilterComb::new(1, sample_info)),
             false, 
             false, 
             1,
@@ -829,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_filter_kmers_parallel() {
-        let fastq = [
+        /* let fastq = [
             (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
             (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
             (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
@@ -840,20 +867,30 @@ mod tests {
         for (read, exts, data) in fastq {
             reads.add_read(read, exts, data);
 
+        } */
+
+        let mut reads = Reads::new();
+
+        for _i in 0..10000 {
+            let dna = random_dna(150);
+            reads.add_from_bytes(&dna, Exts::empty(), 0u8);
         }
 
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+
+
         let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
             &reads, 
-            Box::new(CountFilterComb::new(1, (0u64, 0u64))),
+            Box::new(CountFilterComb::new(1, sample_info.clone())),
             1, 
             false, 
             false,
             1,
             false,
             false,
-            (0u64, 0u64),
+            sample_info,
             None
          );
 
