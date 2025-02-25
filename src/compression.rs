@@ -877,7 +877,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
         let pb = ProgressBar::new(n_kmers as u64);
         pb.set_message("compressing graph...");
-        pb.set_style(ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} ({pos}/{len}, ETA {eta}").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template("[{elapsed_precise}] {bar:60} ({pos}/{len}").unwrap().progress_chars("#/-"));
 
         for kmer_counter in (0..n_kmers).progress_with(pb) {
             if progress {
