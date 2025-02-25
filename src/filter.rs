@@ -22,7 +22,6 @@ use crate::reads::Reads;
 use crate::summarizer::SampleInfo;
 use crate::summarizer::SummaryData;
 use crate::summarizer::KmerSummarizer;
-use crate::summarizer::M;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -797,7 +796,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
 
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{CountFilterComb, M}, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, Exts};
 
     #[test]
     fn test_filter_kmers() {

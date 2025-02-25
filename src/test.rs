@@ -663,7 +663,7 @@ mod tests {
         let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);
 
         let mut file = File::create("test_fasta_out.fasta").unwrap();
-        graph.path_to_fasta(&mut file, path_iter);
+        graph.path_to_fasta(&mut file, path_iter, false);
 
         for x in graph.iter_components() {
             println!("component: {:?}", x);
@@ -671,7 +671,7 @@ mod tests {
 
         for path in graph.iter_max_path_comp(|_| 1., |_| true) {
             println!("path seq: {:?}", path);
-            println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
+            println!("path seq: {:?}", graph.sequence_of_path(path.2.iter()));
         }
 
         graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();

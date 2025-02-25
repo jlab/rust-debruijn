@@ -1,7 +1,7 @@
 use bimap::BiMap;
 use serde::{Deserialize, Serialize};
-use statrs::distribution::{Continuous, ContinuousCDF, StudentsT};
-use crate::{dna_string, Exts, Kmer, Tags};
+use statrs::distribution::{ContinuousCDF, StudentsT};
+use crate::{Exts, Kmer, Tags};
 use std::{fmt::Debug, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
