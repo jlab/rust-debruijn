@@ -292,7 +292,8 @@ impl<D: Clone + Copy> Reads<D> {
         ReadsIter {
             reads: self,
             i: 0,
-            end: self.n_reads()
+            end: self.n_reads(),
+            length: self.n_reads(),
         }
     }
 
@@ -304,7 +305,8 @@ impl<D: Clone + Copy> Reads<D> {
         ReadsIter {
             reads: self,
             i: range.start,
-            end: range.end
+            end: range.end,
+            length: (range.end - range.start)
         }
     }
 
@@ -325,6 +327,7 @@ pub struct ReadsIter<'a, D> {
     reads: &'a Reads<D>,
     i: usize,
     end: usize,
+    length: usize,
 }
 
 impl<'a, D: Clone + Copy> Iterator for ReadsIter<'a, D> {
@@ -338,6 +341,12 @@ impl<'a, D: Clone + Copy> Iterator for ReadsIter<'a, D> {
         } else {
             None
         }
+    }
+}
+
+impl<D: Copy> ExactSizeIterator for ReadsIter<'_, D> {
+    fn len(&self) -> usize {
+        self.length
     }
 }
 
