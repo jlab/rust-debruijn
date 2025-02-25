@@ -599,7 +599,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// write the paths from `iter_max_path_comp` to a fasta file
-    pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>, return_lens: bool)
+    pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>, return_lens: bool) -> (Vec<usize>, Vec<usize>)
     where 
     F: Fn(&D) -> f32,
     F2: Fn(&D) -> bool
@@ -644,6 +644,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 path_lens.push(path_len);
             }
         }    
+
+        (comp_sizes, path_lens)
         
     }
 
