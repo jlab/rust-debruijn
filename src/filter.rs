@@ -24,8 +24,10 @@ use rayon::prelude::*;
 
 use crate::reads::Reads;
 use crate::summarizer::SampleInfo;
+use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::KmerSummarizer;
+use crate::summarizer::Third;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -101,7 +103,7 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<DO>, S: KmerSummarizer<u8, DS, DO>>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<u8, DO>, S: KmerSummarizer<u8, DS, DO>>(
     //seqs: &[(V, Exts, u8)],
     seqs: &Reads<u8>,
     //summarizer: &dyn Deref<Target = S>,
@@ -472,18 +474,17 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<K: Kmer, D1: Copy + Clone + Debug, DO, DS: SummaryData<DO>, S: KmerSummarizer<D1, DS, DO>>(
+pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug, DO>(
     seqs: &Reads<D1>,
-    summarizer: &dyn Deref<Target = S>,
+    sum_config: &SummaryConfig,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
     progress: bool,
-    signigificant: Option<u32>,
-) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
+) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
-    DS: Debug,
+    SD: Debug + SummaryData<D1, DO>,
 {
     let before_all = Instant::now();
     let rc_norm = !stranded;
@@ -683,10 +684,11 @@ where
                 all_kmers.reserve_exact(size);
             }
 
+
             // group the tuples by the k-mers and iterate over the groups
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, signigificant);
+                let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, sum_config);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -818,9 +820,8 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use rayon::iter::empty;
 
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::CountFilterComb, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{CountFilterComb, TagsSumData}, test::random_dna, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -838,16 +839,17 @@ mod tests {
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
+        let config = SummaryConfig::new(1, None, Third::None, sample_info);
 
-        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers(
+
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &reads, 
-            &Box::new(CountFilterComb::new(1, sample_info)),
+            &config,
             false, 
             false, 
             1,
             false,
             false,
-            None
          );
 
          println!("{:?}", hm);

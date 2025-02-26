@@ -30,6 +30,7 @@
 
 use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
+use summarizer::M;
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::mem;
@@ -965,21 +966,12 @@ impl Tags {
         return vec    
     }
 
-    /// compares the value of the tags with another value (marker) with a bit-wise and,
-    /// returns true if the result is greater than 0:
-    /// `00101 & 01000 -> false`
-    /// `00101 & 00100 -> true`
-    #[cfg(feature = "sample128")]
-    pub fn bit_and(&self, marker: u128) -> bool {
-        (self.val & marker) > 0
-    }
 
     /// compares the value of the tags with another value (marker) with a bit-wise and,
     /// returns true if the result is greater than 0:
     /// `00101 & 01000 -> false`
     /// `00101 & 00100 -> true`
-    #[cfg(not(feature = "sample128"))]
-    pub fn bit_and(&self, marker: u64) -> bool {
+    pub fn bit_and(&self, marker: M) -> bool {
         (self.val & marker) > 0
     }
 
@@ -988,31 +980,8 @@ impl Tags {
     /// `00101 & 01000 -> 0`
     /// `00101 & 00100 -> 1`
     /// `00101 & 00101 -> 2`
-    #[cfg(feature = "sample128")]
-    pub fn bit_and_dist(&self, marker: u128) -> usize {
-        let mut overlap = self.val & marker;
-        let mut dist = 0;
-        for _i in 0..128 {
-            if overlap % 2 != 0 { dist += 1 }
-            overlap = overlap >> 1;
-        }
-        dist
-    }
-
-    /// compares the value of the tags with another value (marker) with a bit-wise and
-    /// counts the overlaps:
-    /// `00101 & 01000 -> 0`
-    /// `00101 & 00100 -> 1`
-    /// `00101 & 00101 -> 2`
-    #[cfg(not(feature = "sample128"))]
-    pub fn bit_and_dist(&self, marker: u64) -> usize {
-        let mut overlap = self.val & marker;
-        let mut dist = 0;
-        for _i in 0..64 {
-            if overlap % 2 != 0 { dist += 1 }
-            overlap = overlap >> 1;
-        }
-        dist
+    pub fn bit_and_dist(&self, marker: M) -> usize {
+        (self.val & marker).count_ones() as usize
     }
 }
 
