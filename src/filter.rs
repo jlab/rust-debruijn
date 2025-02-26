@@ -401,7 +401,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
 
         debug!("processed bucket {i}");
     }
-    pb_bucket_ranges.finish();
+    pb_bucket_ranges.finish_and_clear();
 
     if time { 
         println!("time counting + collecting par (s): {}", time_picking_par);
@@ -746,7 +746,7 @@ where
         debug!("valid data - capacity: {}, size: {}, mem: {} Bytes", valid_data.capacity(), valid_data.len(), mem::size_of_val(&*valid_data));
     }
 
-    pb_bucket_ranges.finish();
+    pb_bucket_ranges.finish_and_clear();
 
     if time { 
         println!("time picking par (s): {}", time_picking_par);

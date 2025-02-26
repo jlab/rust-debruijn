@@ -772,7 +772,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 pb.inc(1);
             }
         });
-        pb.finish();
+        pb.finish_and_clear();
 
         let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.dot", path)).unwrap());
 
@@ -960,7 +960,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         });
 
-        pb.finish();
+        pb.finish_and_clear();
 
         // combine files
         let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
