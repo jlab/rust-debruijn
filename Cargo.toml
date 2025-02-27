@@ -24,6 +24,8 @@ rayon = "1.10.0"
 bimap = "0.6.3"
 statrs = "0.18.0"
 indicatif = {version = "0.17.11", features = ["rayon"]}
+clap = { version = "4.5.0", features = ["derive"] }
+
 
 [dev-dependencies]
 pretty_assertions = "1.3"

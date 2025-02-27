@@ -1,14 +1,46 @@
 use bimap::BiMap;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use crate::{Exts, Kmer, Tags};
-use std::{fmt::Debug, marker::PhantomData, mem};
+use std::{fmt::Debug, marker::PhantomData, mem, path::Display};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
 
 #[cfg(feature = "sample128")]
 pub type M = u128;
+
+pub struct SummaryConfig {
+    min_kmer_obs: usize,
+    significant: Option<u32>,
+    third: Third,
+    sample_info: SampleInfo,
+}
+
+impl SummaryConfig {
+    pub fn new(min_kmer_obs: usize, significant: Option<u32>, third: Third, sample_info: SampleInfo) -> Self {
+        SummaryConfig { min_kmer_obs, significant, third, sample_info }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug)]
+pub enum Third {
+    None, 
+    One, 
+    Both,
+}
+
+impl std::fmt::Display for Third {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Third::None => write!(f, "none"),
+            Third::One => write!(f, "one"),
+            Third::Both => write!(f, "both")            
+        }
+    }
+    
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SampleInfo {
@@ -39,10 +71,45 @@ pub fn round_digits(number: u32, digits: u32) -> u32 {
     ((number as f32/ 10i32.pow(empty) as f32).round() * 10i32.pow(empty) as f32) as u32
 }
 
+fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
+    match config.third {
+        Third::None => nobs as usize >= config.min_kmer_obs,
+        Third::Both => {
+            // get amount of labels in tags from each group
+            let dist0= tags.bit_and_dist(config.sample_info.marker0);
+            let dist1= tags.bit_and_dist(config.sample_info.marker1);
+    
+            assert_eq!(dist0 + dist1, tags.to_u8_vec().len());
+    
+            // valid if:
+            // - n obs >= min obs AND
+            // - observed in at least one third of samples in both groups
+            (nobs as usize >= config.min_kmer_obs)
+                && (dist0 as f32 / config.sample_info.count0 as f32 > 0.333333) 
+                && (dist1 as f32 / config.sample_info.count1 as f32 > 0.333333)
+        },
+        Third::One => {
+            // get amount of labels in tags from each group
+            let dist0= tags.bit_and_dist(config.sample_info.marker0);
+            let dist1= tags.bit_and_dist(config.sample_info.marker1);
+
+    
+            assert_eq!(dist0 + dist1, tags.to_u8_vec().len());
+    
+            // valid if:
+            // - n obs >= min obs AND
+            // - observed in at least one third of samples in one group
+            (nobs as usize >= config.min_kmer_obs)
+                && ((dist0 as f32 / config.sample_info.count0 as f32 > 0.333333) 
+                    | (dist1 as f32 / config.sample_info.count1 as f32 > 0.333333))
+        }
+    }
+}
+
 /// Trait for the output of the KmerSummarizers
-pub trait SummaryData<D> {
-    /// Make a new `SummaryData<D>`
-    fn new(data: D) -> Self;
+pub trait SummaryData<DI, DO> {
+    /// Make a new `SummaryData<DO>`
+    fn new(data: DO) -> Self;
     /// does not actually print but format
     fn print(&self, tag_translator: &BiMap<String, u8>) -> String;
     /// If the `SummaryData` contains sufficient information, return `Vec<u8>` of the tags and the count
@@ -59,10 +126,12 @@ pub trait SummaryData<D> {
     fn p_value(&self) -> Option<f32>;
     /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
     fn sample_count(&self) -> Option<usize>;
+    /// summarize k-mers
+    fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self);
 }
 
 /// for CountFilter
-impl<> SummaryData<u32> for u32 {
+impl<DI> SummaryData<DI, u32> for u32 {
     fn new(data: u32) -> Self {
         data
     }
@@ -99,11 +168,27 @@ impl<> SummaryData<u32> for u32 {
         None
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+        let mut count = 0u32;
+        for (_, exts, _) in items {
+            count = count.saturating_add(1);
+            all_exts = all_exts.add(exts);
+        }
+
+        let count = match config.significant {
+            Some(digits) => round_digits(count, digits),
+            None => count  
+        };
+
+        (count as usize >= config.min_kmer_obs, all_exts, count)
+    }
+
 }
 
 /// for CountFilterSet
-impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
-    fn new(data: Vec<D>) -> Self {
+impl<DI: Debug + Ord> SummaryData<DI, Vec<DI>> for Vec<DI> {
+    fn new(data: Vec<DI>) -> Self {
         data
     }
 
@@ -139,6 +224,25 @@ impl<D: Debug> SummaryData<Vec<D>> for Vec<D> {
         Some(self.len())
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<DI> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d);
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+        out_data.dedup();
+        out_data.shrink_to_fit();
+        
+        (nobs as usize >= config.min_kmer_obs, all_exts, out_data)
+    }
+
 }
 
 /// For CountFilterComb
@@ -150,7 +254,7 @@ pub struct TagsSumData {
     sum: i32,
 }
 
-impl SummaryData<(Tags, i32)> for TagsSumData {
+impl SummaryData<u8, (Tags, i32)> for TagsSumData {
     fn new(data: (Tags, i32)) -> Self {
         TagsSumData { tags: data.0, sum: data.1 }
     }
@@ -193,19 +297,39 @@ impl SummaryData<(Tags, i32)> for TagsSumData {
         Some(self.tags.len())
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); // uses a shit ton of heap memory
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+        out_data.dedup();
+
+        let tags = Tags::from_u8_vec(out_data);
+        
+        (valid(tags, nobs, config), all_exts, TagsSumData::new((tags, nobs)))
+    }
+
 }
 
 /// For CountFilterStats
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TagsCountData {
+pub struct TagsCountsSumData {
     tags: Tags,
     sum: i32,
     counts: Box<[u32]>,
 }
 
-impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
+impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
     fn new(data: (Tags, Box<[u32]>, i32)) -> Self {
-        TagsCountData { tags: data.0, counts: data.1, sum: data.2 }
+        TagsCountsSumData { tags: data.0, counts: data.1, sum: data.2 }
     }
 
     fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
@@ -240,6 +364,42 @@ impl SummaryData<(Tags, Box<[u32]>, i32)> for TagsCountData {
         None
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_u8_vec(out_data);
+
+        (valid(tags, nobs, config), all_exts, TagsCountsSumData::new((tags, tag_counts, nobs))) 
+    }
+
 }
 
 /// Structure for Summarizer Data which contains the tags and the count for each tag
@@ -256,7 +416,7 @@ impl TagsCountsData {
     }
 }
 
-impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
+impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
     fn new(data: (Tags, Box<[u32]>)) -> Self {
         TagsCountsData { tags: data.0, counts: data.1 }
     }
@@ -293,6 +453,42 @@ impl SummaryData<(Tags, Box<[u32]>)> for TagsCountsData{
         Some(self.counts.len())
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_u8_vec(out_data);
+
+        (valid(tags, nobs, config), all_exts, TagsCountsData::new((tags, tag_counts))) 
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -308,7 +504,7 @@ impl GroupCountData {
     }
 }
 
-impl SummaryData<(u32, u32)> for GroupCountData {
+impl SummaryData<u8, (u32, u32)> for GroupCountData {
     fn new(data: (u32, u32)) -> Self {
         GroupCountData { group1: data.0, group2: data.1 }
     }
@@ -345,6 +541,38 @@ impl SummaryData<(u32, u32)> for GroupCountData {
         None
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+        let mut count1 = 0;
+        let mut count2 = 0;
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            let tag = (2 as M).pow(d as u32);
+            let group1 = ((config.sample_info.marker0 & tag) > 1) as u32;
+            let group2 = ((config.sample_info.marker1 & tag) > 1) as u32;
+
+            if (group1 + group2) != 1 { 
+                panic!(
+                    "should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", 
+                    tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
+                )
+            }
+            count1 += group1;
+            count2 += group2;
+            nobs += 1;
+            all_exts = all_exts.add(exts);
+        }
+
+        let counts = match config.significant {
+            Some(digits) => (round_digits(count1, digits), round_digits(count2, digits)),
+            None => (count1, count2)
+        };
+
+        assert_eq!((count1 + count2),nobs as u32);
+        (nobs as usize >= config.min_kmer_obs, all_exts, GroupCountData::new(counts))
+    }
+
 }
 
 
@@ -355,7 +583,7 @@ pub struct RelCountData {
     count: u32
 }
 
-impl SummaryData<(u32, u32)> for RelCountData {
+impl SummaryData<u8, (u32, u32)> for RelCountData {
     fn new(data: (u32, u32)) -> Self {
         RelCountData { percent: data.0, count: data.1 }
     }
@@ -391,10 +619,45 @@ impl SummaryData<(u32, u32)> for RelCountData {
     fn sample_count(&self) -> Option<usize> {
         None
     }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+        let mut count1 = 0;
+        let mut count2 = 0;
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            let tag = (2 as M).pow(d as u32);
+            let group1 = ((config.sample_info.marker0 & tag) > 1) as u32;
+            let group2 = ((config.sample_info.marker1 & tag) > 1) as u32;
+
+            if (group1 + group2) != 1 { 
+                panic!(
+                    "should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", 
+                    tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
+                )
+            }
+            count1 += group1;
+            count2 += group2;
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        assert_eq!(count1 + count2, nobs as u32);
+
+
+        let percent = (count1 as f64 / nobs as f64 * 100.) as u32;
+        let count = match config.significant {
+            Some(digits) => round_digits(nobs as u32, digits),
+            None => nobs as u32
+        };
+
+        (nobs as usize >= config.min_kmer_obs, all_exts, RelCountData::new((percent, count))) 
+    }
     
 }
 
-impl SummaryData<f32> for f32 {
+/* impl SummaryData<f32> for f32 {
     fn new(data: f32) -> Self {
         data
     }
@@ -431,7 +694,7 @@ impl SummaryData<f32> for f32 {
         None
     }
 }
-
+ */
 /// Structure for Summarizer Data which contains the tags and the count for each tag
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPData {
@@ -447,7 +710,7 @@ impl TagsCountsPData {
     }
 }
 
-impl SummaryData<(Tags, Box<[u32]>, f32)> for TagsCountsPData{
+impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
     fn new(data: (Tags, Box<[u32]>, f32)) -> Self {
         TagsCountsPData { tags: data.0, counts: data.1, p_value: data.2 }
     }
@@ -484,11 +747,89 @@ impl SummaryData<(Tags, Box<[u32]>, f32)> for TagsCountsPData{
         Some(self.counts.len())
     }
 
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            nobs += 1;
+        }
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        // caluclate p-value with t-test
+        // TODO add non-parametric test
+
+        let mut counts_g0 = Vec::new();
+        let mut counts_g1 = Vec::new();
+
+
+        let (m0, m1) = config.sample_info.get_marker();
+
+        for (label, count) in out_data.iter().zip(&tag_counts) {
+            let bin_rep = (2 as M).pow(*label as u32);
+            let norm = *count as f64 / config.sample_info.sample_kmers[*label as usize] as f64;
+            if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
+            if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
+        }
+
+        let n0 = config.sample_info.count0 as f64;
+        let n1 = config.sample_info.count1 as f64;
+
+        let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
+        let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
+
+        let df = n0 + n1 - 2.;
+
+        let var0 = (counts_g0.iter().map(|count| (*count - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powf(2.)) / (n0 - 1.);
+        let var1 = (counts_g1.iter().map(|count| (*count - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powf(2.)) / (n1 - 1.);
+
+        let s = ((1./n0 + 1./n1) * ((n0 - 1.) * var0 + (n1 - 1.) * var1) / df).sqrt();
+
+        let t = (mean0 - mean1) / s;
+
+        let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist");
+
+        let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
+
+/*         println!("n:    {}      {}", n0, n1);
+        println!("mean: {}      {}", mean0, mean1);
+        println!("var:  {}      {}", var0, var1);
+        println!("s:    {}", s);
+        println!("df:   {}", df);
+        println!("t:    {}", t); */        
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_u8_vec(out_data);
+
+        (valid(tags, nobs, config), all_exts, TagsCountsPData::new((tags, tag_counts, p_value))) 
+    }
+
 }
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
-pub trait KmerSummarizer<DI, DO: SummaryData<SD>, SD> {
+pub trait KmerSummarizer<DI, DO: SummaryData<DI, SD>, SD> {
     /// The input `items` is an iterator over kmer observations. Input observation
     /// is a tuple of (kmer, extensions, data). The summarize function inspects the
     /// data and returns a tuple indicating:
@@ -498,6 +839,7 @@ pub trait KmerSummarizer<DI, DO: SummaryData<SD>, SD> {
     /// 
     
     fn new(min_kmer_obs: usize, sample_info: SampleInfo) -> Self;
+    #[deprecated]
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F, significant: Option<u32>) -> (bool, Exts, DO);
 }
 
@@ -508,6 +850,7 @@ pub struct CountFilter<D> {
     min_kmer_obs: usize,
     phantom: PhantomData<D>
 }
+
 
 impl<D> KmerSummarizer<D, u32, u32> for CountFilter<D> {
     fn new(min_kmer_obs: usize, _: SampleInfo) -> Self {
@@ -616,7 +959,7 @@ pub struct CountFilterStats {
     phantom: PhantomData<u8>,
 }
 
-impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterStats {
+impl KmerSummarizer<u8, TagsCountsSumData, (Tags, Box<[u32]>, i32)> for CountFilterStats {
     fn new(min_kmer_obs: usize, _: SampleInfo) -> Self {
         CountFilterStats {
             min_kmer_obs,
@@ -624,7 +967,7 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
         }
     }
 
-    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F, _: Option<u32>) -> (bool, Exts, TagsCountData) {
+    fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, u8)>>(&self, items: F, _: Option<u32>) -> (bool, Exts, TagsCountsSumData) {
         let mut all_exts = Exts::empty();
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
@@ -656,7 +999,8 @@ impl KmerSummarizer<u8, TagsCountData, (Tags, Box<[u32]>, i32)> for CountFilterS
 
         let tag_counts: Box<[u32]> = tag_counts.into();
 
-        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountData::new((Tags::from_u8_vec(out_data), tag_counts, nobs))) 
+
+        (nobs as usize >= self.min_kmer_obs, all_exts, TagsCountsSumData::new((Tags::from_u8_vec(out_data), tag_counts, nobs))) 
     }
 }
 
@@ -1007,19 +1351,6 @@ impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilt
 
         // caluclate p-value
 
-        /*
-        steps:
-        - get separate vecs for each group
-        - calculate mean for each group
-        - calculate variance for each group
-        - calculate degrees of freedom
-        - calculate test score
-        - make StudentT Distribution (-> statrs)
-        - get p value
-         */
-
-        // TODO test calculaiton
-
         let mut counts_g0 = Vec::new();
         let mut counts_g1 = Vec::new();
 
@@ -1074,7 +1405,9 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{CountFilter, CountsFilterGroups, CountsFilterMaj, CountsFilterMajB, CountsFilterRel, CountsFilterStat, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
+
+    use super::SummaryConfig;
 
     #[test]
     fn test_summarizers() {
@@ -1095,7 +1428,8 @@ mod test {
         }
 
         // markers: 
-        let markers = SampleInfo { marker0: 2, marker1: 12, count0: 1, count1: 2, sample_kmers: Vec::new() };
+        let sample_info = SampleInfo { marker0: 2, marker1: 12, count0: 1, count1: 2, sample_kmers: Vec::new() };
+
         // 0010 => 2
         // 1100 => 12
 
@@ -1109,25 +1443,26 @@ mod test {
         let min_kmer_obs = 1;
         type K = Kmer12;
 
+        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone());
+
+
         let pr = false;
 
         if pr { println!("{}", reads) };
 
 
         //construct and compress graph with CountFilter
-        let summarizer= CountFilter::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
 
-        graph.to_gfa_with_tags("test_cf.gfa",|n| n.data().print(&tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_cf.gfa",|n| <u32 as summarizer::SummaryData<u8, u32>>::print(n.data(), &tag_translator)).unwrap();
 
         println!("cf graph size: {}", graph.len());
 
 
         // construct and compress graph with CountsFilterGroups
-        let summarizer= CountsFilterGroups::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1135,9 +1470,8 @@ mod test {
 
 
         // construct and compress graph with CountsFilterRel
-        let summarizer= CountsFilterRel::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1145,9 +1479,8 @@ mod test {
 
 
         // construct and compress graph with CountsFilterStats
-        let summarizer= CountsFilterStats::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
         graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1158,20 +1491,21 @@ mod test {
         // same but with less significant digits
         let significant= Some(1);
 
-        //construct and compress graph with CountFilter
-        let summarizer= CountFilter::new(min_kmer_obs, markers.clone());
-        let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone());
 
-        graph.to_gfa_with_tags("test_cf-1.gfa",|n| n.data().print(&tag_translator)).unwrap();
+
+        //construct and compress graph with CountFilter
+        let spec: ScmapCompress<u32> = ScmapCompress::new();
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
+
+        graph.to_gfa_with_tags("test_cf-1.gfa",|n| <u32 as summarizer::SummaryData<u8, u32>>::print(n.data(), &tag_translator)).unwrap();
 
         println!("cf graph size: {}", graph.len());
 
 
         // construct and compress graph with CountsFilterGroups
-        let summarizer= CountsFilterGroups::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1179,9 +1513,8 @@ mod test {
 
 
         // construct and compress graph with CountsFilterRel
-        let summarizer= CountsFilterRel::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1189,9 +1522,8 @@ mod test {
 
 
         // construct and compress graph with CountsFilterStats
-        let summarizer= CountsFilterStats::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1201,12 +1533,11 @@ mod test {
     }
 
 
-    fn test_summarizer<K, T, CS, D, SD>(reads: &Reads<u8>, summarizer: T, spec: CS, sig: Option<u32>) -> DebruijnGraph<K, D> 
+    fn test_summarizer<K, CS, D, SD>(reads: &Reads<u8>, config: &SummaryConfig, spec: CS) -> DebruijnGraph<K, D> 
     where  
         K: Kmer + Send + Sync, 
-        T: KmerSummarizer<u8, D, SD>, 
         CS: CompressionSpec<D> + Send + Sync, 
-        D: SummaryData<SD> + Debug + PartialEq + Clone + Send + Sync,
+        D: SummaryData<u8, SD> + Debug + PartialEq + Clone + Send + Sync,
     {
         // construct and compress graph with CountsFilterStats
         //let summarizer= CountsFilterStats::new(min_kmer_obs, markers);
@@ -1215,13 +1546,12 @@ mod test {
         let pr = false;
 
         let (k_mers, _): (BoomHashMap2<K, Exts, D>, _)  = filter_kmers(&reads,
-            &Box::new(summarizer),
+            config,
             false, 
             false, 
             memory, 
             false, 
             false, 
-            sig
         );
         if pr { println!("kmers CountsFilterStats: {:?}", k_mers) };
 
@@ -1327,43 +1657,39 @@ mod test {
 
 
 
-        let markers = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
-        println!("markers: {:?}", markers);
-        let min_kmer_obs = 1;
-        let significant = None;
+        let sample_info = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone());
+
+        
+        println!("markers: {:?}", sample_info);
 
         // construct and compress graph with CountsFilterMaj
-        let summarizer = CountFilter::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
 
         graph.print();
 
         // construct and compress graph with CountsFilterMaj
-        let summarizer = CountsFilterStats::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
         graph.print();
 
         // construct and compress graph with CountsFilterMaj
-        let summarizer = CountsFilterMaj::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
         graph.print();
 
         // construct and compress graph with CountsFilterMajB
-        let summarizer = CountsFilterMajB::new(min_kmer_obs, markers.clone());
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
         graph.print();
 
         // construct and compress graph with CountsFilterStat
-        let summarizer = CountsFilterStat::new(min_kmer_obs, markers);
         let spec: ScmapCompress<TagsCountsPData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsPData> = test_summarizer(&reads, summarizer, spec, significant);
+        let graph: DebruijnGraph<K, TagsCountsPData> = test_summarizer(&reads, &config, spec);
 
         graph.print();
 
@@ -1379,7 +1705,7 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let sumarizer = CountsFilterStat::new(1, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 1u8),
@@ -1390,7 +1716,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 8u8),           
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5);
@@ -1404,7 +1730,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2345);
@@ -1419,7 +1745,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5995);
@@ -1434,7 +1760,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 924);
@@ -1461,7 +1787,7 @@ mod test {
             println!("{}", 1. / *i as f64 )
         } */
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let sumarizer = CountsFilterStat::new(1, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8), 
@@ -1472,7 +1798,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2955);
