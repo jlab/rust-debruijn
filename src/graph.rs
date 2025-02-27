@@ -3,6 +3,9 @@
 //! Containers for path-compressed De Bruijn graphs
 
 use bit_set::BitSet;
+use indicatif::ProgressBar;
+use indicatif::ProgressIterator;
+use indicatif::ProgressStyle;
 use log::{debug, trace};
 use rayon::prelude::*;
 use rayon::current_num_threads;
@@ -709,8 +712,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
         let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to DOT file       ");
+
         writeln!(&mut f, "digraph {{").unwrap();
-        for i in 0..self.len() {
+        for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
@@ -745,20 +752,30 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..parallel_ranges.len() {
             files.push(format!("{}-{}.dot", path, i));
         } 
+
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to DOT files      ");
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
             let mut f = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel dot file"));
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
+                pb.inc(1);
             }
         });
+        pb.finish_and_clear();
 
         let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.dot", path)).unwrap());
 
         writeln!(&mut out_file, "digraph {{").unwrap();
 
-        for file in files.iter() {
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("combining files                 ");
+
+        for file in files.iter().progress_with(pb) {
             let open_file = File::open(file).expect("error creating combined dot file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; 64*1024];
@@ -851,7 +868,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         type DummyFn<K, D> = fn(&Node<'_, K, D>) -> String;
         let dummy_opt: Option<&DummyFn<K, D>> = None;
 
-        for i in 0..self.len() {
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to GFA file       ");
+
+        for i in (0..self.len()).progress_with(pb) {
             let n = self.get_node(i);
             self.node_to_gfa(&n, wtr, dummy_opt)?;
         }
@@ -868,7 +889,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creatinf gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
-        for i in 0..self.len() {
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to GFA file       ");
+
+        for i in (0..self.len()).progress_with(pb) {
             let n = self.get_node(i);
             self.node_to_gfa(&n, &mut wtr, Some(&tag_func))?;
         }
@@ -912,6 +937,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in 0..parallel_ranges.len() {
             files.push(format!("{}-{}.gfa", gfa_out, i));
         } 
+
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to GFA file       ");
         
         
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
@@ -920,12 +949,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for i in range {
                 let n = self.get_node(i);
                 self.node_to_gfa(&n, &mut wtr, tag_func).unwrap();
+                pb.inc(1);
             }
         });
+
+        pb.finish_and_clear();
 
         // combine files
         let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
+
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("combining files                 ");
 
         for file in files.iter() {
             let open_file = File::open(file).expect("error opening parallel gfa file");

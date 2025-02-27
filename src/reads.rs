@@ -382,10 +382,14 @@ mod tests {
 
         ];
 
+
         let mut reads = Reads::new();
         for (read, ext, data) in fastq.clone() {
             reads.add_read(read, ext, data);
         }
+
+        println!("reads: {:#?}", reads);
+
 
         /* for no in reads.storage.iter() {
             println!("{:#b}", no)
@@ -406,6 +410,8 @@ mod tests {
         for read in reads.partial_iter(5..7) {
             println!("{:?}", read)
         }
+
+        println!("memory usage: {}", reads.mem())
     }
 
     #[test]
