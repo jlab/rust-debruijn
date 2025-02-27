@@ -437,14 +437,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
             let &(start_node, dir, do_flip) = init;
             let mut current = (start_node, dir);
-            debug!("start: {:?}", current);
 
             loop {
                 let mut next = None;
                 let (cur_id, incoming_dir) = current;
                 let node = self.get_node(cur_id);
                 let edges = node.edges(incoming_dir.flip());
-                debug!("{:?}", node);
 
                 let mut solid_paths = 0;
                 for (id, dir, _) in edges {
@@ -478,7 +476,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
 
-        debug!("path:{:?}", path);
         Vec::from_iter(path)
     }
 
@@ -539,14 +536,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
                 let &(start_node, dir, do_flip) = init;
                 let mut current = (start_node, dir);
-                debug!("start: {:?}", current);
 
                 loop {
                     let mut next = None;
                     let (cur_id, incoming_dir) = current;
                     let node = self.get_node(cur_id);
                     let edges = node.edges(incoming_dir.flip());
-                    debug!("{:?}", node);
 
                     let mut solid_paths = 0;
                     for (id, dir, _) in edges {
@@ -580,7 +575,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 }
             }
             
-            debug!("path len: {:?}", path.len());
             paths.push(path);
             //paths.push(Vec::from_iter(path));
         }
@@ -630,7 +624,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
             let last_start = ranges.pop().expect("no kmers in parallel ranges").start;
             ranges.push(last_start..seq.len());
-            debug!("fasta ranges: {:?}", ranges);
 
             // split up sequence and write to file accordingly
             for range in ranges {
@@ -1618,14 +1611,12 @@ F2: Fn(&D) -> bool
                     for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
                         let &(start_node, dir, do_flip) = init;
                         let mut current = (start_node, dir);
-                        debug!("start: {:?}", current);
         
                         loop {
                             let mut next = None;
                             let (cur_id, incoming_dir) = current;
                             let node = self.graph.get_node(cur_id);
                             let edges = node.edges(incoming_dir.flip());
-                            debug!("{:?}", node);
         
                             let mut solid_paths = 0;
                             for (id, dir, _) in edges {
@@ -1665,7 +1656,6 @@ F2: Fn(&D) -> bool
                         }
                     }
                     
-                    debug!("path len: {:?}", path.len());
                     
                     return Some((comp_len, path.len(), path))
                 }, 
