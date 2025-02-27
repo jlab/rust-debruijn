@@ -1,8 +1,9 @@
 use bimap::BiMap;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use crate::{Exts, Kmer, Tags};
-use std::{fmt::Debug, marker::PhantomData, mem};
+use std::{fmt::Debug, marker::PhantomData, mem, path::Display};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -23,10 +24,22 @@ impl SummaryConfig {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug)]
 pub enum Third {
     None, 
     One, 
     Both,
+}
+
+impl std::fmt::Display for Third {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Third::None => write!(f, "none"),
+            Third::One => write!(f, "one"),
+            Third::Both => write!(f, "both")            
+        }
+    }
+    
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -95,7 +108,7 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
 
 /// Trait for the output of the KmerSummarizers
 pub trait SummaryData<DI, DO> {
-    /// Make a new `SummaryData<D>`
+    /// Make a new `SummaryData<DO>`
     fn new(data: DO) -> Self;
     /// does not actually print but format
     fn print(&self, tag_translator: &BiMap<String, u8>) -> String;
