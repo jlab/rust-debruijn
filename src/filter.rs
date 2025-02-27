@@ -5,14 +5,12 @@
 use core::f32;
 use std::fmt::Debug;
 use std::mem;
-use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
 use boomphf::hashmap::BoomHashMap2;
-use indicatif::ParallelProgressIterator;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
@@ -23,11 +21,8 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::Reads;
-use crate::summarizer::SampleInfo;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
-use crate::summarizer::KmerSummarizer;
-use crate::summarizer::Third;
 use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
@@ -103,27 +98,18 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::Debug + Send + SummaryData<u8, DO>, S: KmerSummarizer<u8, DS, DO>>(
-    //seqs: &[(V, Exts, u8)],
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, SD: Clone + std::fmt::Debug + Send + SummaryData<u8, DO>>(
     seqs: &Reads<u8>,
-    //summarizer: &dyn Deref<Target = S>,
-    // summarizer without wrapper, why wrapper???
-    _summarizer: Box<S>,
-    //summarizer: Summarizer,
-    min_kmer_obs: usize,
+    summariy_config: &SummaryConfig,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
     progress: bool,
-    sample_info: SampleInfo,
-    significant: Option<u32>,
-) -> (BoomHashMap2<K, Exts, DS>, Vec<K>)
+) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 {
     // take timestamp before all processes
     let before_all = Instant::now();
-
-    let style = ProgressStyle::with_template("{human_pos} {msg}").unwrap();
 
     let rc_norm = !stranded;
     const BUCKETS: usize = 256;
@@ -306,8 +292,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
             print!("|");
             print!("\n");
         }
-
-        let progress_len = new_buckets.len();
         
         // parallel start
         new_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
@@ -316,7 +300,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
             debug!("starting bucket {} with {} kmers, capacity of {}", j, kmer_vec.len(), kmer_vec.capacity());
             kmer_vec.sort_by_key(|elt| elt.0);
 
-            let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
+            let size = kmer_vec.iter().chunk_by(|elt| elt.0).into_iter().count();
 
             let mut all_kmers = Vec::with_capacity(size);
             let mut valid_kmers = Vec::with_capacity(size);
@@ -324,9 +308,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, DS: Clone + std::fmt::De
             let mut valid_data = Vec::with_capacity(size);
 
 
-            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
-                let summarizer = S::new(min_kmer_obs, sample_info.clone());
-                let (is_valid, exts, summary_data) = summarizer.summarize(kmer_obs_iter, significant);
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt| elt.0).into_iter() {
+                let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, summariy_config);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -670,7 +653,7 @@ where
 
             
             // predict amount of unique k-mers found in this bucket
-            let size = kmer_vec.iter().group_by(|elt| elt.0).into_iter().count();
+            let size = kmer_vec.iter().chunk_by(|elt| elt.0).into_iter().count();
 
             // only works perfectly if min k-mer count is 1, else this might reserve too much 
             // still better than doubling the vector
@@ -686,7 +669,7 @@ where
 
 
             // group the tuples by the k-mers and iterate over the groups
-            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().group_by(|elt| elt.0).into_iter() {
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt: &(K, Exts, D1)| elt.0).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
                 let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, sum_config);
                 if report_all_kmers {
@@ -820,8 +803,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{CountFilterComb, TagsSumData}, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{SampleInfo, TagsSumData, Third}, test::random_dna, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -881,19 +863,17 @@ mod tests {
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone());
 
 
-        let (hm, _): (BoomHashMap2<Kmer6, Exts, _>, Vec<_>) = filter_kmers_parallel(
+        let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(
             &reads, 
-            Box::new(CountFilterComb::new(1, sample_info.clone())),
-            1, 
+            &config,
             false, 
-            false,
+            false, 
             1,
             false,
             false,
-            sample_info,
-            None
          );
 
          println!("{:?}", hm);

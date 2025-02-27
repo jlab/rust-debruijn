@@ -816,7 +816,6 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
-#[deprecated]
 pub trait KmerSummarizer<DI, DO: SummaryData<DI, SD>, SD> {
     /// The input `items` is an iterator over kmer observations. Input observation
     /// is a tuple of (kmer, extensions, data). The summarize function inspects the
@@ -827,6 +826,7 @@ pub trait KmerSummarizer<DI, DO: SummaryData<DI, SD>, SD> {
     /// 
     
     fn new(min_kmer_obs: usize, sample_info: SampleInfo) -> Self;
+    #[deprecated]
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F, significant: Option<u32>) -> (bool, Exts, DO);
 }
 
@@ -837,6 +837,7 @@ pub struct CountFilter<D> {
     min_kmer_obs: usize,
     phantom: PhantomData<D>
 }
+
 
 impl<D> KmerSummarizer<D, u32, u32> for CountFilter<D> {
     fn new(min_kmer_obs: usize, _: SampleInfo) -> Self {
@@ -1391,7 +1392,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, CountFilter, CountsFilterGroups, CountsFilterMaj, CountsFilterMajB, CountsFilterRel, CountsFilterStat, CountsFilterStats, GroupCountData, KmerSummarizer, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
 
     use super::SummaryConfig;
 
@@ -1691,7 +1692,7 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let sumarizer = CountsFilterStat::new(1, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 1u8),
@@ -1702,7 +1703,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 8u8),           
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5);
@@ -1716,7 +1717,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2345);
@@ -1731,7 +1732,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5995);
@@ -1746,7 +1747,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 924);
@@ -1773,7 +1774,7 @@ mod test {
             println!("{}", 1. / *i as f64 )
         } */
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let sumarizer = CountsFilterStat::new(1, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8), 
@@ -1784,7 +1785,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = sumarizer.summarize(input.into_iter(), None);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2955);

@@ -154,7 +154,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{CountFilter, CountFilterStats, KmerSummarizer, SampleInfo, SummaryConfig, TagsCountsSumData, TagsSumData, Third};
+    use crate::summarizer::{SampleInfo, SummaryConfig, TagsCountsSumData, TagsSumData, Third};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -603,15 +603,12 @@ mod tests {
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, sample_info.clone())),
-            1,
+            &config,
             stranded,
             false,
             4,
             true,
-            true,
-            sample_info.clone(),
-            None
+            true,            
         );
 
         println!("1: {:?}", valid_kmers_errs);
@@ -619,27 +616,21 @@ mod tests {
 
         let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilter::new(1,sample_info.clone())),
-            1,
+            &config,
             stranded,
             false,
             4,
             true,
             true,
-            sample_info.clone(),
-            None
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1, sample_info.clone())),
-            1,
+            &config,
             stranded,
             false,
             4,
             true,
             true,
-            sample_info,
-            None,
         );
 
         println!("3: {:?}", _valid_kmers_errs3);
