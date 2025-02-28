@@ -1,9 +1,9 @@
 use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{Exts, Kmer, Tags};
-use std::{fmt::Debug, marker::PhantomData, mem};
+use std::{cmp::min_by, fmt::Debug, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -17,15 +17,16 @@ pub struct SummaryConfig {
     third: Third,
     sample_info: SampleInfo,
     max_p: Option<f32>,
+    stat_test: StatTest,
 }
 
 impl SummaryConfig {
-    pub fn new(min_kmer_obs: usize, significant: Option<u32>, third: Third, sample_info: SampleInfo, max_p: Option<f32>) -> Self {
-        SummaryConfig { min_kmer_obs, significant, third, sample_info, max_p }
+    pub fn new(min_kmer_obs: usize, significant: Option<u32>, third: Third, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
+        SummaryConfig { min_kmer_obs, significant, third, sample_info, max_p, stat_test }
     }
 
     pub fn empty() -> Self {
-        SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None }
+        SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest }
     }
 }
 
@@ -42,6 +43,23 @@ impl std::fmt::Display for Third {
             Third::None => write!(f, "none"),
             Third::One => write!(f, "one"),
             Third::Both => write!(f, "both")            
+        }
+    }
+    
+}
+
+#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug)]
+pub enum StatTest {
+    TTest,
+    UTest,
+}
+
+impl std::fmt::Display for StatTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TTest => write!(f, "t-test"),
+            Self::UTest => write!(f, "u-test"),
+            
         }
     }
     
@@ -119,7 +137,6 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let mut counts_g0 = Vec::new();
     let mut counts_g1 = Vec::new();
 
-
     let (m0, m1) = sample_info.get_marker();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
@@ -151,7 +168,75 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     p_value
 }
 
-/// Trait for the output of the KmerSummarizers
+fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> f32{
+    let mut counts_g0 = Vec::new();
+    let mut counts_g1 = Vec::new();
+
+    let (m0, m1) = sample_info.get_marker();
+
+    for (label, count) in out_data.iter().zip(tag_counts) {
+        let bin_rep = (2 as M).pow(*label as u32);
+        let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
+        println!("m0: {:064b} \nm1: {:064b} \nlb: {:064b}", m0, m1, bin_rep);
+        if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
+        if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
+    }
+
+    let n0 = sample_info.count0 as f64;
+    let n1 = sample_info.count1 as f64;
+    let n = n0 + n1;
+    let m = (n0 * n1) / 2.;
+
+    // u calculation method 2
+
+    let mut all_counts = vec![(0u8, 0f64); n0 as usize - counts_g0.len()];
+    all_counts.append(&mut vec![(1, 0f64); n1 as usize - counts_g1.len()]);
+
+    all_counts.append(&mut counts_g0.iter().map(|elt| (0, *elt)).collect());
+    all_counts.append(&mut counts_g1.iter().map(|elt| (1, *elt)).collect());
+
+    all_counts.sort_by(|(_, x), (_, y)| x.total_cmp(y));
+
+    let chunked = all_counts
+        .chunk_by(|(_, x), (_, y)| x == y);
+
+    let mut ranks = Vec::new();
+    let mut tie_factor = 0.;
+
+    for chunk in chunked {
+        let rank = (chunk.len() + 1) as f64 / 2. + ranks.len() as f64;
+        ranks.append(&mut chunk.iter().map(|(g, _)| (*g, rank)).collect());
+        if chunk.len() > 0 {
+            tie_factor += (chunk.len().pow(3) - chunk.len()) as f64;
+        }
+    }
+
+    let mut rank_sum0 = 0.;
+    let mut rank_sum1 = 0.;
+    ranks.iter().for_each(|(group, rank)| match group { 
+        0 => rank_sum0 += rank, 
+        1 => rank_sum1 += rank, 
+        _ => panic!("should not happen"),
+    });
+
+    let u0 = rank_sum0 - n0 * (n0 + 1.) / 2.;
+    let u1 = rank_sum1 - n1 * (n1 + 1.) / 2.;
+    
+    let u = min_by(u0, u1, |a, b| a.total_cmp(&b));
+
+    let s = ((n0 * n1 * (n + 1.) / 12.) - (n0 * n1 * tie_factor / (12. * n * (n - 1.)))).sqrt();
+    //let s = ((n0 * n1 / 12.) * ((n + 1.) - (tie_factor / n * (n - 1.)))).sqrt();
+    // supposedly same term but returns NaN???
+
+    let z = (u - m) / s;
+
+    let dist = Normal::standard();
+    let p_value =  2. * (1. - dist.cdf(z.abs())) as f32;
+
+    p_value
+}
+
+/// Trait for summarizing k-mers
 pub trait SummaryData<DI, DO> {
     /// Make a new `SummaryData<DO>`
     fn new(data: DO) -> Self;
@@ -440,7 +525,12 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
         out_data.dedup();
 
         let valid_p = match config.max_p {
-            Some(p) => t_test(&out_data, &tag_counts, &config.sample_info) >= p,
+            Some(p) => {
+                (match config.stat_test {
+                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
+                }) >= p
+            },
             None => true,
         };        
 
@@ -534,9 +624,14 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
         out_data.dedup();
 
         let valid_p = match config.max_p {
-            Some(p) => t_test(&out_data, &tag_counts, &config.sample_info) >= p,
+            Some(p) => {
+                (match config.stat_test {
+                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
+                }) >= p
+            },
             None => true,
-        };
+        };     
 
         let tag_counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_u8_vec(out_data);
@@ -629,8 +724,11 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         out_data.dedup();
 
         // caluclate p-value with t-test
-        let p_value = t_test(&out_data, &tag_counts, &config.sample_info);
-        // TODO add non-parametric test
+        let p_value = match config.stat_test {
+            StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+            StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
+        };
+         
 
         let tag_counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_u8_vec(out_data);
@@ -1387,9 +1485,10 @@ mod test {
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
+    use hypors::mann_whitney;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
+    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
 
     use super::SummaryConfig;
 
@@ -1427,7 +1526,7 @@ mod test {
         let min_kmer_obs = 1;
         type K = Kmer12;
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None);
+        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
 
 
         let pr = false;
@@ -1475,7 +1574,7 @@ mod test {
         // same but with less significant digits
         let significant= Some(1);
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None);
+        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
 
 
         //construct and compress graph with CountFilter
@@ -1642,7 +1741,7 @@ mod test {
 
 
         let sample_info = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
 
         
         println!("markers: {:?}", sample_info);
@@ -1689,7 +1788,9 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config = SummaryConfig::new(1, None, Third::None, sample_info, Some(0.1));
+        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
+
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 1u8),
@@ -1700,7 +1801,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 8u8),           
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5);
@@ -1714,7 +1815,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2345);
@@ -1729,7 +1830,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5995);
@@ -1744,7 +1845,7 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 924);
@@ -1767,11 +1868,9 @@ mod test {
         10: 0.00819672131147541
         11: 0.00013815971262779773
          */
-/*         for i in sample_kmers.iter() {
-            println!("{}", 1. / *i as f64 )
-        } */
+
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config = SummaryConfig::new(1, None, Third::None, sample_info, None);
+        let config_t = SummaryConfig::new(1, None, Third::None, sample_info, None, summarizer::StatTest::TTest);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8), 
@@ -1782,12 +1881,45 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config);
+        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized);
 
         assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2955);
 
     }
+
+    #[test]
+    fn test_mwu() {
+        let tags: Vec<u8> = vec![0, 1, 2, 3, 4, 7, 8, 9];
+        let test_counts: Vec<u32> = vec![3, 1, 4, 6, 9, 7, 3, 8];
+
+        let m0: u64 = 0b1111111111110000000;
+        let m1: u64 = 0b0000000000001111111;
+        let c0: u32 = 12;
+        let c1: u32 = 7;
+
+        let sample_counts = vec![1; 19];
+
+        assert_eq!(c0, m0.count_ones());
+        assert_eq!(c1, m1.count_ones());
+
+        let sample_info = SampleInfo::new(m0, m1, c0 as u8, c1 as u8, sample_counts);
+
+        let p_value_t = t_test(&tags, &test_counts, &sample_info);
+        println!("p-value t test: {}", p_value_t);
+
+        // soll: U = 24.5, p = 0.0995, z = -1.65, exaxt p: 0.142
+
+        u_test(&tags, &test_counts, &sample_info);
+
+        let counts0: polars::prelude::Series = [3., 1., 4., 6., 9., 0., 0.].iter().collect();
+        let counts1: polars::prelude::Series = [7., 3., 8., 0., 0., 0., 0., 0., 0., 0., 0., 0.].iter().collect();
+
+        let test = mann_whitney::u_test(&counts0, &counts1, 0.1, hypors::common::TailType::Two);
+        println!("hypors test: {:?}", test);
+    }
 }
+
+
 
 

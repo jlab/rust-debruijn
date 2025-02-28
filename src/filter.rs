@@ -866,7 +866,7 @@ mod tests {
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
-        let config = SummaryConfig::new(1, None, Third::None, sample_info, None);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info, None, crate::summarizer::StatTest::TTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
@@ -908,7 +908,7 @@ mod tests {
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(
