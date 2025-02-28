@@ -177,7 +177,6 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     for (label, count) in out_data.iter().zip(tag_counts) {
         let bin_rep = (2 as M).pow(*label as u32);
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
-        println!("m0: {:064b} \nm1: {:064b} \nlb: {:064b}", m0, m1, bin_rep);
         if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
     }
@@ -1801,10 +1800,15 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 8u8),           
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized);
+        let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
 
-        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5);
+
+        let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 5);
 
 
         let input = [
@@ -1815,10 +1819,10 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized);
+        let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
 
-        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2345);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2345);
 
 
         let input = [
@@ -1830,10 +1834,15 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized);
+        let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
 
-        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 5995);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5995);
+
+        let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 575);
 
 
         let input = [
@@ -1845,10 +1854,15 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized);
+        let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
 
-        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 924);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 924);
+
+        let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 93);
 
 
         // with different kmer counts
@@ -1870,7 +1884,9 @@ mod test {
          */
 
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, Third::None, sample_info, None, summarizer::StatTest::TTest);
+        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, Third::None, sample_info, None, summarizer::StatTest::UTest);
+
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8), 
@@ -1881,10 +1897,15 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let summarized = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized);
+        let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
 
-        assert_eq!((summarized.2.p_value * 10000.).round() as u32, 2955);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2955);
+
+        let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 862);
 
     }
 
