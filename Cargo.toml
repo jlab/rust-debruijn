@@ -24,8 +24,6 @@ bimap = "0.6.3"
 statrs = "0.18.0"
 indicatif = {version = "0.17.11", features = ["rayon"]}
 clap = { version = "4.5.0", features = ["derive"] }
-hypors = "0.2.5"
-polars = ">=0.43.1"
 
 
 [dev-dependencies]

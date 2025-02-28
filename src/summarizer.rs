@@ -186,7 +186,7 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let n = n0 + n1;
     let m = (n0 * n1) / 2.;
 
-    // u calculation method 2
+    // TODO check if more efficient way possible
 
     let mut all_counts = vec![(0u8, 0f64); n0 as usize - counts_g0.len()];
     all_counts.append(&mut vec![(1, 0f64); n1 as usize - counts_g1.len()]);
