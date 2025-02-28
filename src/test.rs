@@ -243,7 +243,7 @@ mod tests {
 
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info, None);
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -355,7 +355,7 @@ mod tests {
         assert!(kmer_set == msp_kmers);
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info, None);
 
 
 
@@ -466,7 +466,7 @@ mod tests {
         let mut shard_asms = Vec::new();
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone());
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None);
 
 
 
@@ -568,7 +568,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone());
+        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None);
 
 
         // initialize global thread pool with x threads
@@ -801,7 +801,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info);
+        let config = SummaryConfig::new(1, None, Third::None, sample_info, None);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &reads, 
