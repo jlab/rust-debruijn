@@ -255,6 +255,8 @@ pub trait SummaryData<DI, DO> {
     fn p_value(&self) -> Option<f32>;
     /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
     fn sample_count(&self) -> Option<usize>;
+    /// check if node is valid according to: min kmer obs, third, p-value
+    fn valid(&self, config: &SummaryConfig) -> bool;
     /// summarize k-mers
     fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self);
 }
@@ -295,6 +297,10 @@ impl<DI> SummaryData<DI, u32> for u32 {
 
     fn sample_count(&self) -> Option<usize> {
         None
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        *self >= config.min_kmer_obs as u32
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -351,6 +357,10 @@ impl<DI: Debug + Ord> SummaryData<DI, Vec<DI>> for Vec<DI> {
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.len())
+    }
+
+    fn valid(&self, _: &SummaryConfig) -> bool {
+        true
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -426,6 +436,10 @@ impl SummaryData<u8, (Tags, i32)> for TagsSumData {
         Some(self.tags.len())
     }
 
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        (self.sum >= config.min_kmer_obs as i32) && (valid(self.tags, self.sum, config))
+    }
+
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
 
@@ -491,6 +505,20 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
 
     fn p_value(&self) -> Option<f32> {
         None
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => {
+                (match config.stat_test {
+                    StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                    StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                }) <= p
+            },
+            None => true,
+        }; 
+
+        (self.sum >= config.min_kmer_obs as i32) && valid(self.tags, self.sum, config) && valid_p
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -590,6 +618,20 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => {
+                (match config.stat_test {
+                    StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                    StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                }) <= p
+            },
+            None => true,
+        }; 
+
+        (self.sum() >= config.min_kmer_obs as i32) && valid(self.tags, self.sum(), config) && valid_p
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -692,6 +734,15 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         Some(self.counts.len())
     }
 
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => self.p_value <= p,
+            None => true,
+        }; 
+
+        (self.sum() >= config.min_kmer_obs as i32) && valid(self.tags, self.sum(), config) && valid_p
+    }
+
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
 
@@ -792,6 +843,10 @@ impl SummaryData<u8, (u32, u32)> for GroupCountData {
         None
     }
 
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        self.sum() >= config.min_kmer_obs as u32
+    }
+
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
         let mut count1 = 0;
@@ -869,6 +924,10 @@ impl SummaryData<u8, (u32, u32)> for RelCountData {
 
     fn sample_count(&self) -> Option<usize> {
         None
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        self.count >= config.min_kmer_obs as u32
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
