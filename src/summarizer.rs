@@ -11,6 +11,8 @@ pub type M = u64;
 #[cfg(feature = "sample128")]
 pub type M = u128;
 
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
     significant: Option<u32>,
@@ -30,7 +32,7 @@ impl SummaryConfig {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
 pub enum Third {
     None, 
     One, 
@@ -48,7 +50,7 @@ impl std::fmt::Display for Third {
     
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
 pub enum StatTest {
     TTest,
     UTest,
