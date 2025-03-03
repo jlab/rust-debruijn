@@ -30,6 +30,22 @@ impl SummaryConfig {
     pub fn empty() -> Self {
         SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest }
     }
+
+    pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
+        self.min_kmer_obs = min_kmer_obs;
+    }
+
+    pub fn set_third(&mut self, third: Third) {
+        self.third = third;
+    }
+
+    pub fn  set_max_p(&mut self, max_p: Option<f32>) {
+        self.max_p = max_p;
+    }
+
+    pub fn set_stat_test(&mut self, stat_test: StatTest) {
+        self.stat_test = stat_test;
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
