@@ -161,7 +161,7 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
 
     let t = (mean0 - mean1) / s;
 
-    let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist");
+    let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist: check if you have enough samples (at least 3)");
 
     let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
 
@@ -528,7 +528,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
                 (match config.stat_test {
                     StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
-                }) >= p
+                }) <= p
             },
             None => true,
         };        
@@ -627,7 +627,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
                 (match config.stat_test {
                     StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
-                }) >= p
+                }) <= p
             },
             None => true,
         };     
@@ -733,7 +733,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         let tags = Tags::from_u8_vec(out_data);
 
         let valid = match config.max_p {
-            Some(p) => valid(tags, nobs, config) && (p_value >= p),
+            Some(p) => valid(tags, nobs, config) && (p_value <= p),
             None => valid(tags, nobs, config),
         };
 
@@ -1484,7 +1484,6 @@ mod test {
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
-    use hypors::mann_whitney;
     use rand::Rng;
 
     use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
@@ -1931,13 +1930,9 @@ mod test {
 
         // soll: U = 24.5, p = 0.0995, z = -1.65, exaxt p: 0.142
 
-        u_test(&tags, &test_counts, &sample_info);
+        let p_value_u = u_test(&tags, &test_counts, &sample_info);
+        println!("p-value u test: {}", p_value_u);
 
-        let counts0: polars::prelude::Series = [3., 1., 4., 6., 9., 0., 0.].iter().collect();
-        let counts1: polars::prelude::Series = [7., 3., 8., 0., 0., 0., 0., 0., 0., 0., 0., 0.].iter().collect();
-
-        let test = mann_whitney::u_test(&counts0, &counts1, 0.1, hypors::common::TailType::Two);
-        println!("hypors test: {:?}", test);
     }
 }
 

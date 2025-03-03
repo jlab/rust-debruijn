@@ -610,10 +610,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut path_lens = Vec::new();
 
         for (comp_size, path_len, path) in path_iter {
-            writeln!(f, ">path {}", seq_counter).unwrap();
-
             // get dna sequence from path
             let seq = self.sequence_of_path(path.iter());
+
+            //write header with length & start node
+            writeln!(f, ">path{}|len:{}|start-node:{}", seq_counter, seq.len(), path[0].0).unwrap();
 
             // calculate how sequence has to be split up
             let slices = (seq.len() / columns) + 1;
