@@ -6,6 +6,7 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
+use itertools::enumerate;
 use log::{debug, trace};
 use rayon::prelude::*;
 use rayon::current_num_threads;
@@ -614,7 +615,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let seq = self.sequence_of_path(path.iter());
 
             //write header with length & start node
-            writeln!(f, ">path{}|len:{}|start-node:{}", seq_counter, seq.len(), path[0].0).unwrap();
+            writeln!(f, ">path{} len={} start_node={}", seq_counter, seq.len(), path[0].0).unwrap();
 
             // calculate how sequence has to be split up
             let slices = (seq.len() / columns) + 1;
@@ -1283,6 +1284,16 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
         comp
+    }
+
+    pub fn find_bad_nodes<F: Fn(&Node<'_, K, D>) -> bool>(&self, valid: F) -> Vec<usize> {
+        let mut bad_nodes = Vec::new();
+
+        for (i, node) in enumerate(self.iter_nodes()) {
+            if !valid(&node) { bad_nodes.push(i); }
+        }
+        
+        bad_nodes
     }
 
 }

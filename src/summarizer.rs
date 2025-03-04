@@ -455,7 +455,7 @@ impl SummaryData<u8, (Tags, i32)> for TagsSumData {
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
-        (self.sum >= config.min_kmer_obs as i32) && (valid(self.tags, self.sum, config))
+        valid(self.tags, self.sum, config)
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -536,7 +536,11 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
             None => true,
         }; 
 
-        (self.sum >= config.min_kmer_obs as i32) && valid(self.tags, self.sum, config) && valid_p
+        println!("{}", self.sum >= config.min_kmer_obs as i32);
+        println!("{}", valid(self.tags, self.sum, config));
+        println!("{}", valid_p);
+
+        valid(self.tags, self.sum, config) && valid_p
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -649,7 +653,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
             None => true,
         }; 
 
-        (self.sum() >= config.min_kmer_obs as i32) && valid(self.tags, self.sum(), config) && valid_p
+        valid(self.tags, self.sum(), config) && valid_p
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -758,7 +762,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
             None => true,
         }; 
 
-        (self.sum() >= config.min_kmer_obs as i32) && valid(self.tags, self.sum(), config) && valid_p
+        valid(self.tags, self.sum(), config) && valid_p
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -1557,15 +1561,15 @@ impl KmerSummarizer<u8, TagsCountsPData, (Tags, Box<[u32]>, f32)> for CountsFilt
 
 #[cfg(test)]
 mod test {
-    use std::fmt::Debug;
+    use std::{fmt::Debug, fs::File, io::BufReader};
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{compression::{ compress_kmers_with_hash, CompressionSpec, ScmapCompress}, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer12, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer, Tags};
 
-    use super::SummaryConfig;
+    use super::{SummaryConfig, TagsCountsSumData};
 
     #[test]
     fn test_summarizers() {
@@ -2009,6 +2013,64 @@ mod test {
 
         let p_value_u = u_test(&tags, &test_counts, &sample_info);
         println!("p-value u test: {}", p_value_u);
+
+    }
+
+    #[test]
+    fn test_data_valid() {
+        let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
+
+        let tags = Tags::from_u8_vec(vec![0, 2, 6]);
+        let counts: Box<[u32]> = [1, 3, 5].into();
+        let sum = counts.iter().sum::<u32>() as i32;
+        graph.add(DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
+
+        let tags = Tags::from_u8_vec(vec![0]);
+        let counts: Box<[u32]> = [1].into();
+        let sum = counts.iter().sum::<u32>() as i32;
+        graph.add(DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
+                
+        
+        let graph = graph.finish();
+
+        graph.print();
+
+        let sample_kmers = vec![123, 234, 12334, 34];
+        let sample_info = SampleInfo::new(0b00100101, 0b11011010, 3, 5, sample_kmers);
+        let config = SummaryConfig::new(3, None, Third::None, sample_info, None, summarizer::StatTest::TTest);
+
+        let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer8, TagsCountsSumData>| !node.data().valid(&config))
+                    .find_bad_nodes(&graph);
+        println!("censor nodes: {:?}", censor_nodes);
+        let filter_graph = compress_graph(false, &ScmapCompress::new(), graph, Some(censor_nodes));
+
+        filter_graph.print();
+
+        // larger test
+
+        let reader = BufReader::with_capacity(64*1024, File::open("../dbg/w_400.graph.dbg").unwrap());
+        let (graph, _, mut config): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, SummaryConfig) = bincode::deserialize_from(reader)
+            .expect("error deserializing graph, hashed labels, and config");
+
+        config.set_min_kmer_obs(3);
+
+        let node38 = graph.get_node(38);
+        println!("node: {:?}", node38);
+        println!("\n {}", node38.data().valid(&config));
+
+        let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer16, TagsCountsSumData>| !node.data().valid(&config))
+                    .find_bad_nodes(&graph);
+        println!("censor nodes: {:?}", censor_nodes);
+
+        let bad_nodes = graph.find_bad_nodes(|node: &Node<'_, Kmer16, TagsCountsSumData>| node.data().valid(&config));
+        println!("fixed: {:?}", bad_nodes);
+
+        graph.print();
+
+        let filtered_graph = compress_graph(false, &ScmapCompress::new(), graph, Some(bad_nodes));
+
+        filtered_graph.print();
+
 
     }
 }
