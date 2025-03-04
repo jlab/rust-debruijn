@@ -534,11 +534,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
                 }) <= p
             },
             None => true,
-        }; 
-
-        println!("{}", self.sum >= config.min_kmer_obs as i32);
-        println!("{}", valid(self.tags, self.sum, config));
-        println!("{}", valid_p);
+        };
 
         valid(self.tags, self.sum, config) && valid_p
     }
