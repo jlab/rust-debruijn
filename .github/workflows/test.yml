@@ -23,4 +23,4 @@ jobs:
       - name: build rust tests
         run: cargo test --release --no-run
       - name: run rust tests
-        run: cargo test -- -test-threads=1
+        run: cargo test -- --test-threads=1
