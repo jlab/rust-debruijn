@@ -253,6 +253,22 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     p_value
 }
 
+fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> u32 {
+    let mut norm_count_g0 = 0.;
+    let mut norm_count_g1 = 0.;
+
+    let (m0, m1) = sample_info.get_marker();
+
+    for (label, count) in tags.to_u8_vec().iter().zip(&counts) {
+        let bin_rep = (2 as M).pow(*label as u32);
+        let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
+        if (m0 & bin_rep) > 0 { norm_count_g0 += norm; }
+        if (m1 & bin_rep) > 0 { norm_count_g1 += norm; }
+    }
+
+    (norm_count_g0 as f64 / norm_count_g1 as f64).log2().round() as u32
+}
+
 /// Trait for summarizing k-mers
 pub trait SummaryData<DI, DO> {
     /// Make a new `SummaryData<DO>`
@@ -271,6 +287,8 @@ pub trait SummaryData<DI, DO> {
     fn count(&self) -> Option<usize>;
     /// If the `SummaryData` contains sufficient information, return the p-value
     fn p_value(&self) -> Option<f32>;
+    /// If the `SummaryData` contains sufficient information, return the log2(fold change)
+    fn fold_change(&self, config: &SummaryConfig) -> Option<u32>;
     /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
     fn sample_count(&self) -> Option<usize>;
     /// check if node is valid according to: min kmer obs, third, p-value
@@ -310,6 +328,10 @@ impl<DI> SummaryData<DI, u32> for u32 {
     }
 
     fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<u32> {
         None
     }
 
@@ -370,6 +392,10 @@ impl<DI: Debug + Ord> SummaryData<DI, Vec<DI>> for Vec<DI> {
     }
 
     fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<u32> {
         None
     }
 
@@ -450,6 +476,10 @@ impl SummaryData<u8, (Tags, i32)> for TagsSumData {
         None
     }
 
+    fn fold_change(&self, _: &SummaryConfig) -> Option<u32> {
+        None
+    }
+
     fn sample_count(&self) -> Option<usize> {
         Some(self.tags.len())
     }
@@ -523,6 +553,10 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
 
     fn p_value(&self) -> Option<f32> {
         None
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<u32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -632,6 +666,10 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
 
     fn p_value(&self) -> Option<f32> {
         None
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<u32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -748,6 +786,10 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         Some(self.p_value)
     }
 
+    fn fold_change(&self, config: &SummaryConfig) -> Option<u32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+    
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
     }
@@ -857,6 +899,10 @@ impl SummaryData<u8, (u32, u32)> for GroupCountData {
         None
     }
 
+    fn fold_change(&self, _: &SummaryConfig) -> Option<u32> {
+        None
+    }
+
     fn sample_count(&self) -> Option<usize> {
         None
     }
@@ -937,6 +983,10 @@ impl SummaryData<u8, (u32, u32)> for RelCountData {
     }
 
     fn p_value(&self) -> Option<f32> {
+        None
+    }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<u32> {
         None
     }
 
