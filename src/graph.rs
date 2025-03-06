@@ -705,12 +705,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
     }
 
-    /// Write the graph to a dot file in parallel
-    /// Will write in to n_threads files simultaniously,
-    /// then go though the files and add the contents to a larger file, 
-    /// and delete the small files.
-    /// 
-    /// The path does not need to contain the file ending.
+    /// Write the graph to a dot file
     pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
         let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
@@ -726,6 +721,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         debug!("large to dot loop: {}", self.len());
     }
 
+    /// Write the graph to a dot file in parallel
+    /// Will write in to n_threads files simultaniously,
+    /// then go though the files and add the contents to a larger file, 
+    /// and delete the small files.
+    /// 
+    /// The path does not need to contain the file ending.
     pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&D) -> String + Sync>(&self, path: P, node_label: &F) 
     where 
         D: Sync,
@@ -794,6 +795,23 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut out_file, "}}").unwrap();
 
 
+    }
+
+    /// Write part of the graph to a dot file
+    pub fn to_dot_partial<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F, nodes: Vec<usize>) {
+        let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
+
+        let pb = ProgressBar::new(nodes.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to DOT file       ");
+
+        writeln!(&mut f, "digraph {{").unwrap();
+        for i in nodes.into_iter().progress_with(pb) {
+            self.node_to_dot(&self.get_node(i), node_label, &mut f);
+        }
+        writeln!(&mut f, "}}").unwrap();
+
+        debug!("large to dot loop: {}", self.len());
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(
@@ -980,6 +998,23 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         Ok(())
+    }
+
+    /// Write the graph to GFA format
+    pub fn to_gfa_partial<P: AsRef<Path>, F: Fn(&Node<'_, K, D>) -> String>(&self, gfa_out: P, tag_func: Option<&F>, nodes: Vec<usize>) -> Result<(), Error> {
+        let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creating gfa file"));
+        writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
+
+        let pb = ProgressBar::new(self.len() as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message("writing graph to GFA file       ");
+
+        for i in nodes.into_iter().progress_with(pb) {
+            let n = self.get_node(i);
+            self.node_to_gfa(&n, &mut wtr, tag_func)?;
+        }
+
+        Ok(())    
     }
 
     pub fn to_json_rest<W: Write, F: Fn(&D) -> Value>(

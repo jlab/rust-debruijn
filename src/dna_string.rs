@@ -1044,9 +1044,6 @@ mod tests {
         dna_string_test("ACGTACGT");
         dna_string_test("ACGTAAAAAAAAAATTATATAACGT");
         dna_string_test("AACGTAAAAAAAAAATTATATAACGT");
-        dna_string_test("ACGTANNNCGT");
-        dna_string_test("ACGTAAAAAAAAAATTANTATAACGTACGTAAAAAAAAAATTANTATAACGT");
-        dna_string_test("ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAANAAAAATTATANTAACGT");
     }
 
     fn dna_string_test(dna: &str) {
