@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{Exts, Kmer, Tags};
-use std::{cmp::min_by, fmt::Debug, marker::PhantomData, mem};
+use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -11,6 +11,16 @@ pub type M = u64;
 #[cfg(feature = "sample128")]
 pub type M = u128;
 
+#[derive(Debug, PartialEq)]
+struct NotEnoughSamplesError {}
+
+impl Error for NotEnoughSamplesError {}
+
+impl Display for NotEnoughSamplesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "not enough samples were supplied to perform a statistical test")
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryConfig {
@@ -20,15 +30,16 @@ pub struct SummaryConfig {
     sample_info: SampleInfo,
     max_p: Option<f32>,
     stat_test: StatTest,
+    stat_test_changed: bool,
 }
 
 impl SummaryConfig {
     pub fn new(min_kmer_obs: usize, significant: Option<u32>, third: Third, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
-        SummaryConfig { min_kmer_obs, significant, third, sample_info, max_p, stat_test }
+        SummaryConfig { min_kmer_obs, significant, third, sample_info, max_p, stat_test, stat_test_changed: false }
     }
 
     pub fn empty() -> Self {
-        SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest }
+        SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest, stat_test_changed: false }
     }
 
     pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
@@ -44,6 +55,7 @@ impl SummaryConfig {
     }
 
     pub fn set_stat_test(&mut self, stat_test: StatTest) {
+        if stat_test != self.stat_test { self.stat_test_changed = true }
         self.stat_test = stat_test;
     }
 }
@@ -151,7 +163,12 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
     }
 }
 
-fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> f32 {
+fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+    let n0 = sample_info.count0 as f64;
+    let n1 = sample_info.count1 as f64;
+
+    if (n0 < 2.) | (n1 < 2.) { return Err(NotEnoughSamplesError {})}
+
     let mut counts_g0 = Vec::new();
     let mut counts_g1 = Vec::new();
 
@@ -163,9 +180,6 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
         if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
     }
-
-    let n0 = sample_info.count0 as f64;
-    let n1 = sample_info.count1 as f64;
 
     let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
     let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
@@ -183,10 +197,17 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
 
     let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
 
-    p_value
+    Ok(p_value)
 }
 
-fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> f32{
+fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+
+    let n0 = sample_info.count0 as f64;
+    let n1 = sample_info.count1 as f64;
+
+    if (n0 < 2.) | (n1 < 2.) { return Err(NotEnoughSamplesError {})}
+
+
     let mut counts_g0 = Vec::new();
     let mut counts_g1 = Vec::new();
 
@@ -199,8 +220,6 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
     }
 
-    let n0 = sample_info.count0 as f64;
-    let n1 = sample_info.count1 as f64;
     let n = n0 + n1;
     let m = (n0 * n1) / 2.;
 
@@ -250,7 +269,7 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let dist = Normal::standard();
     let p_value =  2. * (1. - dist.cdf(z.abs())) as f32;
 
-    p_value
+    Ok(p_value)
 }
 
 fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> i32 {
@@ -286,7 +305,7 @@ pub trait SummaryData<DI, DO> {
     /// If the `SummaryData` contains sufficient information, return the number of observations
     fn count(&self) -> Option<usize>;
     /// If the `SummaryData` contains sufficient information, return the p-value
-    fn p_value(&self) -> Option<f32>;
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
     /// If the `SummaryData` contains sufficient information, return the log2(fold change)
     fn fold_change(&self, config: &SummaryConfig) -> Option<i32>;
     /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
@@ -327,7 +346,7 @@ impl<DI> SummaryData<DI, u32> for u32 {
         Some(*self as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -391,7 +410,7 @@ impl<DI: Debug + Ord> SummaryData<DI, Vec<DI>> for Vec<DI> {
         None
     }
 
-    fn p_value(&self) -> Option<f32> {
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -472,7 +491,7 @@ impl SummaryData<u8, (Tags, i32)> for TagsSumData {
         Some(self.sum as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -551,8 +570,16 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
         Some(self.counts.len() as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
-        None
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        let p = match config.stat_test {
+            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+        };
+        
+        match p {
+            Ok(p_value) => Some(p_value),
+            Err(_) => None,
+        }
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
@@ -561,12 +588,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
-            Some(p) => {
-                (match config.stat_test {
-                    StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
-                    StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
-                }) <= p
-            },
+            Some(p) => self.p_value(config).expect("error calculating p_value") <= p,
             None => true,
         };
 
@@ -604,11 +626,15 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
         out_data.dedup();
 
         let valid_p = match config.max_p {
-            Some(p) => {
-                (match config.stat_test {
+            Some(max_p) => {
+                let p_value = match config.stat_test {
                     StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
-                }) <= p
+                };
+                match p_value {
+                    Ok(p) => p <= max_p,
+                    Err(_) => true
+                } 
             },
             None => true,
         };        
@@ -664,8 +690,16 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
         Some(self.counts.iter().sum::<u32>() as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
-        None
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        let p = match config.stat_test {
+            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+        };
+        
+        match p {
+            Ok(p_value) => Some(p_value),
+            Err(_) => None,
+        }
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
@@ -678,12 +712,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
-            Some(p) => {
-                (match config.stat_test {
-                    StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
-                    StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
-                }) <= p
-            },
+            Some(p) => self.p_value(config).expect("error calculating p-value") <= p,
             None => true,
         }; 
 
@@ -721,14 +750,18 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
         out_data.dedup();
 
         let valid_p = match config.max_p {
-            Some(p) => {
-                (match config.stat_test {
+            Some(max_p) => {
+                let p_value = match config.stat_test {
                     StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
-                }) <= p
+                };
+                match p_value {
+                    Ok(p) => p <= max_p,
+                    Err(_) => true
+                } 
             },
             None => true,
-        };     
+        };        
 
         let tag_counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_u8_vec(out_data);
@@ -782,8 +815,16 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         Some(self.sum() as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
-        Some(self.p_value)
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        if config.stat_test_changed {
+            Some(match config.stat_test {
+                StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
+                StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
+            })
+        } else {
+            Some(self.p_value)
+        }
+        
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
@@ -837,7 +878,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         let p_value = match config.stat_test {
             StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
             StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
-        };
+        }.unwrap();
          
 
         let tag_counts: Box<[u32]> = tag_counts.into();
@@ -895,7 +936,7 @@ impl SummaryData<u8, (u32, u32)> for GroupCountData {
         Some((self.group1 + self.group2) as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -982,7 +1023,7 @@ impl SummaryData<u8, (u32, u32)> for RelCountData {
         Some(self.count as usize)
     }
 
-    fn p_value(&self) -> Option<f32> {
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -1613,7 +1654,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer, Tags};
 
     use super::{SummaryConfig, TagsCountsSumData};
 
@@ -1936,6 +1977,26 @@ mod test {
 
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 5);
 
+        let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
+
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+
+        let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
+
+        let summarized_t = TagsCountsSumData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
+
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+
+        let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
+
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8),
@@ -2033,6 +2094,48 @@ mod test {
 
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 862);
 
+        let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
+        println!("{:?}", summarized_t);
+
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
+
+        let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
+        println!("{:?}", summarized_u);
+
+        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 862);
+
+        /*
+        group 1: 000000100 = 4
+        group 2: 000000011 = 3
+         */
+
+        let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let sample_info = SampleInfo::new(4, 4, 1, 2, sample_kmers);
+        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
+
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 2u8),
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),           
+        ];
+
+        let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized_t.2.p_value(&config_t), None);
+
+        let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
+        assert_eq!(summarized_u.2.p_value(&config_u), None);
+
+        let summarized_t = TagsCountsSumData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized_t.2.p_value(&config_t), None);
+
+        let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
+        assert_eq!(summarized_u.2.p_value(&config_u), None);
+
     }
 
     #[test]
@@ -2053,12 +2156,38 @@ mod test {
         let sample_info = SampleInfo::new(m0, m1, c0 as u8, c1 as u8, sample_counts);
 
         let p_value_t = t_test(&tags, &test_counts, &sample_info);
-        println!("p-value t test: {}", p_value_t);
+        println!("p-value t test: {}", p_value_t.unwrap());
 
         // soll: U = 24.5, p = 0.0995, z = -1.65, exaxt p: 0.142
 
         let p_value_u = u_test(&tags, &test_counts, &sample_info);
-        println!("p-value u test: {}", p_value_u);
+        println!("p-value u test: {}", p_value_u.unwrap());
+
+        // test Error
+        let tags: Vec<u8> = vec![0, 1];
+        let test_counts: Vec<u32> = vec![3, 1];
+
+        let m0: u64 = 0b100;
+        let m1: u64 = 0b011;
+        let c0: u32 = 1;
+        let c1: u32 = 2;
+
+        let sample_counts = vec![1; 3];
+
+        assert_eq!(c0, m0.count_ones());
+        assert_eq!(c1, m1.count_ones());
+
+        let sample_info = SampleInfo::new(m0, m1, c0 as u8, c1 as u8, sample_counts);
+
+        let p_value_t = t_test(&tags, &test_counts, &sample_info);
+        assert_eq!(p_value_t, Err(NotEnoughSamplesError {}));
+        println!("p-value t test: {:?}", p_value_t);
+
+        // soll: U = 24.5, p = 0.0995, z = -1.65, exaxt p: 0.142
+
+        let p_value_u = u_test(&tags, &test_counts, &sample_info);
+        assert_eq!(p_value_u, Err(NotEnoughSamplesError {}));
+        println!("p-value u test: {:?}", p_value_u);
 
     }
 
