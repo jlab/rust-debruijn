@@ -991,9 +991,110 @@ impl fmt::Debug for Tags {
     }
 }
 
+/// edge multiplicities
+/// indices: 
+/// 0: A left
+/// 1: C left
+/// 2: G left
+/// 3: T left
+/// 4: A right
+/// 5: C right
+/// 6: G right
+/// 7: T right
+#[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
+pub struct EdgeMult {
+    edge_mults: [u32; 8],
+
+}
+
+impl Debug for EdgeMult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "A: {}, C: {}, G: {}, T: {} | A: {}, C: {}, G: {}, T: {}", 
+            self.edge_mults[0],
+            self.edge_mults[1],
+            self.edge_mults[2],
+            self.edge_mults[3],
+            self.edge_mults[4],
+            self.edge_mults[5],
+            self.edge_mults[6],
+            self.edge_mults[7],
+        )
+    }
+}
+
+impl EdgeMult {
+    /// a new, empty `EdgeMult`
+    pub fn new() -> Self {
+        EdgeMult { edge_mults: [0; 8] }
+    }
+
+    /// a new `EdgeMult` with values
+    pub fn new_from(edge_mults: [u32; 8]) -> Self {
+        EdgeMult { edge_mults }
+    }
+
+    /// add a count to the an edge
+    pub fn add(&mut self, index: usize, count: u32) {
+        self.edge_mults[index] += count
+    }
+
+    /// add an `Exts` to the `EdgeMult`
+    pub fn add_exts(&mut self, exts: Exts) {
+        let mut exts = exts.val;
+        for index in (0..8).rev() {
+            if exts % 2 != 0 {
+                self.edge_mults[index] += 1
+            }
+            exts >>= 1;
+        }
+    }
+
+    pub fn edge_mults(&self) -> [u32; 8] {
+        self.edge_mults
+    }
+
+    pub fn left(&self) -> [u32; 4] {
+        [self.edge_mults[0],self.edge_mults[1], self.edge_mults[2], self.edge_mults[3]]
+    }
+
+    pub fn right(&self) -> [u32; 4] {
+        [self.edge_mults[4],self.edge_mults[5], self.edge_mults[6], self.edge_mults[7]]
+    }
+
+    pub fn sum(&self) -> u32 {
+        self.edge_mults.iter().sum::<u32>()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{summarizer::M, Tags};
+    use crate::{summarizer::M, EdgeMult, Exts, Tags};
+
+    #[test]
+    fn test_edge_mult() {
+        let mut edge_mult = EdgeMult::new();
+        assert_eq!(edge_mult.edge_mults, [0; 8]);
+
+        let exts = Exts::new(0b11111111);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [1, 1, 1, 1, 1, 1, 1, 1]);
+
+        edge_mult.add(0, 2);
+        edge_mult.add(6, 78989);
+        assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
+
+        let exts = Exts::new(0);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
+
+        let exts = Exts::new(0b10101010);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [4, 1, 2, 1, 2, 1, 78991, 1]);
+
+        let exts = Exts::new(0b01010101);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [4, 2, 2, 2, 2, 2, 78991, 2]);
+    }
 
     #[test]
     fn test_bit_and_dist() {

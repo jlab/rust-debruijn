@@ -2,7 +2,7 @@ use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
-use crate::{Exts, Kmer, Tags};
+use crate::{EdgeMult, Exts, Kmer, Tags};
 use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
@@ -771,7 +771,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
 
 }
 
-/// Structure for Summarizer Data which contains the tags and the count for each tag
+/// Structure for Summarizer Data which contains the tags, the count for each tag, and a p-value regarding groups
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPData {
     tags: Tags,
@@ -890,6 +890,135 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         };
 
         (valid, all_exts, TagsCountsPData::new((tags, tag_counts, p_value))) 
+    }
+
+}
+
+/// Structure for Summarizer Data which contains the tags and the count for each tag
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagsCountsEMData {
+    tags: Tags,
+    counts: Box<[u32]>,
+    edge_mults: EdgeMult,
+}
+
+impl TagsCountsEMData {
+    #[inline]
+    pub fn sum(&self) -> i32 {
+        self.counts.iter().sum::<u32>() as i32
+    }
+}
+
+impl SummaryData<u8, (Tags, Box<[u32]>, EdgeMult)> for TagsCountsEMData{
+    fn new(data: (Tags, Box<[u32]>, EdgeMult)) -> Self {
+        TagsCountsEMData { tags: data.0, counts: data.1, edge_mults: data.2 }
+    }
+
+    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
+        format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
+    }
+
+    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+        Some((self.tags.to_u8_vec(), self.sum()))
+    }
+
+    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+        Some((self.tags, self.sum()))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum() as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        let p = match config.stat_test {
+            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+        };
+        
+        match p {
+            Ok(p_value) => Some(p_value),
+            Err(_) => None,
+        }
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => self.p_value(config).expect("error calculating p-value") <= p,
+            None => true,
+        }; 
+
+        valid(self.tags, self.sum(), config) && valid_p
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+        let mut edge_mults = EdgeMult::new();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            edge_mults.add_exts(exts);
+            nobs += 1;
+        }
+
+        assert_eq!(nobs as u32, edge_mults.sum());
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        let valid_p = match config.max_p {
+            Some(max_p) => {
+                let p_value = match config.stat_test {
+                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
+                };
+                match p_value {
+                    Ok(p) => p <= max_p,
+                    Err(_) => true
+                } 
+            },
+            None => true,
+        };        
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_u8_vec(out_data);
+
+        (valid(tags, nobs, config) && valid_p, all_exts, TagsCountsEMData::new((tags, tag_counts, edge_mults))) 
     }
 
 }
