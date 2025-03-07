@@ -570,11 +570,6 @@ mod tests {
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
         let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
 
-
-        // initialize global thread pool with x threads
-        let num_threads = 4;
-        rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
-
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &clean_seqs,
@@ -669,8 +664,8 @@ mod tests {
             println!("path seq: {:?}", graph.sequence_of_path(path.2.iter()));
         }
 
-        graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
-        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsCountsSumData>| format!("{:?}", node.data()))).unwrap();
+        graph.to_gfa_with_tags("gfa_out_seq.gfa", |node| format!("{:?}", node.data())).unwrap();
+        graph.to_gfa_otags_parallel("gfa_out_par.gfa", Some(&|node: &graph::Node<K, TagsCountsSumData>| format!("{:?}", node.data()))).unwrap();
 
         //let graph2 = graph.finish();
         //graph2.print();
