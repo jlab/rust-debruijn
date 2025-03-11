@@ -26,7 +26,8 @@ impl Display for NotEnoughSamplesError {
 pub struct SummaryConfig {
     min_kmer_obs: usize,
     significant: Option<u32>,
-    third: Third,
+    group_frac: GroupFrac,
+    frac_cutoff: f32,
     sample_info: SampleInfo,
     max_p: Option<f32>,
     stat_test: StatTest,
@@ -34,20 +35,26 @@ pub struct SummaryConfig {
 }
 
 impl SummaryConfig {
-    pub fn new(min_kmer_obs: usize, significant: Option<u32>, third: Third, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
-        SummaryConfig { min_kmer_obs, significant, third, sample_info, max_p, stat_test, stat_test_changed: false }
+    /// make a new `SummaryConfig`
+    /// arguments: 
+    /// * `min_kmer_obs`: minimum number of times a k-mer has to be observed in the reads to be valid
+    /// * `significant`: some summaries round numbers to a certain number of digits
+    /// * `third`
+    pub fn new(min_kmer_obs: usize, significant: Option<u32>, group_frac: GroupFrac, frac_cutoff: f32, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
+        SummaryConfig { min_kmer_obs, significant, group_frac, frac_cutoff, sample_info, max_p, stat_test, stat_test_changed: false }
     }
 
     pub fn empty() -> Self {
-        SummaryConfig { min_kmer_obs: 0, significant: None, third: Third::None, sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest, stat_test_changed: false }
+        SummaryConfig { min_kmer_obs: 0, significant: None, group_frac: GroupFrac::None, frac_cutoff: 0., sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest, stat_test_changed: false }
     }
 
     pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
         self.min_kmer_obs = min_kmer_obs;
     }
 
-    pub fn set_third(&mut self, third: Third) {
-        self.third = third;
+    pub fn set_group_frac(&mut self, group_frac: GroupFrac, frac_cutoff: f32) {
+        self.group_frac = group_frac;
+        self.frac_cutoff = frac_cutoff;
     }
 
     pub fn  set_max_p(&mut self, max_p: Option<f32>) {
@@ -61,18 +68,18 @@ impl SummaryConfig {
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
-pub enum Third {
+pub enum GroupFrac {
     None, 
     One, 
     Both,
 }
 
-impl std::fmt::Display for Third {
+impl std::fmt::Display for GroupFrac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            Third::None => write!(f, "none"),
-            Third::One => write!(f, "one"),
-            Third::Both => write!(f, "both")            
+            GroupFrac::None => write!(f, "none"),
+            GroupFrac::One => write!(f, "one"),
+            GroupFrac::Both => write!(f, "both")            
         }
     }
     
@@ -102,7 +109,6 @@ pub struct SampleInfo {
     count0: u8,
     count1: u8,
     sample_kmers: Vec<u64>,
-    
 }
 
 impl SampleInfo {
@@ -129,9 +135,9 @@ pub fn round_digits(number: u32, digits: u32) -> u32 {
 }
 
 fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
-    match config.third {
-        Third::None => nobs as usize >= config.min_kmer_obs,
-        Third::Both => {
+    match config.group_frac {
+        GroupFrac::None => nobs as usize >= config.min_kmer_obs,
+        GroupFrac::Both => {
             // get amount of labels in tags from each group
             let dist0= tags.bit_and_dist(config.sample_info.marker0);
             let dist1= tags.bit_and_dist(config.sample_info.marker1);
@@ -142,10 +148,10 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
             // - n obs >= min obs AND
             // - observed in at least one third of samples in both groups
             (nobs as usize >= config.min_kmer_obs)
-                && (dist0 as f32 / config.sample_info.count0 as f32 > 0.333333) 
-                && (dist1 as f32 / config.sample_info.count1 as f32 > 0.333333)
+                && (dist0 as f32 / config.sample_info.count0 as f32 >= config.frac_cutoff) 
+                && (dist1 as f32 / config.sample_info.count1 as f32 >= config.frac_cutoff)
         },
-        Third::One => {
+        GroupFrac::One => {
             // get amount of labels in tags from each group
             let dist0= tags.bit_and_dist(config.sample_info.marker0);
             let dist1= tags.bit_and_dist(config.sample_info.marker1);
@@ -157,8 +163,8 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
             // - n obs >= min obs AND
             // - observed in at least one third of samples in one group
             (nobs as usize >= config.min_kmer_obs)
-                && ((dist0 as f32 / config.sample_info.count0 as f32 > 0.333333) 
-                    | (dist1 as f32 / config.sample_info.count1 as f32 > 0.333333))
+                && ((dist0 as f32 / config.sample_info.count0 as f32 >= config.frac_cutoff) 
+                    | (dist1 as f32 / config.sample_info.count1 as f32 >= config.frac_cutoff))
         }
     }
 }
@@ -808,7 +814,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts) + size_of::<f32>()
+        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1783,7 +1789,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, Third}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, GroupFrac}, Exts, Kmer, Tags};
 
     use super::{SummaryConfig, TagsCountsSumData};
 
@@ -1821,7 +1827,7 @@ mod test {
         let min_kmer_obs = 1;
         type K = Kmer12;
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
 
 
         let pr = false;
@@ -1869,7 +1875,7 @@ mod test {
         // same but with less significant digits
         let significant= Some(1);
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
 
 
         //construct and compress graph with CountFilter
@@ -2036,7 +2042,7 @@ mod test {
 
 
         let sample_info = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
 
         
         println!("markers: {:?}", sample_info);
@@ -2083,8 +2089,8 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
-        let config_u = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
 
 
         let input = [
@@ -2200,8 +2206,8 @@ mod test {
          */
 
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, summarizer::StatTest::TTest);
-        let config_u = SummaryConfig::new(1, None, Third::None, sample_info, None, summarizer::StatTest::UTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, summarizer::StatTest::UTest);
 
 
         let input = [
@@ -2240,8 +2246,8 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(4, 4, 1, 2, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
-        let config_u = SummaryConfig::new(1, None, Third::None, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
 
 
         let input = [
@@ -2341,7 +2347,7 @@ mod test {
 
         let sample_kmers = vec![123, 234, 12334, 34];
         let sample_info = SampleInfo::new(0b00100101, 0b11011010, 3, 5, sample_kmers);
-        let config = SummaryConfig::new(3, None, Third::None, sample_info, None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::TTest);
 
         let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer8, TagsCountsSumData>| !node.data().valid(&config))
                     .find_bad_nodes(&graph);

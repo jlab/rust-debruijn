@@ -1066,6 +1066,13 @@ impl EdgeMult {
     }
 }
 
+// TODO add methods
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Label {
+    group: char,
+    sample_label: String
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{summarizer::M, EdgeMult, Exts, Tags};

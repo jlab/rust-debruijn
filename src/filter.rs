@@ -848,7 +848,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{SampleInfo, TagsSumData, Third}, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::random_dna, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -866,7 +866,7 @@ mod tests {
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
-        let config = SummaryConfig::new(1, None, Third::None, sample_info, None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::TTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
@@ -908,7 +908,7 @@ mod tests {
         rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, Third::None, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(
