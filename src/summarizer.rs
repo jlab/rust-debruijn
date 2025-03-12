@@ -278,7 +278,8 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     Ok(p_value)
 }
 
-fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> i32 {
+// calculates the log2 of the log change of the two groups
+fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f32 {
     let mut norm_count_g0 = 0.;
     let mut norm_count_g1 = 0.;
 
@@ -286,12 +287,17 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> i
 
     for (label, count) in tags.to_u8_vec().iter().zip(&counts) {
         let bin_rep = (2 as M).pow(*label as u32);
+        // normalize with number of k-mers in the sample
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
         if (m0 & bin_rep) > 0 { norm_count_g0 += norm; }
         if (m1 & bin_rep) > 0 { norm_count_g1 += norm; }
     }
 
-    (norm_count_g0 as f64 / norm_count_g1 as f64).log2().round() as i32
+    // normalize with the number of samples in the group
+    norm_count_g0 /= sample_info.count0 as f64;
+    norm_count_g1 /= sample_info.count1 as f64;
+
+    (norm_count_g0 / norm_count_g1).log2() as f32
 }
 
 /// Trait for summarizing k-mers
@@ -313,7 +319,7 @@ pub trait SummaryData<DI, DO> {
     /// If the `SummaryData` contains sufficient information, return the p-value
     fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
     /// If the `SummaryData` contains sufficient information, return the log2(fold change)
-    fn fold_change(&self, config: &SummaryConfig) -> Option<i32>;
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32>;
     /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
     fn sample_count(&self) -> Option<usize>;
     /// check if node is valid according to: min kmer obs, third, p-value
@@ -356,7 +362,7 @@ impl<DI> SummaryData<DI, u32> for u32 {
         None
     }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -420,7 +426,7 @@ impl<DI: Debug + Ord> SummaryData<DI, Vec<DI>> for Vec<DI> {
         None
     }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -501,7 +507,7 @@ impl SummaryData<u8, (Tags, i32)> for TagsSumData {
         None
     }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -588,7 +594,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, i32)> for TagsCountsSumData {
         }
     }
 
-    fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
         Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
 
@@ -708,7 +714,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>)> for TagsCountsData{
         }
     }
 
-    fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
         Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
 
@@ -833,7 +839,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, f32)> for TagsCountsPData{
         
     }
 
-    fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
         Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
     
@@ -956,7 +962,7 @@ impl SummaryData<u8, (Tags, Box<[u32]>, EdgeMult)> for TagsCountsEMData{
         }
     }
 
-    fn fold_change(&self, config: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
         Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
     }
 
@@ -1075,7 +1081,7 @@ impl SummaryData<u8, (u32, u32)> for GroupCountData {
         None
     }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -1162,7 +1168,7 @@ impl SummaryData<u8, (u32, u32)> for RelCountData {
         None
     }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<i32> {
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
         None
     }
 
@@ -1791,7 +1797,7 @@ mod test {
 
     use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, GroupFrac}, Exts, Kmer, Tags};
 
-    use super::{SummaryConfig, TagsCountsSumData};
+    use super::{log2_fold_change, SummaryConfig, TagsCountsSumData};
 
     #[test]
     fn test_summarizers() {
@@ -2376,6 +2382,28 @@ mod test {
         assert_eq!(bad_nodes, bad_node_correct);
         let _filtered_graph = compress_graph(false, &ScmapCompress::new(), graph, Some(bad_nodes));
 
+    }
+
+    #[test]
+    fn test_fold_change() {    
+        let marker0 = 0b0000000001111;
+        let marker1 = 0b1111111110000;
+        let count0 = 4;
+        let count1 = 9;
+        let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
+        let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+
+        let labels = vec![0, 1, 2, 3, 7, 8];
+        let tags = Tags::from_u8_vec(labels);
+        let counts = vec![1, 6, 9, 3, 6, 10];
+        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        assert_eq!(fold_change, 5.28645313556333);
+
+        let labels = vec![0, 6, 7, 8, 10, 11];
+        let tags = Tags::from_u8_vec(labels);
+        let counts = vec![12, 3, 7, 1, 22, 6];
+        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        assert_eq!(fold_change, -1.3393244925933);
     }
 }
 
