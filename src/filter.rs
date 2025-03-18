@@ -99,7 +99,7 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, SD: Clone + std::fmt::Debug + Send + SummaryData<u8, DO>>(
+pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug + Send + SummaryData<u8>>(
     seqs: &Reads<u8>,
     summariy_config: &SummaryConfig,
     stranded: bool,
@@ -490,7 +490,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, DO, SD: Clone + std::fmt::De
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
 #[inline(never)]
-pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug, DO>(
+pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug>(
     seqs: &Reads<D1>,
     sum_config: &SummaryConfig,
     stranded: bool,
@@ -500,7 +500,7 @@ pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug, DO>(
     progress: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
-    SD: Debug + SummaryData<D1, DO>,
+    SD: Debug + SummaryData<D1>,
 {
     let before_all = Instant::now();
     let rc_norm = !stranded;
