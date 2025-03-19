@@ -65,38 +65,79 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// Process DNA sequences into kmers and determine the set of valid kmers,
 /// their extensions, and summarize associated label/'color' data. The input
 /// sequences are converted to kmers of type `K`, and like kmers are grouped together.
-/// All instances of each kmer, along with their label data are passed to
-/// `summarizer`, an implementation of the `KmerSummarizer` which decides if
-/// the kmer is 'valid' by an arbitrary predicate of the kmer data, and
+/// All instances of each kmer, along with their label data are then proccessed with
+/// [`SummaryData::summarize`], which generates an implementation of [`SummaryData`],
+/// which is specified with the generic `SD`, decides if the k-mer is 'valid' 
+/// based on the parameters given in `summary_config`, and
 /// summarizes the the individual label into a single label data structure
 /// for the kmer. Care is taken to keep the memory consumption small.
-/// Less than 4G of temporary memory should be allocated to hold intermediate kmers.
-///
+/// 
+/// Be aware that the configuration in `summary_config` only applies if the required
+/// informaiton can be supplied by the chosen implementation of `SummaryData`.
+/// E.g., the k-mers will not be filtered according to p-value when the `SummaryData`
+/// only contains the number of observations.
 ///
 /// # Arguments
 ///
-/// * `seqs` a slice of (sequence, extensions, data) tuples. Each tuple
-///   represents an input sequence. The input sequence must implement `Vmer<K`> The data slot is an arbitrary data
-///   structure labeling the input sequence.
-///   If complete sequences are passed in, the extensions entry should be
-///   set to `Exts::empty()`.
-///   In sharded DBG construction (for example when minimizer-based partitioning
-///   of the input strings), the input sequence is a sub-string of the original input string.
-///   In this case the extensions of the sub-string in the original string
-///   should be passed in the extensions.
-/// * `summarizer` is an implementation of `KmerSummarizer<D1,DS>` that decides
-///   whether a kmer is valid (e.g. based on the number of observation of the kmer),
-///   and summarizes the data about the individual kmer observations. See `CountFilter`
-///   and `CountFilterSet` for examples.
+/// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
+/// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
+/// information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
 ///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
 ///   to the lexicographic minimum of the kmer and it's reverse complement.
 /// * `report_all_kmers`: if true returns the vector of all the observed kmers and performs the
 ///   kmer based filtering
 /// * `memory_size`: gives the size bound on the memory in GB to use and automatically determines
-///   the number of passes needed.
+///   the number of passes needed
+/// * `time`: print information about the time needed for each step
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
+/// 
+/// /// # Returns
+/// BoomHashMap2 Object, check rust-boomphf for details
+/// 
+/// # Examples:
+/// 
+/// ```
+/// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
+/// use debruijn::reads::Reads;
+/// use debruijn::filter::filter_kmers;
+/// use debruijn::kmer::Kmer16;
+/// use debruijn::Exts;
+/// 
+/// let mut seqs = Reads::new();
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+///       
+/// let sample_info = SampleInfo::new(
+///     0b000011,
+///     0b111100,
+///     2,
+///     4,
+///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
+/// );
+///     
+/// let summary_config = SummaryConfig::new(
+///     3,
+///     None,
+///     GroupFrac::One,
+///     0.33333,
+///     sample_info,
+///     None,
+///     StatTest::TTest,
+/// );
+///    
+/// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
+///     &seqs,
+///     &summary_config,
+///     false,
+///     false,
+///     10,
+///    false,
+/// );
+/// ```
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
 pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug + Send + SummaryData<u8>>(
@@ -106,7 +147,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
-    progress: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 {
     // take timestamp before all processes
@@ -310,21 +350,11 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         time_picking += before_kmer_picking.elapsed().as_secs_f32();
         
         let before_parallel = Instant::now();
-
-        if progress {
-            println!("Processing bucket {} of {}", i+1, n_buckets);
-            for _i in 0..127 {
-                print!("-");
-            }
-            print!("|");
-            print!("\n");
-        }
         
         // parallel start
         // summarize kmers in buckets      
         new_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
             //debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
-            if progress & (j % 2 == 0) { print!("|") };
             debug!("starting bucket {} with {} kmers, capacity of {}", j, kmer_vec.len(), kmer_vec.capacity());
             kmer_vec.sort_by_key(|elt| elt.0);
 
@@ -375,15 +405,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
             }
 
             pb_sum_buckets.inc(1);
-            
-            /* let mut data_out = shared_data.lock().expect("unlock shared filter data");
-            debug!("bucket {} processed, mem of valid_kmers: {} Bytes, mem of valid_exts: {} Bytes, mem of valid_data: {} Bytes", 
-                j, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data));
-            // i is the slice/bucket_range
-            data_out[i].push((all_kmers, valid_kmers, valid_exts, valid_data)); */
         });
         // parallel end
-        if progress { print!("\n") }
 
         pb_bucket_ranges.inc(1);
 
@@ -399,31 +422,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         println!("time summarizing (s): {}", time_summarizing);
     }
 
-    /* let data_out = shared_data.lock().expect("final unlock shared filter data");
-    debug!("data out capacity:: {}, size: {}", data_out[0].capacity(), data_out[0].len()); */
-
-    /* let mut all_kmers = Vec::new();
-    let mut valid_kmers = Vec::new();
-    let mut valid_exts = Vec::new();
-    let mut valid_data = Vec::new();
-
-    for slice in data_out.iter() {
-        for bucket in slice {
-            all_kmers.reserve_exact(bucket.0.len());
-            valid_kmers.reserve_exact(bucket.1.len());
-            valid_exts.reserve_exact(bucket.2.len());
-            valid_data.reserve_exact(bucket.3.len());
-
-            all_kmers.append(&mut bucket.0.clone());
-            valid_kmers.append(&mut bucket.1.clone());
-            valid_exts.append(&mut bucket.2.clone());
-            valid_data.append(&mut bucket.3.clone());
-        }
-    }  */
-
     let stv = shared_target_vecs.lock().expect("final lock target vectors");
-
-    
 
     debug!("valid kmers - capacity: {}, size: {}, mem: {}", stv.0.capacity(), stv.0.len(), mem::size_of_val(&*stv.0));
     debug!("valid exts - capacity: {}, size: {}, mem: {}", stv.1.capacity(), stv.1.len(), mem::size_of_val(&*stv.1));
@@ -454,32 +453,28 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     )
 }
 
+// TODO add conditional filters to all SummaryDatas
+
 /// Process DNA sequences into kmers and determine the set of valid kmers,
 /// their extensions, and summarize associated label/'color' data. The input
 /// sequences are converted to kmers of type `K`, and like kmers are grouped together.
-/// All instances of each kmer, along with their label data are passed to
-/// `summarizer`, an implementation of the `KmerSummarizer` which decides if
-/// the kmer is 'valid' by an arbitrary predicate of the kmer data, and
+/// All instances of each kmer, along with their label data are then proccessed with
+/// [`SummaryData::summarize`], which generates an implementation of [`SummaryData`],
+/// which is specified with the generic `SD`, decides if the k-mer is 'valid' 
+/// based on the parameters given in `summary_config`, and
 /// summarizes the the individual label into a single label data structure
 /// for the kmer. Care is taken to keep the memory consumption small.
-/// Less than 4G of temporary memory should be allocated to hold intermediate kmers.
-///
+/// 
+/// Be aware that the configuration in `summary_config` only applies if the required
+/// informaiton can be supplied by the chosen implementation of `SummaryData`.
+/// E.g., the k-mers will not be filtered according to p-value when the `SummaryData`
+/// only contains the number of observations.
 ///
 /// # Arguments
 ///
-/// * `seqs` a slice of (sequence, extensions, data) tuples. Each tuple
-///   represents an input sequence. The input sequence must implement `Vmer<K`> The data slot is an arbitrary data
-///   structure labeling the input sequence.
-///   If complete sequences are passed in, the extensions entry should be
-///   set to `Exts::empty()`.
-///   In sharded DBG construction (for example when minimizer-based partitioning
-///   of the input strings), the input sequence is a sub-string of the original input string.
-///   In this case the extensions of the sub-string in the original string
-///   should be passed in the extensions.
-/// * `summarizer` is an implementation of `KmerSummarizer<D1,DS>` that decides
-///   whether a kmer is valid (e.g. based on the number of observation of the kmer),
-///   and summarizes the data about the individual kmer observations. See `CountFilter`
-///   and `CountFilterSet` for examples.
+/// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
+/// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
+///   information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
 ///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
 ///   to the lexicographic minimum of the kmer and it's reverse complement.
@@ -487,17 +482,60 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 ///   kmer based filtering
 /// * `memory_size`: gives the size bound on the memory in GB to use and automatically determines
 ///   the number of passes needed.
+/// 
 /// # Returns
 /// BoomHashMap2 Object, check rust-boomphf for details
+/// 
+/// # Examples:
+/// 
+/// ```
+/// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
+/// use debruijn::reads::Reads;
+/// use debruijn::filter::filter_kmers;
+/// use debruijn::kmer::Kmer16;
+/// use debruijn::Exts;
+/// 
+/// let mut seqs = Reads::new();
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+///       
+/// let sample_info = SampleInfo::new(
+///     0b000011,
+///     0b111100,
+///     2,
+///     4,
+///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
+/// );
+///     
+/// let summary_config = SummaryConfig::new(
+///     3,
+///     None,
+///     GroupFrac::One,
+///     0.33333,
+///     sample_info,
+///     None,
+///     StatTest::TTest,
+/// );
+///    
+/// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
+///     &seqs,
+///     &summary_config,
+///     false,
+///     false,
+///     10,
+///    false,
+/// );
+/// ```
 #[inline(never)]
 pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug>(
     seqs: &Reads<D1>,
-    sum_config: &SummaryConfig,
+    summary_config: &SummaryConfig,
     stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
-    progress: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
     SD: Debug + SummaryData<D1>,
@@ -587,13 +625,11 @@ where
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
 
-   
-
-        // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb.set_style(style.clone());
         pb.set_message("finding bucket lengths          ");
 
+        // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut capacities: [usize; 256] = [0; BUCKETS];
 
         for (ref seq, _, _) in seqs.iter().progress_with(pb) {
@@ -669,15 +705,6 @@ where
 
         let before_summarizing = Instant::now();
 
-        if progress {
-            println!("Processing bucket {} of {}", i+1, n_buckets);
-            for _i in 0..127 {
-                print!("-");
-            }
-            print!("|");
-            print!("\n")
-        }
-
         let mut progress_counter = 0;
 
         // go trough all buckets and summarize the contents
@@ -689,7 +716,6 @@ where
             debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());
             progress_counter += 1;
             //debug!("kmers in this bucket: {}", kmer_vec.len());
-            if progress & (progress_counter % 2 == 0) { print!("|") };
             kmer_vec.sort_by_key(|elt| elt.0);
 
             
@@ -712,7 +738,7 @@ where
             // group the tuples by the k-mers and iterate over the groups
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt: &(K, Exts, D1)| elt.0).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
-                let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, sum_config);
+                let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, summary_config);
                 if report_all_kmers {
                     all_kmers.push(kmer);
                 }
@@ -725,7 +751,6 @@ where
             debug!("finished bucket {}, current mems: valid_kmers {} Bytes, valid_exts {} Bytes, valid_data {} Bytes", 
                 progress_counter, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data))
         }
-        if progress { print!("\n") };
 
         pb_bucket_ranges.inc(1);
 
@@ -771,7 +796,7 @@ where
 }
 
 /// Remove extensions in valid_kmers that point to censored kmers. A censored kmer
-/// exists in all_kmers but not valid_kmers. Since the kmer exists in this partition,
+/// exists in `all_kmers` but not `valid_kmers`. Since the kmer exists in this partition,
 /// but was censored, we know that we can delete extensions to it.
 /// In sharded kmer processing, we will have extensions to kmers in other shards. We don't
 /// know whether these are censored until later, so we retain these extension.
@@ -848,7 +873,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::{Kmer16, Kmer6}, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::random_dna, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -875,7 +900,6 @@ mod tests {
             false, 
             false, 
             1,
-            false,
             false,
          );
 
@@ -905,8 +929,6 @@ mod tests {
             reads.add_from_bytes(&dna, Exts::empty(), 0u8);
         }
 
-        rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
-
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
 
@@ -917,11 +939,10 @@ mod tests {
             false, 
             false, 
             1,
-            false,
-            false,
-         );
+            false,         
+        );
 
-         println!("{:?}", hm);
+        println!("{:?}", hm);
 
     }
 }

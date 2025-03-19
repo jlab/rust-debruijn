@@ -253,7 +253,6 @@ mod tests {
             false,
             4,
             true,
-            true,
         );
 
         let spec =
@@ -367,7 +366,6 @@ mod tests {
             false,
             4,
             true,
-            true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
         for k in valid_kmers.iter().map(|x| x.0) {
@@ -480,7 +478,6 @@ mod tests {
                 false,
                 4,
                 true,
-                true,
             );
 
             // Generate compress DBG for this shard
@@ -578,7 +575,6 @@ mod tests {
             false,
             4,
             true,
-            true,
         );
         let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false, true);
@@ -594,7 +590,6 @@ mod tests {
             false,
             4,
             true,
-            true,
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -603,7 +598,6 @@ mod tests {
             false,
             4,
             true,
-            true,            
         );
 
         println!("1: {:?}", valid_kmers_errs);
@@ -616,7 +610,6 @@ mod tests {
             false,
             4,
             true,
-            true,
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
@@ -624,7 +617,6 @@ mod tests {
             stranded,
             false,
             4,
-            true,
             true,
         );
 
@@ -804,7 +796,6 @@ mod tests {
             false, 
             false, 
             1,
-            false,
             false,
          );
 

@@ -22,6 +22,7 @@ impl Display for NotEnoughSamplesError {
     }
 }
 
+/// Configuration for summary processes
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
@@ -36,14 +37,22 @@ pub struct SummaryConfig {
 
 impl SummaryConfig {
     /// make a new `SummaryConfig`
+    /// 
     /// arguments: 
     /// * `min_kmer_obs`: minimum number of times a k-mer has to be observed in the reads to be valid
     /// * `significant`: some summaries round numbers to a certain number of digits
-    /// * `third`
+    /// * `group_frac`: a [`GroupFrac`] determining if the k-mers are going to be filtered out
+    ///   based on if they are observed in certain percentage of the samples of each group
+    /// * `frac_cutoff`: the cutoff for `group_frac`
+    /// * `sample_info`: a [`SampleInfo`] with information about the sample groups
+    /// * `max_p`: a maximum p-value which will be used for filtering if applicable
+    /// * `stat_test`: a [`StatTest`], determining which statistical test will be used
+    ///    for calculation of p-values
     pub fn new(min_kmer_obs: usize, significant: Option<u32>, group_frac: GroupFrac, frac_cutoff: f32, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
         SummaryConfig { min_kmer_obs, significant, group_frac, frac_cutoff, sample_info, max_p, stat_test, stat_test_changed: false }
     }
 
+    /// make an empty `SummaryConfig`
     pub fn empty() -> Self {
         SummaryConfig { min_kmer_obs: 0, significant: None, group_frac: GroupFrac::None, frac_cutoff: 0., sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest, stat_test_changed: false }
     }
@@ -82,7 +91,6 @@ impl std::fmt::Display for GroupFrac {
             GroupFrac::Both => write!(f, "both")            
         }
     }
-    
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
@@ -102,7 +110,7 @@ impl std::fmt::Display for StatTest {
     
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleInfo {
     marker0: M,
     marker1: M,
@@ -120,7 +128,7 @@ impl SampleInfo {
         SampleInfo { marker0: 0, marker1: 0, count0: 0, count1: 0, sample_kmers: Vec::new() }
     }
 
-    pub fn get_marker(&self) -> (M, M) {
+    pub fn get_markers(&self) -> (M, M) {
         (self.marker0, self.marker1)
     }
 }
@@ -134,6 +142,7 @@ pub fn round_digits(number: u32, digits: u32) -> u32 {
     ((number as f32/ 10i32.pow(empty) as f32).round() * 10i32.pow(empty) as f32) as u32
 }
 
+// check if the k-mer is valid according to the GroupFrac rule and its n obs
 fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
     match config.group_frac {
         GroupFrac::None => nobs as usize >= config.min_kmer_obs,
@@ -169,6 +178,7 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
     }
 }
 
+// perform a t-test
 fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
@@ -178,7 +188,7 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let mut counts_g0 = Vec::new();
     let mut counts_g1 = Vec::new();
 
-    let (m0, m1) = sample_info.get_marker();
+    let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
         let bin_rep = (2 as M).pow(*label as u32);
@@ -206,6 +216,7 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     Ok(p_value)
 }
 
+// perform a mann-whitney-u-test
 fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
 
     let n0 = sample_info.count0 as f64;
@@ -217,7 +228,7 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let mut counts_g0 = Vec::new();
     let mut counts_g1 = Vec::new();
 
-    let (m0, m1) = sample_info.get_marker();
+    let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
         let bin_rep = (2 as M).pow(*label as u32);
@@ -278,12 +289,12 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     Ok(p_value)
 }
 
-// calculates the log2 of the log change of the two groups
+// calculate the log2 of the log change of the two groups
 fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f32 {
     let mut norm_count_g0 = 0.;
     let mut norm_count_g1 = 0.;
 
-    let (m0, m1) = sample_info.get_marker();
+    let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in tags.to_u8_vec().iter().zip(&counts) {
         let bin_rep = (2 as M).pow(*label as u32);
@@ -300,37 +311,38 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
     (norm_count_g0 / norm_count_g1).log2() as f32
 }
 
-/// Trait for summarizing k-mers
+/// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI> {
     /// Out Data
     type Data;
-    /// Make a new `SummaryData<DO>`
+    /// Make a new `SummaryData<DI>`
     fn new(data: Self::Data) -> Self;
-    /// does not actually print but format
+    /// format the 
     fn print(&self, tag_translator: &BiMap<String, u8>) -> String;
-    /// If the `SummaryData` contains sufficient information, return `Vec<u8>` of the tags and the count
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)>;
-    /// If the `SummaryData` contains sufficient information, return the Tags and the count 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)>;
-    /// return a score (the sum of the kmer appearances), `Vec<D>` simply returns `1`
+    /// get `Vec<u8>` of the tags and the overall count, returns `None` if data is non-sufficient
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)>;
+    /// get `Tags` and the overall count, returns `None` if data is non-sufficient
+    fn tags_sum(&self) -> Option<(Tags, i32)>;
+    /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
     fn score(&self) -> f32;
-    /// return the size of the structure, including contents of slices
+    /// get the size of the structure, including contents of boxed slices
     fn mem(&self) -> usize;
-    /// If the `SummaryData` contains sufficient information, return the number of observations
+    /// get the number of observations, returns `None` if data is non-sufficient
     fn count(&self) -> Option<usize>;
-    /// If the `SummaryData` contains sufficient information, return the p-value
+    /// get the p-value, returns `None` if data is non-sufficient
     fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
-    /// If the `SummaryData` contains sufficient information, return the log2(fold change)
+    /// get the log2(fold change), returns `None` if data is non-sufficient
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32>;
-    /// If the `SummaryData` contains sufficient information, return the number of samples the sequence was observed in
+    /// get the number of samples the sequence was observed in, returns `None` if data is non-sufficient
     fn sample_count(&self) -> Option<usize>;
-    /// check if node is valid according to: min kmer obs, third, p-value
+    /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, config: &SummaryConfig) -> bool;
     /// summarize k-mers
     fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self);
 }
+// TODO: move SummaryData::print functionality to Display trait?
 
-/// for CountFilter
+/// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
     type Data = u32;
 
@@ -342,11 +354,11 @@ impl<DI> SummaryData<DI> for u32 {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         None
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
 
@@ -396,7 +408,7 @@ impl<DI> SummaryData<DI> for u32 {
 
 }
 
-/// for CountFilterSet
+/// data the k-mer was observed with
 impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
     type Data = Vec<DI>;
 
@@ -408,11 +420,11 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
         format!("tags: {:?}", self).replace("\"", "\'")
     }
     
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         None
     }
     
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
 
@@ -465,7 +477,7 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
 
 }
 
-/// For CountFilterComb
+/// the u8-labels the k-mer was observed with and its number of observations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed is 12 Bytes
 //#[repr(packed)]
@@ -489,13 +501,13 @@ impl SummaryData<u8> for TagsSumData {
         format!("tags: {:?}, sum: {}", tags.to_string_vec(tag_translator), sum).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         // need to copy fields to local variable because repr(packed) results in unaligned struct
         let tags = self.tags;
         Some((tags.to_u8_vec(), self.sum))
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum))
     }
 
@@ -549,7 +561,10 @@ impl SummaryData<u8> for TagsSumData {
 
 }
 
-/// For CountFilterStats
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// was observed with each label, and how many times it was observed overall
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsSumData {
     tags: Tags,
@@ -568,11 +583,11 @@ impl SummaryData<u8> for TagsCountsSumData {
         format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         Some((self.tags.to_u8_vec(), self.sum))
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum))
     }
 
@@ -669,7 +684,10 @@ impl SummaryData<u8> for TagsCountsSumData {
 
 }
 
-/// Structure for Summarizer Data which contains the tags and the count for each tag
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains the `u8`-labels the k-mer was observed with and how many times it 
+/// was observed with each label
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsData {
     tags: Tags,
@@ -694,11 +712,11 @@ impl SummaryData<u8> for TagsCountsData{
         format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -795,7 +813,10 @@ impl SummaryData<u8> for TagsCountsData{
 
 }
 
-/// Structure for Summarizer Data which contains the tags, the count for each tag, and a p-value regarding groups
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// was observed with each label, and a p-value
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPData {
     tags: Tags,
@@ -821,11 +842,11 @@ impl SummaryData<u8> for TagsCountsPData{
         format!("tags: {:?}, counts: {:?}, p-value: {}", self.tags.to_string_vec(tag_translator), self.counts, self.p_value).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -920,7 +941,10 @@ impl SummaryData<u8> for TagsCountsPData{
 
 }
 
-/// Structure for Summarizer Data which contains the tags and the count for each tag
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// was observed with each label, and the edge multiplicites
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsEMData {
     tags: Tags,
@@ -946,11 +970,11 @@ impl SummaryData<u8> for TagsCountsEMData{
         format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -1051,6 +1075,9 @@ impl SummaryData<u8> for TagsCountsEMData{
 
 }
 
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains how many times the k-mer was observed in each group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupCountData {
     group1: u32,
@@ -1075,11 +1102,11 @@ impl SummaryData<u8> for GroupCountData {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         None
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
 
@@ -1164,11 +1191,11 @@ impl SummaryData<u8> for RelCountData {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
-    fn vec_for_color(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
         None
     }
 
-    fn get_tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
         None
     }
 
@@ -1239,6 +1266,7 @@ impl SummaryData<u8> for RelCountData {
 
 /// Implement this trait to control how multiple observations of a kmer
 /// are carried forward into a DeBruijn graph.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` instead, offers same functionality")]
 pub trait KmerSummarizer<DI, DO: SummaryData<DI>> {
     /// The input `items` is an iterator over kmer observations. Input observation
     /// is a tuple of (kmer, extensions, data). The summarize function inspects the
@@ -1249,13 +1277,14 @@ pub trait KmerSummarizer<DI, DO: SummaryData<DI>> {
     /// 
     
     fn new(min_kmer_obs: usize, sample_info: SampleInfo) -> Self;
-    #[deprecated]
+    #[deprecated(since = "0.4.1", note = "The functionality of `KmerSummarizer` has been transfered to the `SummaryData<DI>` trait")]
     fn summarize<K: Kmer, F: Iterator<Item = (K, Exts, DI)>>(&self, items: F, significant: Option<u32>) -> (bool, Exts, DO);
 }
 
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
 /// is the number of times it was observed, capped at 2^32.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `u32`")]
 pub struct CountFilter<D> {
     min_kmer_obs: usize,
     phantom: PhantomData<D>
@@ -1290,6 +1319,8 @@ impl<D> KmerSummarizer<D, u32> for CountFilter<D> {
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
 /// is a vector of the unique data values observed for that kmer.
+
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `Vec<D>`")]
 pub struct CountFilterSet<D> {
     min_kmer_obs: usize,
     phantom: PhantomData<D>,
@@ -1327,6 +1358,7 @@ impl<D: Ord + Debug> KmerSummarizer<D, Vec<D>> for CountFilterSet<D> {
 /// A simple KmerSummarizer that only accepts kmers that are observed
 /// at least a given number of times. The metadata returned about a Kmer
 /// are the tags the k-mer occured with as a `Tags` and its numver if observations.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsSumData`")]
 pub struct CountFilterComb {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -1364,6 +1396,7 @@ impl KmerSummarizer<u8, TagsSumData> for CountFilterComb {
 /// at least a given number of times. The metadata returned about a Kmer
 /// are the tags the k-mer was observed with as a `Tags`, how many times 
 /// it was observed with each tag, and how many times it was observed overall
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsCountsSumData`")]
 pub struct CountFilterStats {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -1419,6 +1452,7 @@ impl KmerSummarizer<u8, TagsCountsSumData> for CountFilterStats {
 /// at least a given number of times. The metadata returned about a Kmer
 /// are the tags the k-mer was observed with as a `Tags`, and how many times 
 /// it was observed with each tag.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsCountsData`")]
 pub struct CountsFilterStats {
     min_kmer_obs: usize,
     phantom: PhantomData<u8>,
@@ -1472,6 +1506,7 @@ impl KmerSummarizer<u8, TagsCountsData> for CountsFilterStats {
 /// at least a given number of times. The metadata returned about a Kmer
 /// is how many times the k-mer was observed with tags from each the two groups
 /// saved in the `SampleInfo`.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `GroupCountData`")]
 pub struct CountsFilterGroups {
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -1520,6 +1555,7 @@ impl KmerSummarizer<u8, GroupCountData> for CountsFilterGroups {
 /// is how many percent of the observations of the k-mer were with tags
 /// from group 1 in the `SanpleInfo` and how many times the k-mer was 
 /// observed overall.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `RelCountData`")]
 pub struct CountsFilterRel{
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -1572,6 +1608,7 @@ impl KmerSummarizer<u8, RelCountData> for CountsFilterRel {
 /// a third of the tags in at least one of the groups in the `SampleInfo`. 
 /// The metadata returned about a Kmer are the tags the k-mer was observed 
 /// with as a `Tags`, and how many times it was observed with each tag.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsCountsData`")]
 pub struct CountsFilterMaj {
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -1643,6 +1680,7 @@ impl KmerSummarizer<u8, TagsCountsData> for CountsFilterMaj {
 /// a third of the tags in both of the groups in the `SampleInfo`. 
 /// The metadata returned about a Kmer are the tags the k-mer was observed 
 /// with as a `Tags`, and how many times it was observed with each tag.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsCountsData`")]
 pub struct CountsFilterMajB {
     min_kmer_obs: usize,
     marker: SampleInfo,
@@ -1714,6 +1752,7 @@ impl KmerSummarizer<u8, TagsCountsData> for CountsFilterMajB {
 /// The metadata returned about a Kmer are the tags the k-mer was observed 
 /// with as a `Tags`, how many times it was observed with each tag, and a 
 /// p-value from an unpaired t-test comparing the groups in the `SampleInfo`.
+#[deprecated(since = "0.4.1", note = "please use `SummaryData` implementation for `TagsCountsPData`")]
 pub struct CountsFilterStat {
     min_kmer_obs: usize,
     sample_info: SampleInfo,
@@ -1765,7 +1804,7 @@ impl KmerSummarizer<u8, TagsCountsPData> for CountsFilterStat {
         let mut counts_g1 = Vec::new();
 
 
-        let (m0, m1) = self.sample_info.get_marker();
+        let (m0, m1) = self.sample_info.get_markers();
 
         for (label, count) in out_data.iter().zip(&tag_counts) {
             let bin_rep = (2 as M).pow(*label as u32);
@@ -1815,7 +1854,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, GroupCountData, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, GroupFrac}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, CountFilter, GroupCountData, GroupFrac, KmerSummarizer, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer, Tags};
 
     use super::{log2_fold_change, SummaryConfig, TagsCountsSumData};
 
@@ -1960,7 +1999,6 @@ mod test {
             false, 
             false, 
             memory, 
-            false, 
             false, 
         );
         if pr { println!("kmers CountsFilterStats: {:?}", k_mers) };

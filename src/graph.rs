@@ -718,6 +718,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
+        
+        f.flush().unwrap();
         debug!("large to dot loop: {}", self.len());
     }
 
@@ -767,6 +769,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
                 pb.inc(1);
             }
+
+            f.flush().unwrap();
         });
         pb.finish_and_clear();
 
@@ -794,6 +798,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         writeln!(&mut out_file, "}}").unwrap();
 
+        out_file.flush().unwrap();
+
 
     }
 
@@ -810,6 +816,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_dot(&self.get_node(i), node_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
+
+        f.flush().unwrap();
 
         debug!("large to dot loop: {}", self.len());
     }
@@ -897,6 +905,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             self.node_to_gfa(&n, wtr, dummy_opt)?;
         }
 
+        wtr.flush().unwrap();
+
         Ok(())
     }
 
@@ -917,6 +927,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let n = self.get_node(i);
             self.node_to_gfa(&n, &mut wtr, Some(&tag_func))?;
         }
+
+        wtr.flush().unwrap();
 
         Ok(())
     }
@@ -971,6 +983,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 self.node_to_gfa(&n, &mut wtr, tag_func).unwrap();
                 pb.inc(1);
             }
+
+            wtr.flush().unwrap();
         });
 
         pb.finish_and_clear();
@@ -997,6 +1011,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             remove_file(file).unwrap();
         }
 
+        out_file.flush().unwrap();
+
         Ok(())
     }
 
@@ -1013,6 +1029,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let n = self.get_node(i);
             self.node_to_gfa(&n, &mut wtr, tag_func)?;
         }
+
+        wtr.flush().unwrap();
 
         Ok(())    
     }
