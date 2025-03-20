@@ -1172,8 +1172,10 @@ impl SummaryData<u8> for GroupCountData {
 
 }
 
-
-/// Data container to store the relative amount of k-mers (in percent) in group 1 and the overall count
+/// Implementation of [`SummaryData<u8>`]
+/// 
+/// Contains the relative number of observations for the k-mer (in percent) 
+/// in group 1 and the absolute overall count 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelCountData {
     percent: u32,
