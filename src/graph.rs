@@ -1322,17 +1322,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         edges.push(i);
 
         while let Some(current_edge) = edges.pop() {
-            visited[current_edge] = true;
-            comp.push(current_edge);
+            if !visited[current_edge] { 
+                comp.push(current_edge);
+                visited[current_edge] = true;
 
-            let mut l_edges = self.find_edges(current_edge, Dir::Left);
-            let mut r_edges = self.find_edges(current_edge, Dir::Right);
+                let mut l_edges = self.find_edges(current_edge, Dir::Left);
+                let mut r_edges = self.find_edges(current_edge, Dir::Right);
 
-            l_edges.append(&mut r_edges);
+                l_edges.append(&mut r_edges);
 
-            for (new_edge, _, _) in l_edges.into_iter() {
-                if !visited[new_edge] {
-                    edges.push(new_edge);
+                for (new_edge, _, _) in l_edges.into_iter() {
+                    if !visited[new_edge] {
+                        edges.push(new_edge);
+                    }
                 }
             }
         }
@@ -1646,6 +1648,7 @@ impl<K: Kmer, D: Debug> Iterator for IterComponents<'_, K, D> {
                 self.pos += 1;
             }
         }
+        assert!(self.visited.iter().map(|x| *x as usize).sum::<usize>() == self.graph.len());
         return None
     }
     
@@ -1770,3 +1773,43 @@ F2: Fn(&D) -> bool
         return None
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::{fs::File, io::BufReader};
+
+    use crate::{kmer::Kmer16, summarizer::TagsCountsSumData};
+
+    use super::DebruijnGraph;
+
+    #[test]
+    fn test_components() {
+        let path = "400.graph.dbg";
+        let file = BufReader::with_capacity(64*1024, File::open(path).unwrap());
+
+        let (graph, _, _): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, crate::summarizer::SummaryConfig) = 
+            bincode::deserialize_from(file).expect("error deserializing graph");
+
+        let components = graph.iter_components();
+
+        let check_components = [
+            vec![3, 67, 130, 133, 59, 119, 97, 110, 68, 137, 29, 84, 131, 43, 30, 91, 14, 70, 79, 142, 136, 105, 103, 62, 
+                141, 104, 134, 88, 38, 81, 108, 92, 135, 96, 116, 121, 63, 124, 106, 129, 132, 126, 93, 109, 83, 112, 118, 
+                123, 125, 78, 122, 115, 75, 128, 140, 111, 26, 143, 113],
+            vec![41, 138, 100, 139, 86],
+            vec![53, 117, 127],
+            vec![69, 144, 77, 120, 114, 107, 101],
+        ];
+
+        let mut counter = 0;
+
+        for component in components {
+            if component.len() > 1 { 
+                println!("component: {:?}", component);
+                assert_eq!(component, check_components[counter]);
+                counter += 1;
+            }
+        }
+    }
+}
+
