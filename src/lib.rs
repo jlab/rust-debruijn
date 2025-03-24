@@ -34,6 +34,7 @@ use summarizer::M;
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::mem;
+use std::path::Display;
 
 pub mod clean_graph;
 pub mod compression;
@@ -949,7 +950,7 @@ impl Tags {
     // str_map is translatror BiMap between u8 and &str 
     pub fn to_string_vec<'a>(&'a self, str_map: &'a BiMap<String, u8>) -> Vec<&'a str> {
         let mut x = self.val;
-        let mut vec: Vec<&str> = Vec::new();
+        let mut vec: Vec<&str> = Vec::with_capacity(x.count_ones() as usize);
 
         // iterate through bits of the u64
         for i in 0..(mem::size_of::<Tags>()*8) as u8 {
@@ -985,9 +986,67 @@ impl Tags {
     }
 }
 
+pub struct TagsFormatter<'a> {
+    tags: Tags,
+    tag_translator: &'a BiMap<String, u8>
+}
+
+impl<'a> TagsFormatter<'a> {
+    pub fn new(tags: Tags, tag_translator: &'a BiMap<String, u8>) -> TagsFormatter<'a> {
+        TagsFormatter {
+            tags,
+            tag_translator
+        }
+    }
+}
+
+impl<'a> fmt::Display for TagsFormatter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tag_vec = self.tags.to_string_vec(self.tag_translator);
+
+        writeln!(f, "samples:")?;
+
+        for label in tag_vec.into_iter() {
+            writeln!(f, "{}", label)?
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_u8_vec())
+    }
+}
+
+pub struct TagsCountsFormatter<'a> {
+    tags: Tags,
+    counts: &'a Box<[u32]>,
+    tag_translator: &'a BiMap<String, u8>
+}
+
+impl<'a> TagsCountsFormatter<'a> {
+    pub fn new(tags: Tags, counts: &'a Box<[u32]>, tag_translator: &'a BiMap<String, u8>) -> TagsCountsFormatter<'a> {
+        TagsCountsFormatter {
+            tags,
+            counts,
+            tag_translator
+        }
+    }
+}
+
+impl<'a> fmt::Display for TagsCountsFormatter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tag_vec = self.tags.to_string_vec(self.tag_translator);
+
+        writeln!(f, "{:<20} - counts", "samples")?;
+
+        for (label, count) in tag_vec.into_iter().zip(self.counts) {
+            writeln!(f, "{:<20} - {}", label, count)?
+        }
+
+        Ok(())
     }
 }
 
@@ -1075,7 +1134,9 @@ pub struct Label {
 
 #[cfg(test)]
 mod tests {
-    use crate::{summarizer::M, EdgeMult, Exts, Tags};
+    use bimap::BiMap;
+
+    use crate::{summarizer::M, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
 
     #[test]
     fn test_edge_mult() {
@@ -1137,6 +1198,31 @@ mod tests {
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 1);
+    }
+
+    #[test]
+    fn test_tag_formatter() {
+        let mut tag_translator = BiMap::new();
+        let samples = vec!["A", "B", "C", "D", "E", "F", "G"];
+
+        for (i, label) in samples.into_iter().enumerate() {
+            tag_translator.insert(label.to_string(), i as u8);
+        }
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        let counts = vec![1, 2, 3].into_boxed_slice();
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let counts = vec![1, 2, 3, 0].into_boxed_slice();
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        print!("{}", TagsFormatter::new(tags, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        print!("{}", TagsFormatter::new(tags, &tag_translator));
+
     }
 }
 

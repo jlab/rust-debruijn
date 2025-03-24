@@ -2,8 +2,8 @@ use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
-use crate::{EdgeMult, Exts, Kmer, Tags};
-use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, marker::PhantomData, mem};
+use crate::{EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter};
+use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, iter::Sum, marker::PhantomData, mem, str::FromStr};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -317,8 +317,10 @@ pub trait SummaryData<DI> {
     type Data;
     /// Make a new `SummaryData<DI>`
     fn new(data: Self::Data) -> Self;
-    /// format the 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String;
+    /// format the noda data 
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    /// format the noda data in one line
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
     /// get `Vec<u8>` of the tags and the overall count, returns `None` if data is non-sufficient
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)>;
     /// get `Tags` and the overall count, returns `None` if data is non-sufficient
@@ -350,7 +352,11 @@ impl<DI> SummaryData<DI> for u32 {
         data
     }
 
-    fn print(&self, _: &BiMap<String, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        format!("count: {}", self).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
@@ -416,8 +422,12 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
         data
     }
 
-    fn print(&self, _: &BiMap<String, u8>) -> String {
-        format!("tags: {:?}", self).replace("\"", "\'")
+    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        format!("samples: {:?}", self).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        format!("samples: {:?}", self).replace("\"", "\'")
     }
     
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -479,8 +489,7 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
 
 /// the u8-labels the k-mer was observed with and its number of observations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-// aligned would be 16 Bytes, packed is 12 Bytes
-//#[repr(packed)]
+// aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagsSumData {
     tags: Tags,
     sum: i32,
@@ -493,12 +502,14 @@ impl SummaryData<u8> for TagsSumData {
         TagsSumData { tags: data.0, sum: data.1 }
     }
 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
-        // need to copy fields to local variable because repr(packed) results in unaligned struct
-        let tags = self.tags;
-        let sum = self.sum;
+    fn print(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        format!("tags: {:?}, sum: {}", tags.to_string_vec(tag_translator), sum).replace("\"", "\'")
+        format!("{}sum: {}", TagsFormatter::new(self.tags, tag_translator), self.sum).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -579,8 +590,32 @@ impl SummaryData<u8> for TagsCountsSumData {
         TagsCountsSumData { tags: data.0, counts: data.1, sum: data.2 }
     }
 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.counts, self.sum).replace("\"", "\'")
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum, p, fc).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum, p, fc).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -708,8 +743,32 @@ impl SummaryData<u8> for TagsCountsData{
         TagsCountsData { tags: data.0, counts: data.1 }
     }
 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -838,8 +897,32 @@ impl SummaryData<u8> for TagsCountsPData{
         TagsCountsPData { tags: data.0, counts: data.1, p_value: data.2 }
     }
 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}, p-value: {}", self.tags.to_string_vec(tag_translator), self.counts, self.p_value).replace("\"", "\'")
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -966,8 +1049,32 @@ impl SummaryData<u8> for TagsCountsEMData{
         TagsCountsEMData { tags: data.0, counts: data.1, edge_mults: data.2 }
     }
 
-    fn print(&self, tag_translator: &BiMap<String, u8>) -> String {
-        format!("tags: {:?}, counts: {:?}", self.tags.to_string_vec(tag_translator), self.counts).replace("\"", "\'")
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -1098,7 +1205,11 @@ impl SummaryData<u8> for GroupCountData {
         GroupCountData { group1: data.0, group2: data.1 }
     }
     
-    fn print(&self, _: &BiMap<String, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        format!("count 1: {}\ncount 2: {}", self.group1, self.group2)
+    }
+
+    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
@@ -1146,12 +1257,12 @@ impl SummaryData<u8> for GroupCountData {
         let mut nobs = 0i32;
         for (_, exts, d) in items {
             let tag = (2 as M).pow(d as u32);
-            let group1 = ((config.sample_info.marker0 & tag) > 1) as u32;
-            let group2 = ((config.sample_info.marker1 & tag) > 1) as u32;
+            let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
+            let group2 = ((config.sample_info.marker1 & tag) > 0) as u32;
 
             if (group1 + group2) != 1 { 
                 panic!(
-                    "should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", 
+                    "should not happen\n tag: {:#066b}\n m1:  {:#066b}\n m2:  {:#066b}\n g1:  {}\n g2:  {}", 
                     tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
                 )
             }
@@ -1189,7 +1300,11 @@ impl SummaryData<u8> for RelCountData {
         RelCountData { percent: data.0, count: data.1 }
     }
     
-    fn print(&self, _: &BiMap<String, u8>) -> String {
+    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+        format!("relative amount group 1: {}\ncount both: {}", self.percent, self.count)
+    }
+
+    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
@@ -1237,12 +1352,12 @@ impl SummaryData<u8> for RelCountData {
         let mut nobs = 0i32;
         for (_, exts, d) in items {
             let tag = (2 as M).pow(d as u32);
-            let group1 = ((config.sample_info.marker0 & tag) > 1) as u32;
-            let group2 = ((config.sample_info.marker1 & tag) > 1) as u32;
+            let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
+            let group2 = ((config.sample_info.marker1 & tag) > 0) as u32;
 
             if (group1 + group2) != 1 { 
                 panic!(
-                    "should not happen\n tag: {:#066b}\n m1: {:#066b}\n m2: {:#066b}\n g1: {:#066b}\n g2: {:#066b}", 
+                    "should not happen\n tag: {:#066b}\n m1:  {:#066b}\n m2:  {:#066b}\n g1:  {}\n g2:  {}", 
                     tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
                 )
             }
@@ -1875,20 +1990,21 @@ mod test {
 
         let mut rng = rand::thread_rng();
         for dna in dnas {
-            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(1, 4));
+            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(0, 3));
         }
 
-        // markers: 
-        let sample_info = SampleInfo { marker0: 2, marker1: 12, count0: 1, count1: 2, sample_kmers: Vec::new() };
+        // sample info: 
+        let sample_kmers = vec![28349823, 12323, 11111];
+        let sample_info = SampleInfo { marker0: 1, marker1: 6, count0: 1, count1: 2, sample_kmers};
 
-        // 0010 => 2
-        // 1100 => 12
+        // 001 => 1
+        // 110 => 6
 
         // tag translator
         let mut tag_translator: bimap::BiHashMap<String, u8> = BiMap::new();
-        tag_translator.insert("sample 1".to_string(), 1);
-        tag_translator.insert("sample 2".to_string(), 2);
-        tag_translator.insert("sample 3".to_string(), 3);
+        tag_translator.insert("sample 1".to_string(), 0);
+        tag_translator.insert("sample 2".to_string(), 1);
+        tag_translator.insert("sample 3".to_string(), 2);
 
         let significant= Some(4);
         let min_kmer_obs = 1;
@@ -1906,7 +2022,7 @@ mod test {
         let spec: ScmapCompress<u32> = ScmapCompress::new();
         let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
 
-        graph.to_gfa_with_tags("test_cf.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_cf.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator, &config)).unwrap();
 
         println!("cf graph size: {}", graph.len());
 
@@ -1933,7 +2049,7 @@ mod test {
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
         let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
 
-        graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator, &config)).unwrap();
 
         println!("csfs graph size: {}", graph.len());
 
@@ -1949,7 +2065,7 @@ mod test {
         let spec: ScmapCompress<u32> = ScmapCompress::new();
         let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
 
-        graph.to_gfa_with_tags("test_cf-1.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator)).unwrap();
+        graph.to_gfa_with_tags("test_cf-1.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator, &config)).unwrap();
 
         println!("cf graph size: {}", graph.len());
 
