@@ -680,10 +680,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let label = node_label(node.data());
         writeln!(
             f,
-            "n{} [label=\"id:{} len:{}  {}\",style=filled]",
+            "n{} [label=\"id: {} len: {} seq: {}\n  {}\", style=filled]",
             node.node_id,
             node.node_id,
             node.sequence().len(),
+            node.sequence(),
             label
         )
         .unwrap();
