@@ -653,7 +653,7 @@ mod tests {
 
         for path in graph.iter_max_path_comp(|_| 1., |_| true) {
             println!("path seq: {:?}", path);
-            println!("path seq: {:?}", graph.sequence_of_path(path.2.iter()));
+            println!("path seq: {:?}", graph.sequence_of_path(path.1.iter()));
         }
 
         graph.to_gfa_with_tags("gfa_out_seq.gfa", |node| format!("{:?}", node.data())).unwrap();

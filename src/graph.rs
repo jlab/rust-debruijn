@@ -610,7 +610,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut comp_sizes = Vec::new();
         let mut path_lens = Vec::new();
 
-        for (comp_size, path_len, path) in path_iter {
+        for (component, path) in path_iter {
             // get dna sequence from path
             let seq = self.sequence_of_path(path.iter());
 
@@ -638,8 +638,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             seq_counter += 1;
 
             if return_lens {
-                comp_sizes.push(comp_size);
-                path_lens.push(path_len);
+                comp_sizes.push(component.len());
+                path_lens.push(path.len());
             }
         }    
 
@@ -1667,19 +1667,18 @@ F2: Fn(&D) -> bool
     solid_path: F2,
 }
 
-/// returns size of graph component, length of the found path, and the path
+/// returns the component and the "best" path in the component
 impl<K: Kmer, D: Debug, F, F2> Iterator for PathCompIter<'_, K, D, F, F2> 
 where 
 F: Fn(&D) -> f32,
 F2: Fn(&D) -> bool
 {
-    type Item = (usize, usize, VecDeque<(usize, Dir)>,);
+    type Item = (Vec<usize>, VecDeque<(usize, Dir)>,);
     fn next(&mut self) -> Option<Self::Item> {
         while self.graph_pos <= self.graph.len() {
             match self.component_iterator.next() {
                 Some(component) => {
                     let current_comp = component;
-                    let comp_len = current_comp.len();
                     
         
                     let mut best_node = current_comp[0];
@@ -1762,7 +1761,7 @@ F2: Fn(&D) -> bool
                     }
                     
                     
-                    return Some((comp_len, path.len(), path))
+                    return Some((current_comp, path))
                 }, 
                 None => {
                     // should technically not need graph_pos after this 

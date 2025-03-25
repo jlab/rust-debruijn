@@ -34,7 +34,6 @@ use summarizer::M;
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::mem;
-use std::path::Display;
 
 pub mod clean_graph;
 pub mod compression;
