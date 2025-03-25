@@ -74,6 +74,10 @@ impl SummaryConfig {
         if stat_test != self.stat_test { self.stat_test_changed = true }
         self.stat_test = stat_test;
     }
+
+    pub fn get_markers(&self) -> (M, M) {
+        self.sample_info.get_markers()
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
