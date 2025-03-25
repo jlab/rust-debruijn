@@ -671,13 +671,13 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    fn node_to_dot<F: Fn(&D) -> String>(
+    fn node_to_dot<F: Fn(&Node<K, D>) -> String>(
         &self,
         node: &Node<'_, K, D>,
         node_label: &F,
         f: &mut dyn Write,
     ) {
-        let label = node_label(node.data());
+        let label = node_label(node);
         writeln!(
             f,
             "n{} [label=\"id: {} len: {} seq: {}\n  {}\", style=filled]",
@@ -707,7 +707,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write the graph to a dot file
-    pub fn to_dot<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F) {
+    pub fn to_dot<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F) {
         let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(self.len() as u64);
@@ -730,7 +730,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// and delete the small files.
     /// 
     /// The path does not need to contain the file ending.
-    pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&D) -> String + Sync>(&self, path: P, node_label: &F) 
+    pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<K, D>) -> String + Sync>(&self, path: P, node_label: &F) 
     where 
         D: Sync,
         K: Sync
@@ -805,7 +805,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write part of the graph to a dot file
-    pub fn to_dot_partial<P: AsRef<Path>, F: Fn(&D) -> String>(&self, path: P, node_label: &F, nodes: Vec<usize>) {
+    pub fn to_dot_partial<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F, nodes: Vec<usize>) {
         let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(nodes.len() as u64);
