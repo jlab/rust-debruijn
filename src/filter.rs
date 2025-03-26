@@ -101,7 +101,7 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
 /// use debruijn::reads::Reads;
-/// use debruijn::filter::filter_kmers;
+/// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
@@ -126,16 +126,16 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 ///     0.33333,
 ///     sample_info,
 ///     None,
-///     StatTest::TTest,
+///     StatTest::StudentsTTest,
 /// );
 ///    
-/// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
+/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData>(
 ///     &seqs,
 ///     &summary_config,
 ///     false,
 ///     false,
 ///     10,
-///    false,
+///     false,
 /// );
 /// ```
 #[inline(never)]
@@ -516,7 +516,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 ///     0.33333,
 ///     sample_info,
 ///     None,
-///     StatTest::TTest,
+///     StatTest::StudentsTTest,
 /// );
 ///    
 /// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
