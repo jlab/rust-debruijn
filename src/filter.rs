@@ -891,7 +891,7 @@ mod tests {
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
@@ -930,7 +930,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(

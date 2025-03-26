@@ -243,7 +243,7 @@ mod tests {
 
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -354,7 +354,7 @@ mod tests {
         assert!(kmer_set == msp_kmers);
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
 
 
@@ -464,7 +464,7 @@ mod tests {
         let mut shard_asms = Vec::new();
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
 
 
@@ -565,7 +565,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -788,7 +788,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &reads, 

@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter};
-use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, iter::Sum, marker::PhantomData, mem, str::FromStr};
+use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, marker::PhantomData, mem};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -54,7 +54,7 @@ impl SummaryConfig {
 
     /// make an empty `SummaryConfig`
     pub fn empty() -> Self {
-        SummaryConfig { min_kmer_obs: 0, significant: None, group_frac: GroupFrac::None, frac_cutoff: 0., sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::TTest, stat_test_changed: false }
+        SummaryConfig { min_kmer_obs: 0, significant: None, group_frac: GroupFrac::None, frac_cutoff: 0., sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::StudentsTTest, stat_test_changed: false }
     }
 
     pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
@@ -78,6 +78,10 @@ impl SummaryConfig {
     pub fn get_markers(&self) -> (M, M) {
         self.sample_info.get_markers()
     }
+
+    pub fn sample_info(&self) -> &SampleInfo {
+        &self.sample_info
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
@@ -99,14 +103,16 @@ impl std::fmt::Display for GroupFrac {
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
 pub enum StatTest {
-    TTest,
+    StudentsTTest,
+    WelchsTTest,
     UTest,
 }
 
 impl std::fmt::Display for StatTest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TTest => write!(f, "t-test"),
+            Self::StudentsTTest => write!(f, "students-t-test"),
+            Self::WelchsTTest => write!(f, "welchs-t-test"),
             Self::UTest => write!(f, "u-test"),
             
         }
@@ -182,8 +188,8 @@ fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
     }
 }
 
-// perform a t-test
-fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+// perform a student's t-test
+fn students_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -206,14 +212,58 @@ fn t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
 
     let df = n0 + n1 - 2.;
 
-    let var0 = (counts_g0.iter().map(|count| (*count - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powf(2.)) / (n0 - 1.);
-    let var1 = (counts_g1.iter().map(|count| (*count - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powf(2.)) / (n1 - 1.);
+    let var0 = (counts_g0.iter().map(|count| (*count - mean0).powi(2)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powi(2)) / (n0 - 1.);
+    let var1 = (counts_g1.iter().map(|count| (*count - mean1).powi(2)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powi(2)) / (n1 - 1.);
 
     let s = ((1./n0 + 1./n1) * ((n0 - 1.) * var0 + (n1 - 1.) * var1) / df).sqrt();
 
     let t = (mean0 - mean1) / s;
 
     let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist: check if you have enough samples (at least 3)");
+
+    let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
+
+    Ok(p_value)
+}
+
+// perform a welch's t-test
+fn welchs_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+    let n0 = sample_info.count0 as f64;
+    let n1 = sample_info.count1 as f64;
+
+    if (n0 < 2.) | (n1 < 2.) { return Err(NotEnoughSamplesError {})}
+
+    let mut counts_g0 = Vec::new();
+    let mut counts_g1 = Vec::new();
+
+    let (m0, m1) = sample_info.get_markers();
+
+    for (label, count) in out_data.iter().zip(tag_counts) {
+        let bin_rep = (2 as M).pow(*label as u32);
+        let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
+        if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
+        if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
+    }
+
+    let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
+    let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
+
+    let s0 = (counts_g0.iter().map(|count| (*count - mean0).powi(2)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powi(2)) / (n0 - 1.);
+    let s1 = (counts_g1.iter().map(|count| (*count - mean1).powi(2)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powi(2)) / (n1 - 1.);
+
+    let s0 = s0.sqrt();
+    let s1 = s1.sqrt();
+
+    let t = (mean0 - mean1) / (s0.powi(2)/n0 + s1.powi(2)/n1).sqrt();
+
+    let df0 = n0 - 1.;
+    let df1 = n1 - 1.;
+
+    let df = ((s0.powi(2) / n0 + s1.powi(2) / n1).powi(2) / 
+        (s0.powi(4) / (n0.powi(2) * df0) 
+            + s1.powi(4) / (n1.powi(2) * df1))).floor();
+
+    let t_dist = StudentsT::new(0.0, 1.0, df).expect("error creating student dist: check if you have enough samples");
 
     let p_value = 2. * (1. - t_dist.cdf(t.abs())) as f32;
 
@@ -648,7 +698,8 @@ impl SummaryData<u8> for TagsCountsSumData {
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         let p = match config.stat_test {
-            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
             StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
         };
         
@@ -704,7 +755,8 @@ impl SummaryData<u8> for TagsCountsSumData {
         let valid_p = match config.max_p {
             Some(max_p) => {
                 let p_value = match config.stat_test {
-                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::StudentsTTest => students_t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::WelchsTTest => welchs_t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
                 };
                 match p_value {
@@ -797,7 +849,8 @@ impl SummaryData<u8> for TagsCountsData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         let p = match config.stat_test {
-            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
             StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
         };
         
@@ -857,7 +910,8 @@ impl SummaryData<u8> for TagsCountsData{
         let valid_p = match config.max_p {
             Some(max_p) => {
                 let p_value = match config.stat_test {
-                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::StudentsTTest => students_t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::WelchsTTest => welchs_t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
                 };
                 match p_value {
@@ -952,7 +1006,8 @@ impl SummaryData<u8> for TagsCountsPData{
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
             Some(match config.stat_test {
-                StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
+                StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
+                StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
                 StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info).unwrap(),
             })
         } else {
@@ -1010,7 +1065,8 @@ impl SummaryData<u8> for TagsCountsPData{
 
         // caluclate p-value with t-test
         let p_value = match config.stat_test {
-            StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+            StatTest::StudentsTTest => students_t_test(&out_data, &tag_counts, &config.sample_info),
+            StatTest::WelchsTTest => welchs_t_test(&out_data, &tag_counts, &config.sample_info),
             StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
         }.unwrap();
          
@@ -1103,7 +1159,8 @@ impl SummaryData<u8> for TagsCountsEMData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         let p = match config.stat_test {
-            StatTest::TTest => t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
             StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
         };
         
@@ -1167,7 +1224,8 @@ impl SummaryData<u8> for TagsCountsEMData{
         let valid_p = match config.max_p {
             Some(max_p) => {
                 let p_value = match config.stat_test {
-                    StatTest::TTest => t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::StudentsTTest => students_t_test(&out_data, &tag_counts, &config.sample_info),
+                    StatTest::WelchsTTest => welchs_t_test(&out_data, &tag_counts, &config.sample_info),
                     StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
                 };
                 match p_value {
@@ -1942,8 +2000,8 @@ impl KmerSummarizer<u8, TagsCountsPData> for CountsFilterStat {
 
         let df = n0 + n1 - 2.;
 
-        let var0 = (counts_g0.iter().map(|count| (*count - mean0).powf(2.)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powf(2.)) / (n0 - 1.);
-        let var1 = (counts_g1.iter().map(|count| (*count - mean1).powf(2.)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powf(2.)) / (n1 - 1.);
+        let var0 = (counts_g0.iter().map(|count| (*count - mean0).powi(2)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powi(2)) / (n0 - 1.);
+        let var1 = (counts_g1.iter().map(|count| (*count - mean1).powi(2)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powi(2)) / (n1 - 1.);
 
         let s = ((1./n0 + 1./n1) * ((n0 - 1.) * var0 + (n1 - 1.) * var1) / df).sqrt();
 
@@ -1975,7 +2033,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, t_test, u_test, CountFilter, GroupCountData, GroupFrac, KmerSummarizer, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, students_t_test, u_test, CountFilter, GroupCountData, GroupFrac, KmerSummarizer, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer, Tags};
 
     use super::{log2_fold_change, SummaryConfig, TagsCountsSumData};
 
@@ -2014,7 +2072,7 @@ mod test {
         let min_kmer_obs = 1;
         type K = Kmer12;
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
 
 
         let pr = false;
@@ -2062,7 +2120,7 @@ mod test {
         // same but with less significant digits
         let significant= Some(1);
 
-        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(min_kmer_obs, significant, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
 
 
         //construct and compress graph with CountFilter
@@ -2134,49 +2192,6 @@ mod test {
 
     #[test]
     fn test_maj_summarizers() {
-        // generate three reads
-        /* let mut reads = Reads::new();
-
-        let dnas = ["CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
-            "CGATCGAGCTACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGC".as_bytes(),
-            "ACTGCGACGGACGATGACTAGCTAGCTTTTCTCGAGGCGAGCGTCAGCACGATGCTAGCTGACTAGC".as_bytes(),
-            "CGATCGAGCTACTGCGACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGCGGACTAGCGAG".as_bytes(),
-            "ACGGACGATTTTTCGAGCGGCGATTTCTCGAGGCGAGCGTCAGC".as_bytes(),
-        ];
-
-        let repeats = 4;
-
-        let mut rng = rand::thread_rng();
-        for _i in 0..repeats {
-            for dna in dnas {
-            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(0, 12));
-            }
-        }
-
-        let dnas = ["ACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATCGATC".as_bytes(),
-            "ACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATCGATCGACTGATCGATGCATCGACGATC".as_bytes(),
-            "GACGACTGATCGAGCTACGAGCACGATGCTAGCTAGCTGACTGACGATCGTAGCTAGCTGATCGGATGCATCGACGATC".as_bytes(),
-        ];
-
-        let mut rng = rand::thread_rng();
-        for _i in 0..repeats {
-            for dna in dnas {
-            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(0, 5));
-            }
-        }
-
-        let dnas = ["GACGCCGAGATCATTATCGCGCGCGTATTATATATCGCGGAATATATCCG".as_bytes(),
-            "GACGCCGAGATCATTATCGCGCGCGTATTATATGCGTAATATATATTCGGCATTAATCGCGGAATATATCCG".as_bytes(),
-            "GACGCCGAGATCATTATCGCGCGCGTATTATATATCGCGGAATATATCCGAGCTGACTGATCGA".as_bytes(),
-        ];
-
-        let mut rng = rand::thread_rng();
-        for _i in 0..repeats {
-            for dna in dnas {
-            reads.add_from_bytes(dna, Exts::empty(), rng.gen_range(5, 12));
-            }
-        } */
-
         type K = Kmer12;
 
 
@@ -2228,7 +2243,7 @@ mod test {
 
 
         let sample_info = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
 
         
         println!("markers: {:?}", sample_info);
@@ -2275,7 +2290,8 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::StudentsTTest);
+        let config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::WelchsTTest);
         let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
 
 
@@ -2293,6 +2309,11 @@ mod test {
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5);
 
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value * 1000.).round() as u32, 1);
+
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
 
@@ -2303,6 +2324,11 @@ mod test {
 
         assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
 
+        let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
+
         let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
 
@@ -2312,6 +2338,11 @@ mod test {
         println!("{:?}", summarized_t);
 
         assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+
+        let summarized_w = TagsCountsSumData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
 
         let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
@@ -2332,6 +2363,11 @@ mod test {
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2345);
 
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 2238);
+
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8),
@@ -2346,6 +2382,11 @@ mod test {
         println!("{:?}", summarized_t);
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5995);
+
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 6040);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
@@ -2366,6 +2407,11 @@ mod test {
         println!("{:?}", summarized_t);
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 924);
+
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 913);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
@@ -2392,7 +2438,8 @@ mod test {
          */
 
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::TTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
+        let config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, summarizer::StatTest::UTest);
 
 
@@ -2410,6 +2457,11 @@ mod test {
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2955);
 
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 4113);
+
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
 
@@ -2419,6 +2471,11 @@ mod test {
         println!("{:?}", summarized_t);
 
         assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
+
+        let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
+        println!("{:?}", summarized_w);
+
+        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 4113);
 
         let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
@@ -2432,7 +2489,8 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(4, 4, 1, 2, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::TTest);
+        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::StudentsTTest);
+        let config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::WelchsTTest);
         let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
 
 
@@ -2448,11 +2506,17 @@ mod test {
         let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
         assert_eq!(summarized_t.2.p_value(&config_t), None);
 
+        let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
+        assert_eq!(summarized_w.2.p_value(&config_w), None);
+
         let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
         assert_eq!(summarized_u.2.p_value(&config_u), None);
-
+        
         let summarized_t = TagsCountsSumData::summarize(input.into_iter(), &config_t);
         assert_eq!(summarized_t.2.p_value(&config_t), None);
+
+        let summarized_w = TagsCountsSumData::summarize(input.into_iter(), &config_w);
+        assert_eq!(summarized_w.2.p_value(&config_w), None);
 
         let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
         assert_eq!(summarized_u.2.p_value(&config_u), None);
@@ -2476,7 +2540,7 @@ mod test {
 
         let sample_info = SampleInfo::new(m0, m1, c0 as u8, c1 as u8, sample_counts);
 
-        let p_value_t = t_test(&tags, &test_counts, &sample_info);
+        let p_value_t = students_t_test(&tags, &test_counts, &sample_info);
         println!("p-value t test: {}", p_value_t.unwrap());
 
         // soll: U = 24.5, p = 0.0995, z = -1.65, exaxt p: 0.142
@@ -2500,7 +2564,7 @@ mod test {
 
         let sample_info = SampleInfo::new(m0, m1, c0 as u8, c1 as u8, sample_counts);
 
-        let p_value_t = t_test(&tags, &test_counts, &sample_info);
+        let p_value_t = students_t_test(&tags, &test_counts, &sample_info);
         assert_eq!(p_value_t, Err(NotEnoughSamplesError {}));
         println!("p-value t test: {:?}", p_value_t);
 
@@ -2533,7 +2597,7 @@ mod test {
 
         let sample_kmers = vec![123, 234, 12334, 34];
         let sample_info = SampleInfo::new(0b00100101, 0b11011010, 3, 5, sample_kmers);
-        let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::TTest);
+        let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::StudentsTTest);
 
         let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer8, TagsCountsSumData>| !node.data().valid(&config))
                     .find_bad_nodes(&graph);
