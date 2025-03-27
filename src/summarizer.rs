@@ -391,6 +391,8 @@ pub trait SummaryData<DI> {
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32>;
     /// get the number of samples the sequence was observed in, returns `None` if data is non-sufficient
     fn sample_count(&self) -> Option<usize>;
+    /// get edge multiplicities
+    fn edge_mults(&self) -> Option<&EdgeMult>;
     /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, config: &SummaryConfig) -> bool;
     /// summarize k-mers
@@ -414,13 +416,9 @@ impl<DI> SummaryData<DI> for u32 {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
+    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
 
     fn score(&self) -> f32 {
         *self as f32
@@ -434,17 +432,13 @@ impl<DI> SummaryData<DI> for u32 {
         Some(*self as usize)
     }
 
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn sample_count(&self) -> Option<usize> {
-        None
-    }
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         *self >= config.min_kmer_obs as u32
@@ -484,13 +478,9 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
         format!("samples: {:?}", self).replace("\"", "\'")
     }
     
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
     
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
+    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
 
     fn score(&self) -> f32 {
         1.
@@ -500,21 +490,17 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
         mem::size_of_val(&**self) + mem::size_of_val(&*self)
     }
 
-    fn count(&self) -> Option<usize> {
-        None
-    }
+    fn count(&self) -> Option<usize> { None }
 
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.len())
     }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, _: &SummaryConfig) -> bool {
         true
@@ -552,7 +538,7 @@ pub struct TagsSumData {
 impl SummaryData<u8> for TagsSumData {
     type Data = (Tags, i32);
 
-    fn new(data: (Tags, i32)) -> Self {
+    fn new(data: Self::Data) -> Self {
         TagsSumData { tags: data.0, sum: data.1 }
     }
 
@@ -588,17 +574,15 @@ impl SummaryData<u8> for TagsSumData {
         Some(self.sum as usize)
     }
 
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.tags.len())
     }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid(self.tags, self.sum, config)
@@ -640,7 +624,7 @@ pub struct TagsCountsSumData {
 impl SummaryData<u8> for TagsCountsSumData {
     type Data = (Tags, Box<[u32]>, i32);
 
-    fn new(data: (Tags, Box<[u32]>, i32)) -> Self {
+    fn new(data: Self::Data) -> Self {
         TagsCountsSumData { tags: data.0, counts: data.1, sum: data.2 }
     }
 
@@ -695,6 +679,8 @@ impl SummaryData<u8> for TagsCountsSumData {
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len() as usize)
     }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         let p = match config.stat_test {
@@ -795,7 +781,7 @@ impl TagsCountsData {
 impl SummaryData<u8> for TagsCountsData{
     type Data = (Tags, Box<[u32]>);
 
-    fn new(data: (Tags, Box<[u32]>)) -> Self {
+    fn new(data: Self::Data) -> Self {
         TagsCountsData { tags: data.0, counts: data.1 }
     }
 
@@ -867,6 +853,8 @@ impl SummaryData<u8> for TagsCountsData{
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
     }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
@@ -951,7 +939,7 @@ impl TagsCountsPData {
 impl SummaryData<u8> for TagsCountsPData{
     type Data = (Tags, Box<[u32]>, f32);
 
-    fn new(data: (Tags, Box<[u32]>, f32)) -> Self {
+    fn new(data: Self::Data) -> Self {
         TagsCountsPData { tags: data.0, counts: data.1, p_value: data.2 }
     }
 
@@ -1023,6 +1011,8 @@ impl SummaryData<u8> for TagsCountsPData{
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
     }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
@@ -1105,7 +1095,7 @@ impl TagsCountsEMData {
 impl SummaryData<u8> for TagsCountsEMData{
     type Data = (Tags, Box<[u32]>, EdgeMult);
 
-    fn new(data: (Tags, Box<[u32]>, EdgeMult)) -> Self {
+    fn new(data: Self::Data) -> Self {
         TagsCountsEMData { tags: data.0, counts: data.1, edge_mults: data.2 }
     }
 
@@ -1120,7 +1110,7 @@ impl SummaryData<u8> for TagsCountsEMData{
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+        format!("{}sum: {}{}{}edge multiplicities: {}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
     fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
@@ -1134,7 +1124,7 @@ impl SummaryData<u8> for TagsCountsEMData{
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
     fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
@@ -1176,6 +1166,10 @@ impl SummaryData<u8> for TagsCountsEMData{
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -1246,6 +1240,169 @@ impl SummaryData<u8> for TagsCountsEMData{
 
 /// Implementation of [`SummaryData<u8>`]
 /// 
+/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// was observed with each label, a p-value, and the edge multiplicites
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagsCountsPEMData {
+    tags: Tags,
+    counts: Box<[u32]>,
+    p_value: f32,
+    edge_mults: EdgeMult,
+}
+
+impl TagsCountsPEMData {
+    #[inline]
+    pub fn sum(&self) -> i32 {
+        self.counts.iter().sum::<u32>() as i32
+    }
+}
+
+impl SummaryData<u8> for TagsCountsPEMData{
+    type Data = (Tags, Box<[u32]>, f32, EdgeMult);
+
+    fn new(data: Self::Data) -> Self {
+        TagsCountsPEMData { tags: data.0, counts: data.1, p_value: data.2, edge_mults: data.3 }
+    }
+
+    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}\n, edge multiplicities: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+    }
+
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+        Some((self.tags.to_u8_vec(), self.sum()))
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, i32)> {
+        Some((self.tags, self.sum()))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum() as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        let p = match config.stat_test {
+            StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+                StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+        };
+        
+        match p {
+            Ok(p_value) => Some(p_value),
+            Err(_) => None,
+        }
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => self.p_value(config).expect("error calculating p-value") <= p,
+            None => true,
+        }; 
+
+        valid(self.tags, self.sum(), config) && valid_p
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+        let mut edge_mults = EdgeMult::new();
+
+        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+        let mut nobs = 0i32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            edge_mults.add_exts(exts);
+            nobs += 1;
+        }
+
+        assert_eq!(nobs as u32, edge_mults.sum());
+
+        out_data.sort();
+
+        let mut tag_counter = 1;
+        let mut tag_counts: Vec<u32> = Vec::new();
+
+        // count the occurences of the labels
+        for i in 1..out_data.len() {
+            if out_data[i] == out_data[i-1] {
+                tag_counter += 1;
+            } else {
+                tag_counts.push(tag_counter.clone());
+                tag_counter = 1;
+            }
+        }
+        tag_counts.push(tag_counter);
+
+        out_data.dedup();
+
+        // caluclate p-value with chosen test
+        let p_value = match config.stat_test {
+            StatTest::StudentsTTest => students_t_test(&out_data, &tag_counts, &config.sample_info),
+            StatTest::WelchsTTest => welchs_t_test(&out_data, &tag_counts, &config.sample_info),
+            StatTest::UTest => u_test(&out_data, &tag_counts, &config.sample_info),
+        }.unwrap();
+         
+
+        let tag_counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_u8_vec(out_data);
+
+        let valid = match config.max_p {
+            Some(p) => valid(tags, nobs, config) && (p_value <= p),
+            None => valid(tags, nobs, config),
+        };
+
+        (valid, all_exts, TagsCountsPEMData::new((tags, tag_counts, p_value, edge_mults))) 
+    }
+
+}
+
+/// Implementation of [`SummaryData<u8>`]
+/// 
 /// Contains how many times the k-mer was observed in each group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupCountData {
@@ -1263,7 +1420,7 @@ impl GroupCountData {
 impl SummaryData<u8> for GroupCountData {
     type Data = (u32, u32);
 
-    fn new(data: (u32, u32)) -> Self {
+    fn new(data: Self::Data) -> Self {
         GroupCountData { group1: data.0, group2: data.1 }
     }
     
@@ -1275,13 +1432,9 @@ impl SummaryData<u8> for GroupCountData {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
+    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
 
     fn score(&self) -> f32 {
         self.sum() as f32
@@ -1295,17 +1448,13 @@ impl SummaryData<u8> for GroupCountData {
         Some((self.group1 + self.group2) as usize)
     }
 
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn sample_count(&self) -> Option<usize> {
-        None
-    }
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.sum() >= config.min_kmer_obs as u32
@@ -1358,7 +1507,7 @@ pub struct RelCountData {
 impl SummaryData<u8> for RelCountData {
     type Data = (u32, u32);
 
-    fn new(data: (u32, u32)) -> Self {
+    fn new(data: Self::Data) -> Self {
         RelCountData { percent: data.0, count: data.1 }
     }
     
@@ -1370,13 +1519,9 @@ impl SummaryData<u8> for RelCountData {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
-        None
-    }
+    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
-        None
-    }
+    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
 
     fn score(&self) -> f32 {
         self.count as f32
@@ -1390,17 +1535,13 @@ impl SummaryData<u8> for RelCountData {
         Some(self.count as usize)
     }
 
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> {
-        None
-    }
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
 
-    fn sample_count(&self) -> Option<usize> {
-        None
-    }
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.count >= config.min_kmer_obs as u32
@@ -1445,7 +1586,7 @@ impl SummaryData<u8> for RelCountData {
 
 #[cfg(test)]
 mod test {
-    use std::{fmt::Debug, fs::File, io::BufReader};
+    use std::{fmt::Debug, fs::File, io::BufReader, time};
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
@@ -1870,17 +2011,26 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
+        let start = time::Instant::now();
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
+        let stop = start.elapsed();
+        println!("stundent's t-test summary (ns): {}", stop.as_nanos());
         println!("{:?}", summarized_t);
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2955);
 
+        let start = time::Instant::now();
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
+        let stop = start.elapsed();
+        println!("welch's t-test summary (ns): {}", stop.as_nanos());
         println!("{:?}", summarized_w);
-
+        
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 4113);
 
+        let start = time::Instant::now();
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        let stop = start.elapsed();
+        println!("mw u-test summary (ns): {}", stop.as_nanos());
         println!("{:?}", summarized_u);
 
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 862);
@@ -1888,17 +2038,26 @@ mod test {
         let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
         println!("{:?}", summarized_t);
 
+        let start = time::Instant::now();
         assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
+        let stop = start.elapsed();
+        println!("stundent's t-test calc (ns): {}", stop.as_nanos());
 
         let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
         println!("{:?}", summarized_w);
 
+        let start = time::Instant::now();
         assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 4113);
+        let stop = start.elapsed();
+        println!("welch's t-test calc (ns): {}", stop.as_nanos());
 
         let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
         println!("{:?}", summarized_u);
 
+        let start = time::Instant::now();
         assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 862);
+        let stop = start.elapsed();
+        println!("mw u-test calc (ns): {}", stop.as_nanos());
 
         /*
         group 1: 000000100 = 4

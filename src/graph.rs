@@ -239,7 +239,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Find the edges leaving node `node_id` in direction `Dir`. Should generally be
     /// accessed via a Node wrapper object
-    fn find_edges(&self, node_id: usize, dir: Dir) -> SmallVec4<(usize, Dir, bool)> {
+    fn find_edges(&self, node_id: usize, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         let exts = self.base.exts[node_id];
         let sequence = self.base.sequences.get(node_id);
         let kmer: K = sequence.term_kmer(dir);
@@ -249,7 +249,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             if exts.has_ext(dir, i) {
                 let link = self.find_link(kmer.extend(i, dir), dir); //.expect("missing link");
                 if let Some(l) = link {
-                    edges.push(l);
+                    edges.push((i, l.0, l.1, l.2));
                 }
                 // Otherwise, this edge doesn't exist within this shard, so ignore it.
                 // NOTE: this should be allowed in a 'complete' DBG
@@ -319,7 +319,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for dir in &[Dir::Left, Dir::Right] {
                 let dir_edges = n.edges(*dir);
                 if dir_edges.len() == 1 {
-                    let (next_id, return_dir, _) = dir_edges[0];
+                    let (_, next_id, return_dir, _) = dir_edges[0];
                     let next = self.get_node(next_id);
 
                     let ret_edges = next.edges(return_dir);
@@ -449,7 +449,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 let edges = node.edges(incoming_dir.flip());
 
                 let mut solid_paths = 0;
-                for (id, dir, _) in edges {
+                for (_, id, dir, _) in edges {
                     let cand = Some((id, dir));
                     if osolid_path(cand) {
                         solid_paths += 1;
@@ -548,7 +548,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                     let edges = node.edges(incoming_dir.flip());
 
                     let mut solid_paths = 0;
-                    for (id, dir, _) in edges {
+                    for (_, id, dir, _) in edges {
                         let cand = Some((id, dir));
                         if osolid_path(cand) {
                             solid_paths += 1;
@@ -689,7 +689,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         )
         .unwrap();
 
-        for (id, incoming_dir, _) in node.l_edges() {
+        for (_, id, incoming_dir, _) in node.l_edges() {
             let color = match incoming_dir {
                 Dir::Left => "blue",
                 Dir::Right => "red",
@@ -697,7 +697,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             writeln!(f, "n{} -> n{} [color={}]", id, node.node_id, color).unwrap();
         }
 
-        for (id, incoming_dir, _) in node.r_edges() {
+        for (_, id, incoming_dir, _) in node.r_edges() {
             let color = match incoming_dir {
                 Dir::Left => "blue",
                 Dir::Right => "red",
@@ -848,7 +848,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             )?,
         }
 
-        for (target, dir, _) in node.l_edges() {
+        for (_, target, dir, _) in node.l_edges() {
             if target >= node.node_id as usize {
                 let to_dir = match dir {
                     Dir::Left => "+",
@@ -865,7 +865,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
 
-        for (target, dir, _) in node.r_edges() {
+        for (_, target, dir, _) in node.r_edges() {
             if target > node.node_id as usize {
                 let to_dir = match dir {
                     Dir::Left => "+",
@@ -1210,7 +1210,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let node = self.get_node(node_id as usize);
         let mut new_states = SmallVec4::new();
 
-        for (next_node_id, incoming_dir, _) in node.edges(dir.flip()) {
+        for (_, next_node_id, incoming_dir, _) in node.edges(dir.flip()) {
             let next_node = self.get_node(next_node_id);
             let new_score = state.score + score(next_node.data());
 
@@ -1309,7 +1309,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         edges.append(&mut r_edges);
 
-        for (edge, _, _) in edges.iter() {
+        for (_, edge, _, _) in edges.iter() {
             if !visited[*edge] {
                 self.component_r(visited, *edge, comp);
             }
@@ -1332,7 +1332,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
                 l_edges.append(&mut r_edges);
 
-                for (new_edge, _, _) in l_edges.into_iter() {
+                for (_, new_edge, _, _) in l_edges.into_iter() {
                     if !visited[new_edge] {
                         edges.push(new_edge);
                     }
@@ -1551,19 +1551,19 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
 
     /// Edges leaving the left side of the node in the format
     //// (target_node id, incoming side of target node, whether target node has is flipped)
-    pub fn l_edges(&self) -> SmallVec4<(usize, Dir, bool)> {
+    pub fn l_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Left)
     }
 
     /// Edges leaving the right side of the node in the format
     //// (target_node id, incoming side of target node, whether target node has is flipped)
-    pub fn r_edges(&self) -> SmallVec4<(usize, Dir, bool)> {
+    pub fn r_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Right)
     }
 
     /// Edges leaving the 'dir' side of the node in the format
     //// (target_node id, incoming side of target node, whether target node has is flipped)
-    pub fn edges(&self, dir: Dir) -> SmallVec4<(usize, Dir, bool)> {
+    pub fn edges(&self, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, dir)
     }
 
@@ -1582,7 +1582,7 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     fn edges_to_json(&self, f: &mut dyn Write) -> bool {
         let mut wrote = false;
         let edges = self.r_edges();
-        for (idx, &(id, incoming_dir, _)) in edges.iter().enumerate() {
+        for (idx, &(_, id, incoming_dir, _)) in edges.iter().enumerate() {
             write!(
                 f,
                 "{{\"source\":\"{}\",\"target\":\"{}\",\"D\":\"{}\"}}",
@@ -1723,7 +1723,7 @@ F2: Fn(&D) -> bool
                             let edges = node.edges(incoming_dir.flip());
         
                             let mut solid_paths = 0;
-                            for (id, dir, _) in edges {
+                            for (_, id, dir, _) in edges {
                                 let cand = Some((id, dir));
                                 if osolid_path(cand) {
                                     solid_paths += 1;

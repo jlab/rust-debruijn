@@ -31,7 +31,7 @@
 use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::M;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
 
@@ -1080,6 +1080,17 @@ impl Debug for EdgeMult {
     }
 }
 
+impl Display for EdgeMult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "A: {} | {}\nC: {} | {}\nG: {} | {}\nT: {} | {}\n",
+            self.edge_mults[0], self.edge_mults[4],
+            self.edge_mults[1], self.edge_mults[5],
+            self.edge_mults[2], self.edge_mults[6],
+            self.edge_mults[3], self.edge_mults[7],
+        )
+    }
+}
+
 impl EdgeMult {
     /// a new, empty `EdgeMult`
     pub fn new() -> Self {
@@ -1121,6 +1132,16 @@ impl EdgeMult {
 
     pub fn sum(&self) -> u32 {
         self.edge_mults.iter().sum::<u32>()
+    }
+
+    pub fn edge_mult(&self, (base, _, dir, _): (u8, usize, Dir, bool)) -> u32 {
+        // calculate index in slice
+        let index = match dir {
+            Dir::Left => base,
+            Dir::Right => base + 4,
+        };
+
+        self.edge_mults[index as usize]
     }
 }
 
