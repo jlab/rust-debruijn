@@ -143,6 +143,74 @@ impl SampleInfo {
     }
 }
 
+fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32) {
+    let mut all_exts = Exts::empty();
+
+    let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+
+    let mut nobs = 0;
+    for (_, exts, d) in items {
+        out_data.push(d); 
+        all_exts = all_exts.add(exts);
+        nobs += 1;
+    }
+
+    out_data.sort();
+
+    let mut tag_counter = 1;
+    let mut tag_counts: Vec<u32> = Vec::new();
+
+    // count the occurences of the labels
+    for i in 1..out_data.len() {
+        if out_data[i] == out_data[i-1] {
+            tag_counter += 1;
+        } else {
+            tag_counts.push(tag_counter.clone());
+            tag_counter = 1;
+        }
+    }
+    tag_counts.push(tag_counter);
+
+    out_data.dedup();
+
+    (all_exts, out_data, tag_counts, nobs)
+}
+
+fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32, EdgeMult) {
+    let mut all_exts = Exts::empty();
+
+    let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+    let mut edge_mults = EdgeMult::new();
+
+    let mut nobs = 0;
+    for (_, exts, d) in items {
+        out_data.push(d); 
+        all_exts = all_exts.add(exts);
+        edge_mults.add_exts(exts);
+        nobs += 1;
+    }
+
+    out_data.sort();
+
+    let mut tag_counter = 1;
+    let mut tag_counts: Vec<u32> = Vec::new();
+
+    // count the occurences of the labels
+    for i in 1..out_data.len() {
+        if out_data[i] == out_data[i-1] {
+            tag_counter += 1;
+        } else {
+            tag_counts.push(tag_counter.clone());
+            tag_counter = 1;
+        }
+    }
+    tag_counts.push(tag_counter);
+
+    out_data.dedup();
+
+    (all_exts, out_data, tag_counts, nobs, edge_mults)
+}
+
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer
 pub fn round_digits(number: u32, digits: u32) -> u32 {
@@ -153,7 +221,7 @@ pub fn round_digits(number: u32, digits: u32) -> u32 {
 }
 
 // check if the k-mer is valid according to the GroupFrac rule and its n obs
-fn valid(tags: Tags, nobs: i32, config: &SummaryConfig) -> bool {
+fn valid(tags: Tags, nobs: u32, config: &SummaryConfig) -> bool {
     match config.group_frac {
         GroupFrac::None => nobs as usize >= config.min_kmer_obs,
         GroupFrac::Both => {
@@ -376,9 +444,9 @@ pub trait SummaryData<DI> {
     /// format the noda data in one line
     fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
     /// get `Vec<u8>` of the tags and the overall count, returns `None` if data is non-sufficient
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)>;
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)>;
     /// get `Tags` and the overall count, returns `None` if data is non-sufficient
-    fn tags_sum(&self) -> Option<(Tags, i32)>;
+    fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
     fn score(&self) -> f32;
     /// get the size of the structure, including contents of boxed slices
@@ -416,9 +484,9 @@ impl<DI> SummaryData<DI> for u32 {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
         *self as f32
@@ -478,9 +546,9 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
         format!("samples: {:?}", self).replace("\"", "\'")
     }
     
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
     
-    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
         1.
@@ -532,11 +600,11 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagsSumData {
     tags: Tags,
-    sum: i32,
+    sum: u32,
 }
 
 impl SummaryData<u8> for TagsSumData {
-    type Data = (Tags, i32);
+    type Data = (Tags, u32);
 
     fn new(data: Self::Data) -> Self {
         TagsSumData { tags: data.0, sum: data.1 }
@@ -552,13 +620,13 @@ impl SummaryData<u8> for TagsSumData {
         format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         // need to copy fields to local variable because repr(packed) results in unaligned struct
         let tags = self.tags;
         Some((tags.to_u8_vec(), self.sum))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum))
     }
 
@@ -593,9 +661,9 @@ impl SummaryData<u8> for TagsSumData {
 
         let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
 
-        let mut nobs = 0i32;
+        let mut nobs = 0u32;
         for (_, exts, d) in items {
-            out_data.push(d); // uses a shit ton of heap memory
+            out_data.push(d); 
             all_exts = all_exts.add(exts);
             nobs += 1;
         }
@@ -617,12 +685,12 @@ impl SummaryData<u8> for TagsSumData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsSumData {
     tags: Tags,
-    sum: i32,
+    sum: u32,
     counts: Box<[u32]>,
 }
 
 impl SummaryData<u8> for TagsCountsSumData {
-    type Data = (Tags, Box<[u32]>, i32);
+    type Data = (Tags, Box<[u32]>, u32);
 
     fn new(data: Self::Data) -> Self {
         TagsCountsSumData { tags: data.0, counts: data.1, sum: data.2 }
@@ -656,11 +724,11 @@ impl SummaryData<u8> for TagsCountsSumData {
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum, p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         Some((self.tags.to_u8_vec(), self.sum))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum))
     }
 
@@ -709,34 +777,7 @@ impl SummaryData<u8> for TagsCountsSumData {
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
+        let (all_exts, out_data, tag_counts, nobs) = summarize(items);
 
         let valid_p = match config.max_p {
             Some(max_p) => {
@@ -773,8 +814,8 @@ pub struct TagsCountsData {
 
 impl TagsCountsData {
     #[inline]
-    pub fn sum(&self) -> i32 {
-        self.counts.iter().sum::<u32>() as i32
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>() as u32
     }
 }
 
@@ -813,11 +854,11 @@ impl SummaryData<u8> for TagsCountsData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -866,34 +907,7 @@ impl SummaryData<u8> for TagsCountsData{
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
+        let (all_exts, out_data, tag_counts, nobs) = summarize(items);
 
         let valid_p = match config.max_p {
             Some(max_p) => {
@@ -931,8 +945,8 @@ pub struct TagsCountsPData {
 
 impl TagsCountsPData {
     #[inline]
-    pub fn sum(&self) -> i32 {
-        self.counts.iter().sum::<u32>() as i32
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>() as u32
     }
 }
 
@@ -971,11 +985,11 @@ impl SummaryData<u8> for TagsCountsPData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -1024,34 +1038,7 @@ impl SummaryData<u8> for TagsCountsPData{
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
+        let (all_exts, out_data, tag_counts, nobs) = summarize(items);
 
         // caluclate p-value with t-test
         let p_value = match config.stat_test {
@@ -1087,8 +1074,8 @@ pub struct TagsCountsEMData {
 
 impl TagsCountsEMData {
     #[inline]
-    pub fn sum(&self) -> i32 {
-        self.counts.iter().sum::<u32>() as i32
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>() as u32
     }
 }
 
@@ -1127,11 +1114,11 @@ impl SummaryData<u8> for TagsCountsEMData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -1182,36 +1169,7 @@ impl SummaryData<u8> for TagsCountsEMData{
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-        let mut edge_mults = EdgeMult::new();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            edge_mults.add_exts(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
+        let (all_exts, out_data, tag_counts, nobs, edge_mults) = summarize_with_em(items);
 
         let valid_p = match config.max_p {
             Some(max_p) => {
@@ -1250,8 +1208,8 @@ pub struct TagsCountsPEMData {
 
 impl TagsCountsPEMData {
     #[inline]
-    pub fn sum(&self) -> i32 {
-        self.counts.iter().sum::<u32>() as i32
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>() as u32
     }
 }
 
@@ -1290,11 +1248,11 @@ impl SummaryData<u8> for TagsCountsPEMData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> {
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
         Some((self.tags.to_u8_vec(), self.sum()))
     }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> {
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
 
@@ -1345,36 +1303,7 @@ impl SummaryData<u8> for TagsCountsPEMData{
     }
 
     fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-        let mut edge_mults = EdgeMult::new();
-
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
-
-        let mut nobs = 0i32;
-        for (_, exts, d) in items {
-            out_data.push(d); 
-            all_exts = all_exts.add(exts);
-            edge_mults.add_exts(exts);
-            nobs += 1;
-        }
-
-        out_data.sort();
-
-        let mut tag_counter = 1;
-        let mut tag_counts: Vec<u32> = Vec::new();
-
-        // count the occurences of the labels
-        for i in 1..out_data.len() {
-            if out_data[i] == out_data[i-1] {
-                tag_counter += 1;
-            } else {
-                tag_counts.push(tag_counter.clone());
-                tag_counter = 1;
-            }
-        }
-        tag_counts.push(tag_counter);
-
-        out_data.dedup();
+        let (all_exts, out_data, tag_counts, nobs, edge_mults) = summarize_with_em(items);
 
         // caluclate p-value with chosen test
         let p_value = match config.stat_test {
@@ -1428,9 +1357,9 @@ impl SummaryData<u8> for GroupCountData {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
         self.sum() as f32
@@ -1461,7 +1390,7 @@ impl SummaryData<u8> for GroupCountData {
         let mut count1 = 0;
         let mut count2 = 0;
 
-        let mut nobs = 0i32;
+        let mut nobs = 0u32;
         for (_, exts, d) in items {
             let tag = (2 as M).pow(d as u32);
             let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
@@ -1515,9 +1444,9 @@ impl SummaryData<u8> for RelCountData {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, i32)> { None }
+    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
 
-    fn tags_sum(&self) -> Option<(Tags, i32)> { None }
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
         self.count as f32
@@ -1548,7 +1477,7 @@ impl SummaryData<u8> for RelCountData {
         let mut count1 = 0;
         let mut count2 = 0;
 
-        let mut nobs = 0i32;
+        let mut nobs = 0u32;
         for (_, exts, d) in items {
             let tag = (2 as M).pow(d as u32);
             let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
@@ -2155,12 +2084,12 @@ mod test {
 
         let tags = Tags::from_u8_vec(vec![0, 2, 6]);
         let counts: Box<[u32]> = [1, 3, 5].into();
-        let sum = counts.iter().sum::<u32>() as i32;
+        let sum = counts.iter().sum::<u32>() as u32;
         graph.add(DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
 
         let tags = Tags::from_u8_vec(vec![0]);
         let counts: Box<[u32]> = [1].into();
-        let sum = counts.iter().sum::<u32>() as i32;
+        let sum = counts.iter().sum::<u32>() as u32;
         graph.add(DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
                 
         
