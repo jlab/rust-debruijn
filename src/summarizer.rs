@@ -75,15 +75,19 @@ impl SummaryConfig {
         self.stat_test = stat_test;
     }
 
+    /// get the binary encoded group affiliation of tags
     pub fn get_markers(&self) -> (M, M) {
         self.sample_info.get_markers()
     }
 
+    /// get the [`SampleInfo`] stored in the `SummaryConfig`
     pub fn sample_info(&self) -> &SampleInfo {
         &self.sample_info
     }
 }
 
+/// In how many of the two sample groups does a specified percentage of the samples 
+/// have to be present
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
 pub enum GroupFrac {
     None, 
@@ -101,6 +105,7 @@ impl std::fmt::Display for GroupFrac {
     }
 }
 
+/// Statistical test for calculation of p-values
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
 pub enum StatTest {
     StudentsTTest,
@@ -120,6 +125,32 @@ impl std::fmt::Display for StatTest {
     
 }
 
+/// contains information about the samples required for graph construction
+/// 
+/// ### Example:
+/// 
+/// - Sample IDs in group 1: 0, 1, 2
+/// - Sample IDs in group 2: 3, 4, 5, 6
+/// 
+/// ```
+/// use debruijn::summarizer::{SampleInfo, M};
+/// 
+/// let marker0: M = 0b0000111; // = 7
+/// let marker1: M = 0b1111000; // = 120
+/// 
+/// let count0: u8 = 3;
+/// let count1: u8 = 4;
+/// 
+/// let sample_kmers = vec![1232, 12323, 24342, 24234, 345456, 21234, 546456];
+/// 
+/// assert_eq!(marker0.count_ones(), count0 as u32);
+/// assert_eq!(marker0.count_ones(), count0 as u32);
+/// assert_eq!(count0 + count1, sample_kmers.len() as u8);
+/// 
+/// let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+/// 
+/// ```
+/// 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleInfo {
     marker0: M,
@@ -130,19 +161,35 @@ pub struct SampleInfo {
 }
 
 impl SampleInfo {
+    /// make a new [`SampleInfo`]
+    /// 
+    /// ### Arguments
+    /// * `marker0`: a [`M`] which binary-encodes the affiliation of the tags to a group
+    /// * `marker1`: same as `marker0`, for a second group
+    /// * `count0`: the number of samples in group 1
+    /// * `count1`: the number of samples in group 2
+    /// * `sample_kmers`: a [`Vec<u64>`] containing numbers of non-unique k-mers for each sample
+    /// at the index of the sample-id
     pub fn new(marker0: M, marker1: M, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
+        assert_eq!(marker0.count_ones(), count0 as u32);
+        assert_eq!(marker0.count_ones(), count0 as u32);
+        assert_eq!(count0+count1, sample_kmers.len() as u8);
+
         SampleInfo { marker0, marker1, count0, count1, sample_kmers }
     }
 
+    /// make a new, empty [`SampleInfo`]
     pub fn empty() -> Self {
         SampleInfo { marker0: 0, marker1: 0, count0: 0, count1: 0, sample_kmers: Vec::new() }
     }
 
+    /// get the binary encoded group affiliation of tags
     pub fn get_markers(&self) -> (M, M) {
         (self.marker0, self.marker1)
     }
 }
 
+/// summarize the k-mers, exts and labels
 fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32) {
     let mut all_exts = Exts::empty();
 
@@ -176,6 +223,7 @@ fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, 
     (all_exts, out_data, tag_counts, nobs)
 }
 
+/// summarize the k-mers, exts and labels, also include an [`EdgeMult`]
 fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32, EdgeMult) {
     let mut all_exts = Exts::empty();
 
@@ -1511,7 +1559,7 @@ impl SummaryData<u8> for RelCountData {
 
 #[cfg(test)]
 mod test {
-    use std::{fmt::Debug, fs::File, io::BufReader, time};
+    use std::{fmt::Debug, fs::File, io::BufReader};
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
@@ -1789,49 +1837,23 @@ mod test {
         ];
 
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
-
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5);
 
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
         assert_eq!((summarized_w.2.p_value * 1000.).round() as u32, 1);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 5);
 
-        let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
+        let summarized_tc = TagsCountsData::summarize(input.into_iter(), &config_t);
+        assert_eq!((summarized_tc.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+        assert_eq!((summarized_tc.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
+        assert_eq!((summarized_tc.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
 
-        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
-
-        let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
-        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
-
-        let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
-        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
-
-        let summarized_t = TagsCountsSumData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
-
-        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
-
-        let summarized_w = TagsCountsSumData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
-        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
-
-        let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
-        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
+        let summarized_tcs = TagsCountsSumData::summarize(input.into_iter(), &config_t);
+        assert_eq!((summarized_tcs.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+        assert_eq!((summarized_tcs.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
+        assert_eq!((summarized_tcs.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
 
 
         let input = [
@@ -1843,14 +1865,12 @@ mod test {
         ];
 
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
+        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
 
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2345);
-
-        let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2345);
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 2238);
+        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 2238);
 
 
         let input = [
@@ -1863,18 +1883,12 @@ mod test {
         ];
 
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
-
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5995);
 
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 6040);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 575);
 
 
@@ -1888,18 +1902,12 @@ mod test {
         ];
 
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
-
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 924);
 
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 913);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 93);
 
 
@@ -1936,60 +1944,26 @@ mod test {
             (Kmer8::from_u64(12), Exts::new(1), 0u8),
         ];
 
-        let start = time::Instant::now();
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
-        let stop = start.elapsed();
-        println!("stundent's t-test summary (ns): {}", stop.as_nanos());
-        println!("{:?}", summarized_t);
-
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 2955);
 
-        let start = time::Instant::now();
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
-        let stop = start.elapsed();
-        println!("welch's t-test summary (ns): {}", stop.as_nanos());
-        println!("{:?}", summarized_w);
-        
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 4113);
 
-        let start = time::Instant::now();
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
-        let stop = start.elapsed();
-        println!("mw u-test summary (ns): {}", stop.as_nanos());
-        println!("{:?}", summarized_u);
-
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 862);
 
-        let summarized_t = TagsCountsData::summarize(input.into_iter(), &config_t);
-        println!("{:?}", summarized_t);
-
-        let start = time::Instant::now();
-        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
-        let stop = start.elapsed();
-        println!("stundent's t-test calc (ns): {}", stop.as_nanos());
-
-        let summarized_w = TagsCountsData::summarize(input.into_iter(), &config_w);
-        println!("{:?}", summarized_w);
-
-        let start = time::Instant::now();
-        assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 4113);
-        let stop = start.elapsed();
-        println!("welch's t-test calc (ns): {}", stop.as_nanos());
-
-        let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
-        println!("{:?}", summarized_u);
-
-        let start = time::Instant::now();
-        assert_eq!((summarized_u.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 862);
-        let stop = start.elapsed();
-        println!("mw u-test calc (ns): {}", stop.as_nanos());
+        let summarized_tc = TagsCountsData::summarize(input.into_iter(), &config_t);
+        assert_eq!((summarized_tc.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
+        assert_eq!((summarized_tc.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 4113);
+        assert_eq!((summarized_tc.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 862);
 
         /*
         group 1: 000000100 = 4
         group 2: 000000011 = 3
          */
 
-        let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let sample_kmers = vec![1, 1, 1];
         let sample_info = SampleInfo::new(4, 4, 1, 2, sample_kmers);
         let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::StudentsTTest);
         let config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::WelchsTTest);
@@ -2014,14 +1988,10 @@ mod test {
         let summarized_u = TagsCountsData::summarize(input.into_iter(), &config_u);
         assert_eq!(summarized_u.2.p_value(&config_u), None);
         
-        let summarized_t = TagsCountsSumData::summarize(input.into_iter(), &config_t);
-        assert_eq!(summarized_t.2.p_value(&config_t), None);
-
-        let summarized_w = TagsCountsSumData::summarize(input.into_iter(), &config_w);
-        assert_eq!(summarized_w.2.p_value(&config_w), None);
-
-        let summarized_u = TagsCountsSumData::summarize(input.into_iter(), &config_u);
-        assert_eq!(summarized_u.2.p_value(&config_u), None);
+        let summarized_tcs = TagsCountsSumData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized_tcs.2.p_value(&config_t), None);
+        assert_eq!(summarized_tcs.2.p_value(&config_w), None);
+        assert_eq!(summarized_tcs.2.p_value(&config_u), None);
 
     }
 
@@ -2097,7 +2067,7 @@ mod test {
 
         graph.print();
 
-        let sample_kmers = vec![123, 234, 12334, 34];
+        let sample_kmers = vec![123, 234, 12334, 34, 1232, 123, 123, 34];
         let sample_info = SampleInfo::new(0b00100101, 0b11011010, 3, 5, sample_kmers);
         let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::StudentsTTest);
 

@@ -862,31 +862,18 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
     }
 }
 
-/// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
-#[cfg(feature = "sample128")]
-pub struct Tags {
-    pub val: u128,
-}
 
-/// Compress the tags to one u64 (8 bytes)
+/// Compress up to 64 tags to one `u64` (8 bytes) (or up to 128 tags to a  
+/// `u128`(16 bytes) with the feature `sample128` enabled)
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
-#[cfg(not(feature = "sample128"))]
 pub struct Tags {
-    pub val: u64,
+    pub val: M,
 }
 
 impl Tags {
 
-    /// Make a new Tags from a u64
-    #[cfg(not(feature = "sample128"))]
-    pub fn new(val: u64) -> Self {
-        return Tags { val }
-    }
-
-    /// Make a new Tags from a u64
-    #[cfg(feature = "sample128")]
-    pub fn new(val: u128) -> Self {
+    /// Make a new Tags from a `u64` (or `u128` with the feature `sample128` enabled)
+    pub fn new(val: M) -> Self {
         return Tags { val }
     }
 
@@ -1049,7 +1036,7 @@ impl<'a> fmt::Display for TagsCountsFormatter<'a> {
     }
 }
 
-/// edge multiplicities
+/// multiplicigties for each of the 8 possible edges
 /// indices: 
 /// 0: A left
 /// 1: C left
