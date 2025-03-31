@@ -2049,6 +2049,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(feature = "sample128"))]
     fn test_data_valid() {
         let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
 

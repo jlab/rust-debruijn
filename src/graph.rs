@@ -1783,6 +1783,7 @@ mod test {
     use super::DebruijnGraph;
 
     #[test]
+    #[cfg(not(feature = "sample128"))]
     fn test_components() {
         let path = "400.graph.dbg";
         let file = BufReader::with_capacity(64*1024, File::open(path).unwrap());
