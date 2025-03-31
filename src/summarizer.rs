@@ -1565,7 +1565,7 @@ mod test {
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, students_t_test, u_test, GroupCountData, GroupFrac, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, students_t_test, u_test, GroupCountData, GroupFrac, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, M}, Exts, Kmer, Tags};
 
     use super::{log2_fold_change, SummaryConfig, TagsCountsSumData};
 
@@ -2000,8 +2000,8 @@ mod test {
         let tags: Vec<u8> = vec![0, 1, 2, 3, 4, 7, 8, 9];
         let test_counts: Vec<u32> = vec![3, 1, 4, 6, 9, 7, 3, 8];
 
-        let m0: u64 = 0b1111111111110000000;
-        let m1: u64 = 0b0000000000001111111;
+        let m0: M = 0b1111111111110000000;
+        let m1: M = 0b0000000000001111111;
         let c0: u32 = 12;
         let c1: u32 = 7;
 
@@ -2024,8 +2024,8 @@ mod test {
         let tags: Vec<u8> = vec![0, 1];
         let test_counts: Vec<u32> = vec![3, 1];
 
-        let m0: u64 = 0b100;
-        let m1: u64 = 0b011;
+        let m0: M = 0b100;
+        let m1: M = 0b011;
         let c0: u32 = 1;
         let c1: u32 = 2;
 
