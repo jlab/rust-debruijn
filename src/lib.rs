@@ -1172,8 +1172,10 @@ mod tests {
         assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
 
         let exts = Exts::new(0);
+        let comp = [3, 1, 1, 1, 1, 1, 78990, 1];
         edge_mult.add_exts(exts);
-        assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
+        assert_eq!(edge_mult.edge_mults, comp);
+        assert_eq!(edge_mult.sum(), comp.iter().sum::<u32>());
 
         let exts = Exts::new(0b10101010);
         edge_mult.add_exts(exts);

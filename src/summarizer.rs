@@ -1195,8 +1195,6 @@ impl SummaryData<u8> for TagsCountsEMData{
             nobs += 1;
         }
 
-        assert_eq!(nobs as u32, edge_mults.sum());
-
         out_data.sort();
 
         let mut tag_counter = 1;
@@ -1359,8 +1357,6 @@ impl SummaryData<u8> for TagsCountsPEMData{
             edge_mults.add_exts(exts);
             nobs += 1;
         }
-
-        assert_eq!(nobs as u32, edge_mults.sum());
 
         out_data.sort();
 
