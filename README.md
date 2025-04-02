@@ -1,3 +1,6 @@
+[![unit tests](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml/badge.svg)](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml) 
+[![Coverage Status](https://coveralls.io/repos/github/jlab/rust-debruijn/badge.svg?branch=master)](https://coveralls.io/github/jlab/rust-debruijn?branch=master)
+
 # rust-debruijn
 De Bruijn graph construction & path compression libraries.
 
