@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          toolchain: stable
       - name: Build
         run: cargo build --release
       - name: build rust tests
@@ -29,8 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          toolchain: stable
       - name: Install cargo-llvm-cov 
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
