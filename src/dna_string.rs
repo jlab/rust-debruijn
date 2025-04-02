@@ -117,7 +117,7 @@ impl Vmer for DnaString {
     }
 
     fn max_len() -> usize {
-        <usize>::max_value()
+        <usize>::MAX
     }
 
     /// Get the kmer starting at position pos
@@ -573,7 +573,7 @@ pub struct DnaStringIter<'a> {
     i: usize,
 }
 
-impl<'a> Iterator for DnaStringIter<'a> {
+impl Iterator for DnaStringIter<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {
@@ -625,7 +625,7 @@ pub struct DnaStringSlice<'a> {
     pub is_rc: bool,
 }
 
-impl<'a> PartialEq for DnaStringSlice<'a> {
+impl PartialEq for DnaStringSlice<'_> {
     fn eq(&self, other: &DnaStringSlice) -> bool {
         if other.length != self.length {
             return false;
@@ -638,7 +638,7 @@ impl<'a> PartialEq for DnaStringSlice<'a> {
         true
     }
 }
-impl<'a> Eq for DnaStringSlice<'a> {}
+impl Eq for DnaStringSlice<'_> {}
 
 impl<'a> Mer for DnaStringSlice<'a> {
     #[inline(always)]
@@ -681,13 +681,13 @@ impl<'a> Mer for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> Vmer for DnaStringSlice<'a> {
+impl Vmer for DnaStringSlice<'_> {
     fn new(_: usize) -> Self {
         unimplemented!()
     }
 
     fn max_len() -> usize {
-        <usize>::max_value()
+        <usize>::MAX
     }
 
     /// Get the kmer starting at position pos
@@ -704,7 +704,7 @@ impl<'a> Vmer for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> DnaStringSlice<'a> {
+impl DnaStringSlice<'_> {
     pub fn is_palindrome(&self) -> bool {
         unimplemented!();
     }
@@ -799,7 +799,7 @@ impl<'a> DnaStringSlice<'a> {
     }
 }
 
-impl<'a> fmt::Display for DnaStringSlice<'a> {
+impl fmt::Display for DnaStringSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for pos in 0..self.length {
             write!(f, "{}", bits_to_base(self.get(pos)))?;
@@ -808,7 +808,7 @@ impl<'a> fmt::Display for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> fmt::Debug for DnaStringSlice<'a> {
+impl fmt::Debug for DnaStringSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
         if self.length < 256 {

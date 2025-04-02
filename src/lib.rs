@@ -503,7 +503,7 @@ impl Vmer for DnaBytes {
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DnaSlice<'a>(pub &'a [u8]);
 
-impl<'a> Mer for DnaSlice<'a> {
+impl Mer for DnaSlice<'_> {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -536,7 +536,7 @@ impl<'a> Mer for DnaSlice<'a> {
     }
 }
 
-impl<'a> Vmer for DnaSlice<'a> {
+impl Vmer for DnaSlice<'_> {
     /// Create a new sequence with length `len`, initialized to all A's
     fn new(_len: usize) -> Self {
         unimplemented!();
@@ -796,7 +796,7 @@ where
     pos: usize,
 }
 
-impl<'a, K: Kmer, D: Mer> Iterator for KmerIter<'a, K, D> {
+impl<K: Kmer, D: Mer> Iterator for KmerIter<'_, K, D> {
     type Item = K;
 
     #[inline]
@@ -827,7 +827,7 @@ where
     pos: usize,
 }
 
-impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
+impl<K: Kmer, D: Mer> Iterator for KmerExtsIter<'_, K, D> {
     type Item = (K, Exts);
 
     fn next(&mut self) -> Option<(K, Exts)> {
@@ -874,24 +874,17 @@ impl Tags {
 
     /// Make a new Tags from a `u64` (or `u128` with the feature `sample128` enabled)
     pub fn new(val: M) -> Self {
-        return Tags { val }
+        Tags { val }
     }
 
     /// get number of labels saved in the Tags
     pub fn len(&self) -> usize {
-        let mut len = 0;
-        let mut x = self.val;
+        self.val.count_ones() as usize
+    }
 
-        // do bit-wise right shifts trough u64
-        // each time first digit is 1 (is an odd number), add 1 to len
-        for _i in 0..(mem::size_of::<Tags>()*8) as u8 {
-            if x % 2 != 0 {
-                len += 1;
-            }
-            x >>= 1;
-        }
-
-        len
+    /// check if the tags are empty
+    pub fn is_empty(&self) -> bool {
+        self.val == 0
     }
 
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
@@ -912,7 +905,7 @@ impl Tags {
         x += 1;
         x <<= vec[0];
 
-        return Tags { val: x }
+        Tags { val: x }
     }
 
     // turn Tags into Vec<u8>
@@ -929,7 +922,7 @@ impl Tags {
             x >>= 1;
         }
 
-        return vec
+        vec
     }
 
     // directly translate Tags to Vec<&str>
@@ -942,7 +935,7 @@ impl Tags {
         for i in 0..(mem::size_of::<Tags>()*8) as u8 {
             // check if odd number: current first bit is 1
             if x % 2 != 0 {
-                match str_map.get_by_right(&(i as u8)) {
+                match str_map.get_by_right(&{ i }) {
                     Some(label) => vec.push(label),
                     None => panic!("tried to access label that does not exist!"),
                 }
@@ -950,7 +943,7 @@ impl Tags {
             // shift the u64 bitise to rotate though it
             x >>= 1;
         }
-        return vec    
+        vec    
     }
 
 
@@ -986,7 +979,7 @@ impl<'a> TagsFormatter<'a> {
     }
 }
 
-impl<'a> fmt::Display for TagsFormatter<'a> {
+impl fmt::Display for TagsFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let tag_vec = self.tags.to_string_vec(self.tag_translator);
 
@@ -1008,12 +1001,12 @@ impl fmt::Debug for Tags {
 
 pub struct TagsCountsFormatter<'a> {
     tags: Tags,
-    counts: &'a Box<[u32]>,
+    counts: &'a [u32],
     tag_translator: &'a BiMap<String, u8>
 }
 
 impl<'a> TagsCountsFormatter<'a> {
-    pub fn new(tags: Tags, counts: &'a Box<[u32]>, tag_translator: &'a BiMap<String, u8>) -> TagsCountsFormatter<'a> {
+    pub fn new(tags: Tags, counts: &'a [u32], tag_translator: &'a BiMap<String, u8>) -> TagsCountsFormatter<'a> {
         TagsCountsFormatter {
             tags,
             counts,
@@ -1022,7 +1015,7 @@ impl<'a> TagsCountsFormatter<'a> {
     }
 }
 
-impl<'a> fmt::Display for TagsCountsFormatter<'a> {
+impl fmt::Display for TagsCountsFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let tag_vec = self.tags.to_string_vec(self.tag_translator);
 
@@ -1129,6 +1122,12 @@ impl EdgeMult {
         };
 
         self.edge_mults[index as usize]
+    }
+}
+
+impl Default for EdgeMult {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

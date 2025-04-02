@@ -3,7 +3,7 @@ use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::{mem, str, usize};
+use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
@@ -45,7 +45,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     pub fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + size_of_val(&*self.exts)
+        mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + size_of_val(&*self.exts)
     }
 
     /// Adds a new read to the `Reads`
@@ -314,9 +314,15 @@ impl<D: Clone + Copy> Reads<D> {
         for element in self.storage.iter() {
             print!("{:#066b} - ", element)
         }
-        println!("")
+        println!()
     }
 
+}
+
+impl<D: Clone + Copy> Default for Reads<D> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 
@@ -330,7 +336,7 @@ pub struct ReadsIter<'a, D> {
     length: usize,
 }
 
-impl<'a, D: Clone + Copy> Iterator for ReadsIter<'a, D> {
+impl<D: Clone + Copy> Iterator for ReadsIter<'_, D> {
     type Item = (DnaString, Exts, D);
 
     fn next(&mut self) -> Option<(DnaString, Exts, D)> {
@@ -397,7 +403,7 @@ mod tests {
 
          assert_eq!(reads.storage, vec![1791212948343256433, 5140577499666710528]);
 
-        for i in 0..fastq.len() {
+        for (i, _) in fastq.iter().enumerate() {
             //println!("read {}: {:?}", i, reads.get_read(i))
             assert_eq!(fastq[i], reads.get_read(i).unwrap())
         }
@@ -405,7 +411,7 @@ mod tests {
         for (seq, _, _) in reads.iter() {
             println!("{:?}, {}", seq, seq.len())
         }
-        println!("");
+        println!();
 
         for read in reads.partial_iter(5..7) {
             println!("{:?}", read)

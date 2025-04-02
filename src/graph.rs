@@ -508,12 +508,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
             let mut best_node = current_comp[0];
             let mut best_score = f32::MIN;
-            for i in 0..current_comp.len() {
-                let node = self.get_node(current_comp[i]);
+            for c in current_comp.iter() {
+                let node = self.get_node(*c);
                 let node_score = score(node.data());
 
                 if node_score > best_score {
-                    best_node = current_comp[i];
+                    best_node = *c;
                     best_score = node_score;
                 }
             }
@@ -593,7 +593,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     F2: Fn(&D) -> bool
     {
         let component_iterator = self.iter_components();
-        PathCompIter { graph: &self, component_iterator, graph_pos: 0, score, solid_path }
+        PathCompIter { graph: self, component_iterator, graph_pos: 0, score, solid_path }
     }
 
     /// write the paths from `iter_max_path_comp` to a fasta file
@@ -604,13 +604,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     {
         // width of fasta lines
         let columns = 80;
-        // numerical ID of path seq
-        let mut seq_counter = 0;
+
         // sizes of components and of paths
         let mut comp_sizes = Vec::new();
         let mut path_lens = Vec::new();
 
-        for (component, path) in path_iter {
+        for (seq_counter, (component, path)) in path_iter.enumerate() {
             // get dna sequence from path
             let seq = self.sequence_of_path(path.iter());
 
@@ -634,8 +633,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for range in ranges {
                 writeln!(f, "{:?}", seq.slice(range.start, range.end)).unwrap();
             }
-
-            seq_counter += 1;
 
             if return_lens {
                 comp_sizes.push(component.len());
@@ -849,7 +846,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         for (_, target, dir, _) in node.l_edges() {
-            if target >= node.node_id as usize {
+            if target >= node.node_id {
                 let to_dir = match dir {
                     Dir::Left => "+",
                     Dir::Right => "-",
@@ -866,7 +863,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         for (_, target, dir, _) in node.r_edges() {
-            if target > node.node_id as usize {
+            if target > node.node_id {
                 let to_dir = match dir {
                     Dir::Left => "+",
                     Dir::Right => "-",
@@ -936,7 +933,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format, with multithreading, 
     /// pass `tag_func=None` to write without tags
-    pub fn to_gfa_otags_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<'_, K, D>) -> String>(
+    pub fn to_gfa_otags_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<'_, K, D>) -> String + Sync>(
         &self,
         gfa_out: P,
         tag_func: Option<&F>,
@@ -944,7 +941,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     where 
     K: Sync,
     D: Sync,
-    F: Sync
     {
         // split into ranges according to thread count
         let slices = current_num_threads();
@@ -1316,7 +1312,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
     }
 
-    fn component_i<'a>(&'a self, visited: &'a mut Vec<bool>, i: usize) -> Vec<usize> {
+    fn component_i<'a>(&'a self, visited: &'a mut [bool], i: usize) -> Vec<usize> {
         let mut edges: Vec<usize> = Vec::new();
         let mut comp: Vec<usize> = Vec::new();
 
@@ -1613,7 +1609,7 @@ impl<'a, K: Kmer, D> fmt::Debug for Node<'a, K, D> where D:Debug {
 }
 */
 
-impl<'a, K: Kmer, D> fmt::Debug for Node<'a, K, D>
+impl<K: Kmer, D> fmt::Debug for Node<'_, K, D>
 where
     D: Debug,
 {
@@ -1650,7 +1646,7 @@ impl<K: Kmer, D: Debug> Iterator for IterComponents<'_, K, D> {
             }
         }
         assert!(self.visited.iter().map(|x| *x as usize).sum::<usize>() == self.graph.len());
-        return None
+        None
     }
     
 }
@@ -1683,12 +1679,12 @@ F2: Fn(&D) -> bool
         
                     let mut best_node = current_comp[0];
                     let mut best_score = f32::MIN;
-                    for i in 0..current_comp.len() {
-                        let node = self.graph.get_node(current_comp[i]);
+                    for c in current_comp.iter() {
+                        let node = self.graph.get_node(*c);
                         let node_score = (self.score)(node.data());
         
                         if node_score > best_score {
-                            best_node = current_comp[i];
+                            best_node = *c;
                             best_score = node_score;
                         }
                     }
@@ -1770,7 +1766,7 @@ F2: Fn(&D) -> bool
                 }
             };
         } 
-        return None
+        None
     }
 }
 

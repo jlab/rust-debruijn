@@ -19,7 +19,6 @@ pub fn random_base(r: &mut impl Rng) -> u8 {
 pub fn random_dna(len: usize) -> Vec<u8> {
     let mut r = rand::thread_rng();
     (0..len)
-        .into_iter()
         .map(|_| (r.next_u64() % 4) as u8)
         .collect()
 }
@@ -256,14 +255,14 @@ mod tests {
         );
 
         let spec =
-            SimpleCompress::new(|d1: u32, d2: &u32| ((d1 as u32 + *d2 as u32) % 65535) as u32);
+            SimpleCompress::new(|d1: u32, d2: &u32| ((d1 + *d2) % 65535));
         let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
             from_kmers.print();
         }
-        assert!(from_kmers.is_compressed(&spec) == None);
+        assert!(from_kmers.is_compressed(&spec).is_none());
 
         // Create a DBG with one node per input kmer
         let mut base_graph: BaseGraph<K, u16> = BaseGraph::new(stranded);
@@ -283,7 +282,7 @@ mod tests {
             simp_dbg.print();
         }
 
-        assert!(simp_dbg.is_compressed(&spec) == None);
+        assert!(simp_dbg.is_compressed(&spec).is_none());
 
         let total_kmers = valid_kmers.len();
 
@@ -338,7 +337,7 @@ mod tests {
 
         // kmer set from bsps
         let mut msp_kmers = HashSet::new();
-        for &(ref v, _, _) in seqs.iter() {
+        for (v, _, _) in seqs.iter() {
             for k in v.iter_kmers::<K>() {
                 msp_kmers.insert(k.min_rc());
             }

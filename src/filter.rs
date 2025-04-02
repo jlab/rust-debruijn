@@ -38,7 +38,7 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
 }
 
 fn lin_quant(p: f32, m: f32, b: f32) -> f32 {
-    return ((b * b + 2. * m * p).sqrt() - b) / m
+    ((b * b + 2. * m * p).sqrt() - b) / m
 }
 
 fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
@@ -57,7 +57,7 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
         if ubound > lbound && lbound < buckets { bucket_ranges_lin.push(lbound..ubound) };
     }
 
-    return bucket_ranges_lin
+    bucket_ranges_lin
 }
 
 
@@ -81,7 +81,7 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 ///
 /// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
 /// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
-/// information necessary for the filtering
+///    information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
 ///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
 ///   to the lexicographic minimum of the kmer and it's reverse complement.
@@ -316,7 +316,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
                     // check if bucket is in current range and if so, push kmer to bucket
                     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                     if in_range {
-                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, d.clone()));
+                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, *d));
                     }
                 }
 
@@ -380,7 +380,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
             // if there are valid k-mers in this bucket, append them to the shared target vectors
             // important that this is done in one step so each kmer has the same index with its exts and data
-            if valid_kmers.len() > 0 {
+            if !valid_kmers.is_empty() {
 
                 let _stv_clone = Arc::clone(&shared_target_vecs);
                 let mut stv = shared_target_vecs.lock().expect("lock target vectors");
@@ -396,7 +396,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
             }
 
             // if kmers were collected into all_kmers, append them to shared target vector
-            if all_kmers.len() > 0 {
+            if !all_kmers.is_empty() {
                 let _stv_clone = Arc::clone(&shared_target_vecs);
                 let mut stv = shared_target_vecs.lock().expect("lock target vectors");
                 // all kmers
@@ -682,7 +682,7 @@ where
                 // check if bucket is in current range and if so, push kmer to bucket
                 let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
                 if in_range {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, d.clone()));
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, *d));
                 }
             }
         }

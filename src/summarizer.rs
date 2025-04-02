@@ -169,7 +169,7 @@ impl SampleInfo {
     /// * `count0`: the number of samples in group 1
     /// * `count1`: the number of samples in group 2
     /// * `sample_kmers`: a [`Vec<u64>`] containing numbers of non-unique k-mers for each sample
-    /// at the index of the sample-id
+    ///    at the index of the sample-id
     pub fn new(marker0: M, marker1: M, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
         assert_eq!(marker0.count_ones(), count0 as u32);
         assert_eq!(marker0.count_ones(), count0 as u32);
@@ -212,7 +212,7 @@ fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, 
         if out_data[i] == out_data[i-1] {
             tag_counter += 1;
         } else {
-            tag_counts.push(tag_counter.clone());
+            tag_counts.push(tag_counter);
             tag_counter = 1;
         }
     }
@@ -248,7 +248,7 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, V
         if out_data[i] == out_data[i-1] {
             tag_counter += 1;
         } else {
-            tag_counts.push(tag_counter.clone());
+            tag_counts.push(tag_counter);
             tag_counter = 1;
         }
     }
@@ -305,7 +305,7 @@ fn valid(tags: Tags, nobs: u32, config: &SummaryConfig) -> bool {
 }
 
 // perform a student's t-test
-fn students_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn students_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -323,8 +323,8 @@ fn students_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &Samp
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
     }
 
-    let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
-    let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
+    let mean0 = counts_g0.iter().sum::<f64>() / n0;
+    let mean1 = counts_g1.iter().sum::<f64>() / n1;
 
     let df = n0 + n1 - 2.;
 
@@ -343,7 +343,7 @@ fn students_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &Samp
 }
 
 // perform a welch's t-test
-fn welchs_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn welchs_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -361,8 +361,8 @@ fn welchs_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &Sample
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
     }
 
-    let mean0 = counts_g0.iter().sum::<f64>() as f64 / n0;
-    let mean1 = counts_g1.iter().sum::<f64>() as f64 / n1;
+    let mean0 = counts_g0.iter().sum::<f64>() / n0;
+    let mean1 = counts_g1.iter().sum::<f64>() / n1;
 
     let s0 = (counts_g0.iter().map(|count| (*count - mean0).powi(2)).sum::<f64>() + (n0 - counts_g0.len() as f64) * mean0.powi(2)) / (n0 - 1.);
     let s1 = (counts_g1.iter().map(|count| (*count - mean1).powi(2)).sum::<f64>() + (n1 - counts_g1.len() as f64) * mean1.powi(2)) / (n1 - 1.);
@@ -387,7 +387,7 @@ fn welchs_t_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &Sample
 }
 
 // perform a mann-whitney-u-test
-fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn u_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
 
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
@@ -429,7 +429,7 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     for chunk in chunked {
         let rank = (chunk.len() + 1) as f64 / 2. + ranks.len() as f64;
         ranks.append(&mut chunk.iter().map(|(g, _)| (*g, rank)).collect());
-        if chunk.len() > 0 {
+        if !chunk.is_empty() {
             tie_factor += (chunk.len().pow(3) - chunk.len()) as f64;
         }
     }
@@ -445,7 +445,7 @@ fn u_test(out_data: &Vec<u8>, tag_counts: &Vec<u32>, sample_info: &SampleInfo) -
     let u0 = rank_sum0 - n0 * (n0 + 1.) / 2.;
     let u1 = rank_sum1 - n1 * (n1 + 1.) / 2.;
     
-    let u = min_by(u0, u1, |a, b| a.total_cmp(&b));
+    let u = min_by(u0, u1, |a, b| a.total_cmp(b));
 
     let s = ((n0 * n1 * (n + 1.) / 12.) - (n0 * n1 * tie_factor / (12. * n * (n - 1.)))).sqrt();
     //let s = ((n0 * n1 / 12.) * ((n + 1.) - (tie_factor / n * (n - 1.)))).sqrt();
@@ -491,21 +491,19 @@ pub trait SummaryData<DI> {
     fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
     fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
-    /// get `Vec<u8>` of the tags and the overall count, returns `None` if data is non-sufficient
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)>;
-    /// get `Tags` and the overall count, returns `None` if data is non-sufficient
+    /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
     fn score(&self) -> f32;
     /// get the size of the structure, including contents of boxed slices
     fn mem(&self) -> usize;
-    /// get the number of observations, returns `None` if data is non-sufficient
+    /// get the number of observations, returns `None` if data is insufficient
     fn count(&self) -> Option<usize>;
-    /// get the p-value, returns `None` if data is non-sufficient
+    /// get the p-value, returns `None` if data is insufficient
     fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
-    /// get the log2(fold change), returns `None` if data is non-sufficient
+    /// get the log2(fold change), returns `None` if data is insufficient
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32>;
-    /// get the number of samples the sequence was observed in, returns `None` if data is non-sufficient
+    /// get the number of samples the sequence was observed in, returns `None` if data is insufficient
     fn sample_count(&self) -> Option<usize>;
     /// get edge multiplicities
     fn edge_mults(&self) -> Option<&EdgeMult>;
@@ -532,8 +530,6 @@ impl<DI> SummaryData<DI> for u32 {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
@@ -541,7 +537,7 @@ impl<DI> SummaryData<DI> for u32 {
     }
 
     fn mem(&self) -> usize {
-        mem::align_of_val(&*self)
+        mem::align_of_val(self)
     }
 
     fn count(&self) -> Option<usize> {
@@ -593,9 +589,7 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
     fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         format!("samples: {:?}", self).replace("\"", "\'")
     }
-    
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
-    
+
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
@@ -603,7 +597,7 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&**self) + mem::size_of_val(&*self)
+        mem::size_of_val(&**self) + mem::size_of_val(self)
     }
 
     fn count(&self) -> Option<usize> { None }
@@ -668,12 +662,6 @@ impl SummaryData<u8> for TagsSumData {
         format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        // need to copy fields to local variable because repr(packed) results in unaligned struct
-        let tags = self.tags;
-        Some((tags.to_u8_vec(), self.sum))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum))
     }
@@ -683,7 +671,7 @@ impl SummaryData<u8> for TagsSumData {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self)
+        mem::size_of_val(self)
     }
 
     fn count(&self) -> Option<usize> {
@@ -772,10 +760,6 @@ impl SummaryData<u8> for TagsCountsSumData {
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum, p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        Some((self.tags.to_u8_vec(), self.sum))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum))
     }
@@ -785,7 +769,7 @@ impl SummaryData<u8> for TagsCountsSumData {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -793,7 +777,7 @@ impl SummaryData<u8> for TagsCountsSumData {
     }
 
     fn sample_count(&self) -> Option<usize> {
-        Some(self.counts.len() as usize)
+        Some(self.counts.len())
     }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
@@ -863,7 +847,7 @@ pub struct TagsCountsData {
 impl TagsCountsData {
     #[inline]
     pub fn sum(&self) -> u32 {
-        self.counts.iter().sum::<u32>() as u32
+        self.counts.iter().sum::<u32>()
     }
 }
 
@@ -902,10 +886,6 @@ impl SummaryData<u8> for TagsCountsData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        Some((self.tags.to_u8_vec(), self.sum()))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
@@ -915,7 +895,7 @@ impl SummaryData<u8> for TagsCountsData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -994,7 +974,7 @@ pub struct TagsCountsPData {
 impl TagsCountsPData {
     #[inline]
     pub fn sum(&self) -> u32 {
-        self.counts.iter().sum::<u32>() as u32
+        self.counts.iter().sum::<u32>()
     }
 }
 
@@ -1033,10 +1013,6 @@ impl SummaryData<u8> for TagsCountsPData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        Some((self.tags.to_u8_vec(), self.sum()))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
@@ -1046,7 +1022,7 @@ impl SummaryData<u8> for TagsCountsPData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1123,7 +1099,7 @@ pub struct TagsCountsEMData {
 impl TagsCountsEMData {
     #[inline]
     pub fn sum(&self) -> u32 {
-        self.counts.iter().sum::<u32>() as u32
+        self.counts.iter().sum::<u32>()
     }
 }
 
@@ -1162,10 +1138,6 @@ impl SummaryData<u8> for TagsCountsEMData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        Some((self.tags.to_u8_vec(), self.sum()))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
@@ -1175,7 +1147,7 @@ impl SummaryData<u8> for TagsCountsEMData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1257,7 +1229,7 @@ pub struct TagsCountsPEMData {
 impl TagsCountsPEMData {
     #[inline]
     pub fn sum(&self) -> u32 {
-        self.counts.iter().sum::<u32>() as u32
+        self.counts.iter().sum::<u32>()
     }
 }
 
@@ -1296,10 +1268,6 @@ impl SummaryData<u8> for TagsCountsPEMData{
         format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> {
-        Some((self.tags.to_u8_vec(), self.sum()))
-    }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
     }
@@ -1309,7 +1277,7 @@ impl SummaryData<u8> for TagsCountsPEMData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1319,7 +1287,7 @@ impl SummaryData<u8> for TagsCountsPEMData{
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         let p = match config.stat_test {
             StatTest::StudentsTTest => students_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
-                StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
+            StatTest::WelchsTTest => welchs_t_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
             StatTest::UTest => u_test(&self.tags.to_u8_vec(), &self.counts.to_vec(), &config.sample_info),
         };
         
@@ -1405,8 +1373,6 @@ impl SummaryData<u8> for GroupCountData {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
@@ -1414,7 +1380,7 @@ impl SummaryData<u8> for GroupCountData {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self)
+        mem::size_of_val(self)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1461,7 +1427,7 @@ impl SummaryData<u8> for GroupCountData {
             None => (count1, count2)
         };
 
-        assert_eq!((count1 + count2),nobs as u32);
+        assert_eq!((count1 + count2),nobs);
         (nobs as usize >= config.min_kmer_obs, all_exts, GroupCountData::new(counts))
     }
 
@@ -1492,8 +1458,6 @@ impl SummaryData<u8> for RelCountData {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
-    fn vec_sum(&self) -> Option<(Vec<u8>, u32)> { None }
-
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
 
     fn score(&self) -> f32 {
@@ -1501,7 +1465,7 @@ impl SummaryData<u8> for RelCountData {
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(&*self)
+        mem::size_of_val(self)
     }
 
     fn count(&self) -> Option<usize> {
@@ -1543,13 +1507,13 @@ impl SummaryData<u8> for RelCountData {
             nobs += 1;
         }
 
-        assert_eq!(count1 + count2, nobs as u32);
+        assert_eq!(count1 + count2, nobs);
 
 
         let percent = (count1 as f64 / nobs as f64 * 100.) as u32;
         let count = match config.significant {
-            Some(digits) => round_digits(nobs as u32, digits),
-            None => nobs as u32
+            Some(digits) => round_digits(nobs, digits),
+            None => nobs
         };
 
         (nobs as usize >= config.min_kmer_obs, all_exts, RelCountData::new((percent, count))) 
@@ -1559,13 +1523,13 @@ impl SummaryData<u8> for RelCountData {
 
 #[cfg(test)]
 mod test {
-    use std::{fmt::Debug, fs::File, io::BufReader};
+    use std::{fmt::Debug, fs::File, io::BufReader, mem};
 
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use rand::Rng;
 
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, students_t_test, u_test, GroupCountData, GroupFrac, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsPData, M}, Exts, Kmer, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, compress_kmers_with_hash, CompressionSpec, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer12, Kmer16, Kmer8}, reads::Reads, summarizer::{self, students_t_test, u_test, GroupCountData, GroupFrac, NotEnoughSamplesError, RelCountData, SampleInfo, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsSumData, M}, EdgeMult, Exts, Kmer, Tags};
 
     use super::{log2_fold_change, SummaryConfig, TagsCountsSumData};
 
@@ -1614,7 +1578,7 @@ mod test {
 
         //construct and compress graph with CountFilter
         let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, u32> = test_build_graph(&reads, &config, spec);
 
         graph.to_gfa_with_tags("test_cf.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator, &config)).unwrap();
 
@@ -1623,7 +1587,7 @@ mod test {
 
         // construct and compress graph with CountsFilterGroups
         let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, GroupCountData> = test_build_graph(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1632,7 +1596,7 @@ mod test {
 
         // construct and compress graph with CountsFilterRel
         let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, RelCountData> = test_build_graph(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1641,7 +1605,7 @@ mod test {
 
         // construct and compress graph with CountsFilterStats
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_build_graph(&reads, &config, spec);
 
         graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator, &config)).unwrap();
 
@@ -1657,7 +1621,7 @@ mod test {
 
         //construct and compress graph with CountFilter
         let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, u32> = test_build_graph(&reads, &config, spec);
 
         graph.to_gfa_with_tags("test_cf-1.gfa",|n| <u32 as summarizer::SummaryData<u8>>::print(n.data(), &tag_translator, &config)).unwrap();
 
@@ -1666,7 +1630,7 @@ mod test {
 
         // construct and compress graph with CountsFilterGroups
         let spec: ScmapCompress<GroupCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, GroupCountData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, GroupCountData> = test_build_graph(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfg.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1675,7 +1639,7 @@ mod test {
 
         // construct and compress graph with CountsFilterRel
         let spec: ScmapCompress<RelCountData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, RelCountData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, RelCountData> = test_build_graph(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfr.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1684,7 +1648,7 @@ mod test {
 
         // construct and compress graph with CountsFilterStats
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, TagsCountsData> = test_build_graph(&reads, &config, spec);
 
         //graph.to_gfa_with_tags("test_csfs.gfa",|n| n.data().print(&tag_translator)).unwrap();
 
@@ -1694,7 +1658,7 @@ mod test {
     }
 
 
-    fn test_summarizer<K, CS, D>(reads: &Reads<u8>, config: &SummaryConfig, spec: CS) -> DebruijnGraph<K, D> 
+    fn test_build_graph<K, CS, D>(reads: &Reads<u8>, config: &SummaryConfig, spec: CS) -> DebruijnGraph<K, D> 
     where  
         K: Kmer + Send + Sync, 
         CS: CompressionSpec<D> + Send + Sync, 
@@ -1706,7 +1670,8 @@ mod test {
         let memory = 1;
         let pr = false;
 
-        let (k_mers, _): (BoomHashMap2<K, Exts, D>, _)  = filter_kmers(&reads,
+        let (k_mers, _): (BoomHashMap2<K, Exts, D>, _)  = filter_kmers(
+            reads,
             config,
             false, 
             false, 
@@ -1764,49 +1729,32 @@ mod test {
 
         
         println!("sample kmers: {:?}", sample_kmers);
-        
 
         /*
         markers: 
         - 111111100000 = 4064
         - 000000011111 = 31*/
-        
-
-
 
         let sample_info = SampleInfo { marker0: 0b111111100000, marker1: 31, count0: 7, count1: 5, sample_kmers};
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
 
         
         println!("markers: {:?}", sample_info);
 
         // construct and compress graph with CountsFilterMaj
         let spec: ScmapCompress<u32> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, u32> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, u32> = test_build_graph(&reads, &config, spec);
 
         graph.print();
 
         // construct and compress graph with CountsFilterMaj
         let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
-
-        graph.print();
-
-        // construct and compress graph with CountsFilterMaj
-        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
-
-        graph.print();
-
-        // construct and compress graph with CountsFilterMajB
-        let spec: ScmapCompress<TagsCountsData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsData> = test_summarizer(&reads, &config, spec);
-
+        let graph: DebruijnGraph<K, TagsCountsData> = test_build_graph(&reads, &config, spec);
         graph.print();
 
         // construct and compress graph with CountsFilterStat
         let spec: ScmapCompress<TagsCountsPData> = ScmapCompress::new();
-        let graph: DebruijnGraph<K, TagsCountsPData> = test_summarizer(&reads, &config, spec);
+        let graph: DebruijnGraph<K, TagsCountsPData> = test_build_graph(&reads, &config, spec);
 
         graph.print();
 
@@ -1822,7 +1770,7 @@ mod test {
 
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
         let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
-        let config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::StudentsTTest);
+        let mut config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::StudentsTTest);
         let config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::WelchsTTest);
         let config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.1), summarizer::StatTest::UTest);
 
@@ -1838,11 +1786,22 @@ mod test {
 
         let summarized_t = TagsCountsPData::summarize(input.into_iter(), &config_t);
         assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5);
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
 
         let summarized_w = TagsCountsPData::summarize(input.into_iter(), &config_w);
         assert_eq!((summarized_w.2.p_value * 1000.).round() as u32, 1);
 
         let summarized_u = TagsCountsPData::summarize(input.into_iter(), &config_u);
+        assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 5);
+
+        let summarized_t = TagsCountsPEMData::summarize(input.into_iter(), &config_t);
+        assert_eq!((summarized_t.2.p_value * 10000.).round() as u32, 5);
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
+
+        let summarized_w = TagsCountsPEMData::summarize(input.into_iter(), &config_w);
+        assert_eq!((summarized_w.2.p_value * 1000.).round() as u32, 1);
+
+        let summarized_u = TagsCountsPEMData::summarize(input.into_iter(), &config_u);
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 5);
 
         let summarized_tc = TagsCountsData::summarize(input.into_iter(), &config_t);
@@ -1854,6 +1813,21 @@ mod test {
         assert_eq!((summarized_tcs.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 5);
         assert_eq!((summarized_tcs.2.p_value(&config_w).unwrap() * 1000.).round() as u32, 1);
         assert_eq!((summarized_tcs.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 5);
+
+        let summarized = u32::summarize(input.into_iter(), &config_t);
+        assert_eq!(<u32 as summarizer::SummaryData<u8>>::p_value(&summarized.2, &config_t), None);
+
+        let summarized = Vec::summarize(input.into_iter(), &config_t);
+        assert_eq!(<Vec<u8> as summarizer::SummaryData<u8>>::p_value(&summarized.2, &config_t), None);
+
+        let summarized = TagsSumData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized.2.p_value(&config_t), None);
+
+        let summarized = GroupCountData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized.2.p_value(&config_t), None);
+
+        let summarized = RelCountData::summarize(input.into_iter(), &config_t);
+        assert_eq!(summarized.2.p_value(&config_t), None);
 
 
         let input = [
@@ -1872,6 +1846,10 @@ mod test {
         assert_eq!((summarized_w.2.p_value * 10000.).round() as u32, 2238);
         assert_eq!((summarized_w.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 2238);
 
+        // test perform different statistival test with modified config
+        config_t.set_stat_test(summarizer::StatTest::WelchsTTest);
+        assert_eq!((summarized_t.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2238);
+        config_t.set_stat_test(summarizer::StatTest::StudentsTTest);
 
         let input = [
             (Kmer8::from_u64(12), Exts::new(1), 7u8),
@@ -1911,7 +1889,7 @@ mod test {
         assert_eq!((summarized_u.2.p_value * 1000.).round() as u32, 93);
 
 
-        // with different kmer counts
+        // test with different kmer counts
 
         let sample_kmers = vec![12, 3345, 3478, 87, 1, 2, 666, 98111, 23982938, 555, 122, 7238];
         /*
@@ -1957,6 +1935,9 @@ mod test {
         assert_eq!((summarized_tc.2.p_value(&config_t).unwrap() * 10000.).round() as u32, 2955);
         assert_eq!((summarized_tc.2.p_value(&config_w).unwrap() * 10000.).round() as u32, 4113);
         assert_eq!((summarized_tc.2.p_value(&config_u).unwrap() * 1000.).round() as u32, 862);
+
+
+        // test: not enough samples for statistical test
 
         /*
         group 1: 000000100 = 4
@@ -2055,13 +2036,13 @@ mod test {
 
         let tags = Tags::from_u8_vec(vec![0, 2, 6]);
         let counts: Box<[u32]> = [1, 3, 5].into();
-        let sum = counts.iter().sum::<u32>() as u32;
-        graph.add(DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
+        let sum = counts.iter().sum::<u32>();
+        graph.add(&DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
 
         let tags = Tags::from_u8_vec(vec![0]);
         let counts: Box<[u32]> = [1].into();
-        let sum = counts.iter().sum::<u32>() as u32;
-        graph.add(DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()).into_iter(), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
+        let sum = counts.iter().sum::<u32>();
+        graph.add(&DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()), Exts::empty(), TagsCountsSumData::new((tags, counts, sum)));
                 
         
         let graph = graph.finish();
@@ -2109,18 +2090,19 @@ mod test {
         let count1 = 9;
         let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
         let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+        //let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
 
         let labels = vec![0, 1, 2, 3, 7, 8];
         let tags = Tags::from_u8_vec(labels);
         let counts = vec![1, 6, 9, 3, 6, 10];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
-        assert_eq!(fold_change, 5.28645313556333);
+        assert_eq!(fold_change, 5.286_453_2);
 
         let labels = vec![0, 6, 7, 8, 10, 11];
         let tags = Tags::from_u8_vec(labels);
         let counts = vec![12, 3, 7, 1, 22, 6];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
-        assert_eq!(fold_change, -1.3393244925933);
+        assert_eq!(fold_change, -1.339_324_5);
 
         // x/0 = inf -> log(inf) = inf
         let labels = vec![0, 1];
@@ -2134,7 +2116,106 @@ mod test {
         let tags = Tags::from_u8_vec(labels);
         let counts = vec![12, 3];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
-        assert_eq!(fold_change, f32::NEG_INFINITY);
+        assert_eq!(fold_change, f32::NEG_INFINITY);       
+
+
+    }
+
+    fn test_summarize<SD: SummaryData<u8>, F, K: Kmer>(items: F, config: &SummaryConfig) 
+    -> (Option<usize>, Option<(Tags, u32)>, usize, Option<f32>, Option<f32>, Option<usize>, Option<EdgeMult>, bool)
+    where 
+        F: Iterator<Item = (K, Exts, u8)>,
+    {
+        let (valid, _, data) = SD::summarize(items, config);
+
+        let count = data.count();
+        let score = data.score();
+
+        match count {
+            Some(c) => assert_eq!(c, score as usize),
+            None => assert_eq!(1., score)
+        }
+        
+        let tags_sum = data.tags_sum();
+        let sample_count = data.sample_count();
+
+        if let Some(ts) = tags_sum {
+            assert_eq!(ts.1, count.unwrap() as u32);
+            assert_eq!(ts.0.to_u8_vec().len(), sample_count.unwrap());
+        }
+
+        assert_eq!(data.valid(config), valid);
+
+        let em = data.edge_mults().cloned();
+
+        (
+            count,
+            tags_sum,
+            data.mem(),
+            data.p_value(config),
+            data.fold_change(config),
+            data.sample_count(),
+            em,
+            valid
+        )
+    }
+
+    #[test]
+    fn test_summary_data() {
+        // input
+
+        let marker0 = 0b0000000001111;
+        let marker1 = 0b1111111110000;
+        let count0 = 4;
+        let count1 = 9;
+        let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
+        let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+        let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
+
+        let input = [
+            (Kmer8::from_u64(12), Exts::new(1), 0u8),
+            (Kmer8::from_u64(12), Exts::new(1), 1u8),
+            (Kmer8::from_u64(12), Exts::new(1), 2u8),
+            (Kmer8::from_u64(12), Exts::new(1), 3u8),
+            (Kmer8::from_u64(12), Exts::new(1), 7u8),
+            (Kmer8::from_u64(12), Exts::new(1), 8u8),           
+        ];
+
+        let size_tags = mem::size_of::<M>();
+
+        let count = Some(input.len());
+        let tags_sum = Some((Tags::from_u8_vec(vec![0, 1, 2, 3, 7, 8]), count.unwrap() as u32));
+        let sample_count = Some(6);
+        let p_value = Some(0.39023498);
+        let fold_change = Some(5.4498405);
+        let edge_mults = Some(EdgeMult::new_from([0, 0, 0, 0, 0, 0, 0, 6]));
+
+        // test summarize: (Some(count), Some((tags, sum)), memory, Some(p_value), Some(fold_change), Some(sample_count), Some(edge_mults), valid)
+
+        let data = test_summarize::<u32, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, None, 4, None, None, None, None, true));
+
+        let data = test_summarize::<Vec<u8>, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (None, None, 30, None, None, sample_count, None, true));
+
+        let data = test_summarize::<TagsSumData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags * 2, None, None, sample_count, None, true)); // mem: M + 4 + alignment buffer
+
+        let data = test_summarize::<TagsCountsSumData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4, p_value, fold_change, sample_count, None, true)); // mem: M + 2*8 + 4+ab + 6*4
+
+        let data = test_summarize::<TagsCountsData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags + 16 + 6*4, p_value, fold_change, sample_count, None, true)); 
+
+        let data = test_summarize::<TagsCountsPData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4, p_value, fold_change, sample_count, None, true));
+
+        let data = test_summarize::<TagsCountsEMData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), true)); 
+
+        let data = test_summarize::<TagsCountsPEMData, _, _>(input.into_iter(), &summary_config);
+        assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults, true));
+
     }
 }
 
