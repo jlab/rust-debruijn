@@ -23,11 +23,9 @@ impl<R: BufRead> FastqReader<R> {
         if new_bytes == 0 {return None}
 
         // turn buffer into iterator
-        let iter_buffer = new_buffer[..new_bytes].to_vec().into_iter();
-
         Some(FastqSequenceIterator {
             fastq_reader: self,
-            iter_buffer,
+            iter_buffer: new_buffer[..new_bytes].to_vec().into_iter(),
         })
     }
 }

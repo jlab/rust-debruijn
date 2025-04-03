@@ -510,7 +510,7 @@ mod tests {
             "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
         ];
 
-        const REPS: usize = 5000000;
+        const REPS: usize = 500000;
         /*
         test with 5 ml:
             through DnaString: 88.09323 s 

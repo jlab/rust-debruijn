@@ -1671,102 +1671,99 @@ F2: Fn(&D) -> bool
 {
     type Item = (Vec<usize>, VecDeque<(usize, Dir)>,);
     fn next(&mut self) -> Option<Self::Item> {
-        while self.graph_pos <= self.graph.len() {
-            match self.component_iterator.next() {
-                Some(component) => {
-                    let current_comp = component;
-                    
-        
-                    let mut best_node = current_comp[0];
-                    let mut best_score = f32::MIN;
-                    for c in current_comp.iter() {
-                        let node = self.graph.get_node(*c);
-                        let node_score = (self.score)(node.data());
-        
-                        if node_score > best_score {
-                            best_node = *c;
-                            best_score = node_score;
-                        }
+        match self.component_iterator.next() {
+            Some(component) => {
+                let current_comp = component;
+                
+    
+                let mut best_node = current_comp[0];
+                let mut best_score = f32::MIN;
+                for c in current_comp.iter() {
+                    let node = self.graph.get_node(*c);
+                    let node_score = (self.score)(node.data());
+    
+                    if node_score > best_score {
+                        best_node = *c;
+                        best_score = node_score;
                     }
-        
-                    let oscore = |state| match state {
-                        None => 0.0,
-                        Some((id, _)) => (self.score)(self.graph.get_node(id).data()),
-                    };
-        
-                    let osolid_path = |state| match state {
-                        None => false,
-                        Some((id, _)) => (self.solid_path)(self.graph.get_node(id).data()),
-                    };
-        
-                    // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
-                    // already put into the path
-                    let mut used_nodes = HashSet::new();
-                    let mut path = VecDeque::new();
-        
-                    // Start w/ initial state
-                    used_nodes.insert(best_node);
-                    path.push_front((best_node, Dir::Left));
-        
-                    for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
-                        let &(start_node, dir, do_flip) = init;
-                        let mut current = (start_node, dir);
-        
-                        loop {
-                            let mut next = None;
-                            let (cur_id, incoming_dir) = current;
-                            let node = self.graph.get_node(cur_id);
-                            let edges = node.edges(incoming_dir.flip());
-        
-                            let mut solid_paths = 0;
-                            for (_, id, dir, _) in edges {
-                                let cand = Some((id, dir));
-                                if osolid_path(cand) {
-                                    solid_paths += 1;
+                }
+    
+                let oscore = |state| match state {
+                    None => 0.0,
+                    Some((id, _)) => (self.score)(self.graph.get_node(id).data()),
+                };
+    
+                let osolid_path = |state| match state {
+                    None => false,
+                    Some((id, _)) => (self.solid_path)(self.graph.get_node(id).data()),
+                };
+    
+                // Now expand in each direction, greedily taking the best path. Stop if we hit a node we've
+                // already put into the path
+                let mut used_nodes = HashSet::new();
+                let mut path = VecDeque::new();
+    
+                // Start w/ initial state
+                used_nodes.insert(best_node);
+                path.push_front((best_node, Dir::Left));
+    
+                for init in [(best_node, Dir::Left, false), (best_node, Dir::Right, true)].iter() {
+                    let &(start_node, dir, do_flip) = init;
+                    let mut current = (start_node, dir);
+    
+                    loop {
+                        let mut next = None;
+                        let (cur_id, incoming_dir) = current;
+                        let node = self.graph.get_node(cur_id);
+                        let edges = node.edges(incoming_dir.flip());
+    
+                        let mut solid_paths = 0;
+                        for (_, id, dir, _) in edges {
+                            let cand = Some((id, dir));
+                            if osolid_path(cand) {
+                                solid_paths += 1;
 
-                                    // second if clause is outside of first in original code (see max_path) 
-                                    // but would basically ignore path validity.
-                                    if oscore(cand) > oscore(next) {
-                                        next = cand;
-                                    }
-                                }
-        
+                                // second if clause is outside of first in original code (see max_path) 
+                                // but would basically ignore path validity.
                                 if oscore(cand) > oscore(next) {
                                     next = cand;
                                 }
                             }
-        
-                            if solid_paths > 1 {
-                                break;
-                            }
-        
-                            match next {
-                                Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
-                                    if do_flip {
-                                        path.push_front((next_id, next_incoming.flip()));
-                                    } else {
-                                        path.push_back((next_id, next_incoming));
-                                    }
-        
-                                    used_nodes.insert(next_id);
-                                    current = (next_id, next_incoming);
-                                }
-                                _ => break,
+    
+                            if oscore(cand) > oscore(next) {
+                                next = cand;
                             }
                         }
+    
+                        if solid_paths > 1 {
+                            break;
+                        }
+    
+                        match next {
+                            Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
+                                if do_flip {
+                                    path.push_front((next_id, next_incoming.flip()));
+                                } else {
+                                    path.push_back((next_id, next_incoming));
+                                }
+    
+                                used_nodes.insert(next_id);
+                                current = (next_id, next_incoming);
+                            }
+                            _ => break,
+                        }
                     }
-                    
-                    
-                    return Some((current_comp, path))
-                }, 
-                None => {
-                    // should technically not need graph_pos after this 
-                    self.graph_pos += 1;
-                    return None
                 }
-            };
-        } 
-        None
+                
+                
+                Some((current_comp, path))
+            }, 
+            None => {
+                // should technically not need graph_pos after this 
+                self.graph_pos += 1;
+                None
+            }
+        }
     }
 }
 
