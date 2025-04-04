@@ -1,7 +1,11 @@
+[![unit tests](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml/badge.svg)](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml) 
+[![Coverage Status (master)](https://coveralls.io/repos/github/jlab/rust-debruijn/badge.svg?branch=master)](https://coveralls.io/github/jlab/rust-debruijn?branch=master)
+[![Coverage Status (dev)](https://coveralls.io/repos/github/jlab/rust-debruijn/badge.svg?branch=dev)](https://coveralls.io/github/jlab/rust-debruijn?branch=dev)
+
 # rust-debruijn
 De Bruijn graph construction & path compression libraries.
 
-[Docs](https://docs.rs/debruijn/)
+Forked from [10XGenomics/rust-debruijn](https://github.com/10XGenomics/rust-debruijn/) -- [Docs](https://docs.rs/debruijn/)
 
 ## Key features
 * 2-bit packed fixed-length (Kmer) and variable-length (DnaString) sequence containers

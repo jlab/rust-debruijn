@@ -25,14 +25,16 @@
 //! let first_kmer: Kmer16 = slice1.get_kmer(0);
 //! assert_eq!(first_kmer, Kmer16::from_ascii(b"CACGTATGACAGATAG"))
 
+use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
-use std::fmt;
+use std::error::Error;
+use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 
-use crate::base_to_bits;
+use crate::{base_to_bits, base_to_bits_checked};
 use crate::bits_to_ascii;
 use crate::bits_to_base;
 use crate::dna_only_base_to_bits;
@@ -116,7 +118,7 @@ impl Vmer for DnaString {
     }
 
     fn max_len() -> usize {
-        <usize>::max_value()
+        <usize>::MAX
     }
 
     /// Get the kmer starting at position pos
@@ -247,6 +249,42 @@ impl DnaString {
         let b = bytes.iter().map(|c| base_to_bits(*c));
         dna_string.extend(b);
         dna_string
+    }
+
+    /// Create a DnaString from an ASCII ACGT-encoded byte slice.
+    /// Will return `None` if there are ambiguous bases in the DnaString
+    pub fn from_acgt_bytes_checked(bytes: &[u8]) -> Result<DnaString, AmbiguousBasesError> {
+        let mut dna_string = DnaString::with_capacity(bytes.len());
+
+        // Accelerated avx2 mode. Should run on most machines made since 2013.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if is_x86_feature_detected!("avx2") {
+                for chunk in bytes.chunks(32) {
+                    if chunk.len() == 32 {
+                        let (conv_chunk, correct) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
+                        if !correct { return Err(AmbiguousBasesError {  }) }
+                        let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
+                        dna_string.storage.push(packed);
+                    } else {
+                        let (b, corrects): (Vec<u8>, Vec<bool>) = chunk.iter().map(|c| base_to_bits_checked(*c)).collect();
+                        let correct = !corrects.iter().contains(&false);
+                        if !correct { return Err(AmbiguousBasesError {  }) }
+                        dna_string.extend(b.into_iter());
+                    }
+                }
+
+                dna_string.len = bytes.len();
+                return Ok(dna_string);
+            }
+        }
+        
+        let (b, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
+        let correct = corrects.iter().contains(&false);
+        if !correct { return Err(AmbiguousBasesError {  }) }
+        dna_string.extend(b.into_iter());
+
+        Ok(dna_string)
     }
 
     /// Create a DnaString from an ACGT-encoded byte slice,
@@ -495,7 +533,7 @@ pub struct DnaStringIter<'a> {
     i: usize,
 }
 
-impl<'a> Iterator for DnaStringIter<'a> {
+impl Iterator for DnaStringIter<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {
@@ -547,7 +585,7 @@ pub struct DnaStringSlice<'a> {
     pub is_rc: bool,
 }
 
-impl<'a> PartialEq for DnaStringSlice<'a> {
+impl PartialEq for DnaStringSlice<'_> {
     fn eq(&self, other: &DnaStringSlice) -> bool {
         if other.length != self.length {
             return false;
@@ -560,7 +598,7 @@ impl<'a> PartialEq for DnaStringSlice<'a> {
         true
     }
 }
-impl<'a> Eq for DnaStringSlice<'a> {}
+impl Eq for DnaStringSlice<'_> {}
 
 impl<'a> Mer for DnaStringSlice<'a> {
     #[inline(always)]
@@ -603,13 +641,13 @@ impl<'a> Mer for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> Vmer for DnaStringSlice<'a> {
+impl Vmer for DnaStringSlice<'_> {
     fn new(_: usize) -> Self {
         unimplemented!()
     }
 
     fn max_len() -> usize {
-        <usize>::max_value()
+        <usize>::MAX
     }
 
     /// Get the kmer starting at position pos
@@ -626,7 +664,7 @@ impl<'a> Vmer for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> DnaStringSlice<'a> {
+impl DnaStringSlice<'_> {
     pub fn is_palindrome(&self) -> bool {
         unimplemented!();
     }
@@ -721,7 +759,7 @@ impl<'a> DnaStringSlice<'a> {
     }
 }
 
-impl<'a> fmt::Display for DnaStringSlice<'a> {
+impl fmt::Display for DnaStringSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for pos in 0..self.length {
             write!(f, "{}", bits_to_base(self.get(pos)))?;
@@ -730,7 +768,7 @@ impl<'a> fmt::Display for DnaStringSlice<'a> {
     }
 }
 
-impl<'a> fmt::Debug for DnaStringSlice<'a> {
+impl fmt::Debug for DnaStringSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
         if self.length < 256 {
@@ -819,6 +857,17 @@ impl PackedDnaStringSet {
         }
         self.length.push(length as u32);
         //debug!("add to sequence for loop {:?} iterations (pr seq len)", length);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmbiguousBasesError {}
+
+impl Error for AmbiguousBasesError {}
+
+impl Display for AmbiguousBasesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ambiguous base found in read")
     }
 }
 
@@ -982,6 +1031,50 @@ mod tests {
 
         let dna_cp = dna_string.to_string();
         assert_eq!(dna, dna_cp);
+    }
+
+    #[test]
+    fn test_dna_string_ambig() {
+        let dna = [
+            "TTTTTTTTTTTTTTTTTTTTTTTT",
+            "NAGCGGAGATTATTCACGAGCATCGCGTAC",
+            "GATCGATGCATGCTAGN",
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAANAAAAATTATANTAACGT",
+            "AGCTAGCTAGCTGACTGAGCGACTGA",
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC",
+            "GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC",
+            "ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG",
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGJHSJDSDHKAJSHDK",
+        ];
+
+        let comp_unchecked = [
+            "TTTTTTTTTTTTTTTTTTTTTTTT",
+            "AAGCGGAGATTATTCACGAGCATCGCGTAC",
+            "GATCGATGCATGCTAGA",
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAAAAAAAATTATAATAACGT",
+            "AGCTAGCTAGCTGACTGAGCGACTGA",
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC",
+            "GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC",
+            "ACGATCGAATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG",
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAAAAAAAAAAAAAA",
+        ];
+
+        let comp_checked = [
+            Ok("TTTTTTTTTTTTTTTTTTTTTTTT".to_string()),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+            Ok("AGCTAGCTAGCTGACTGAGCGACTGA".to_string()),
+            Ok("AGCTAGCTAGCTGACTGAGCGACTGACGGATC".to_string()),
+            Ok("GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC".to_string()),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+        ];
+
+        for (i, seq) in dna.iter().enumerate() {
+            assert_eq!(format!("{:?}", DnaString::from_acgt_bytes(seq.as_bytes())), comp_unchecked[i]);
+            assert_eq!(DnaString::from_acgt_bytes_checked(seq.as_bytes()).map(|d| format!("{:?}", d)), comp_checked[i]);
+        }
     }
 
     #[test]

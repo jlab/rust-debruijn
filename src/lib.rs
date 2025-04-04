@@ -30,19 +30,26 @@
 
 use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::{self, Debug};
+use summarizer::M;
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
 
 pub mod clean_graph;
 pub mod compression;
 pub mod dna_string;
+pub mod reads;
 pub mod filter;
+pub mod summarizer;
 pub mod graph;
 pub mod kmer;
 pub mod msp;
 pub mod neighbors;
 pub mod vmer;
+pub mod fastq;
+
+const BUF: usize = 64*1024;
+const BUCKETS: usize = 256;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod bitops_avx2;
@@ -62,7 +69,8 @@ pub fn bits_to_ascii(c: u8) -> u8 {
     }
 }
 
-/// Convert an ASCII-encoded DNA base to a 2-bit representation
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// transforming bytes outside of ACGTacgt to A
 #[inline]
 pub fn base_to_bits(c: u8) -> u8 {
     match c {
@@ -71,6 +79,19 @@ pub fn base_to_bits(c: u8) -> u8 {
         b'G' | b'g' => 2u8,
         b'T' | b't' => 3u8,
         _ => 0u8,
+    }
+}
+
+/// Convert an ASCII-encoded DNA base to a 2-bit representation,
+/// second value is `false` if the base was ambiguous
+#[inline]
+pub fn base_to_bits_checked(c: u8) -> (u8, bool) {
+    match c {
+        b'A' | b'a' => (0u8, true),
+        b'C' | b'c' => (1u8, true),
+        b'G' | b'g' => (2u8, true),
+        b'T' | b't' => (3u8, true),
+        _ => (0u8, false)
     }
 }
 
@@ -485,7 +506,7 @@ impl Vmer for DnaBytes {
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DnaSlice<'a>(pub &'a [u8]);
 
-impl<'a> Mer for DnaSlice<'a> {
+impl Mer for DnaSlice<'_> {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -518,7 +539,7 @@ impl<'a> Mer for DnaSlice<'a> {
     }
 }
 
-impl<'a> Vmer for DnaSlice<'a> {
+impl Vmer for DnaSlice<'_> {
     /// Create a new sequence with length `len`, initialized to all A's
     fn new(_len: usize) -> Self {
         unimplemented!();
@@ -778,7 +799,7 @@ where
     pos: usize,
 }
 
-impl<'a, K: Kmer, D: Mer> Iterator for KmerIter<'a, K, D> {
+impl<K: Kmer, D: Mer> Iterator for KmerIter<'_, K, D> {
     type Item = K;
 
     #[inline]
@@ -809,7 +830,7 @@ where
     pos: usize,
 }
 
-impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
+impl<K: Kmer, D: Mer> Iterator for KmerExtsIter<'_, K, D> {
     type Item = (K, Exts);
 
     fn next(&mut self) -> Option<(K, Exts)> {
@@ -844,32 +865,29 @@ impl<'a, K: Kmer, D: Mer> Iterator for KmerExtsIter<'a, K, D> {
     }
 }
 
-/// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq, Copy)]
-#[cfg(feature = "sample128")]
-pub struct Tags {
-    pub val: u128,
-}
 
-/// Compress the tags to one u64 (8 bytes)
-#[derive(Clone, PartialEq, Copy)]
-#[cfg(not(feature = "sample128"))]
+/// Compress up to 64 tags to one `u64` (8 bytes) (or up to 128 tags to a  
+/// `u128`(16 bytes) with the feature `sample128` enabled)
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub struct Tags {
-    pub val: u64,
+    pub val: M,
 }
 
 impl Tags {
 
-    /// Make a new Tags from a u64
-    #[cfg(not(feature = "sample128"))]
-    pub fn new(val: u64) -> Self {
-        return Tags { val }
+    /// Make a new Tags from a `u64` (or `u128` with the feature `sample128` enabled)
+    pub fn new(val: M) -> Self {
+        Tags { val }
     }
 
-    /// Make a new Tags from a u64
-    #[cfg(feature = "sample128")]
-    pub fn new(val: u128) -> Self {
-        return Tags { val }
+    /// get number of labels saved in the Tags
+    pub fn len(&self) -> usize {
+        self.val.count_ones() as usize
+    }
+
+    /// check if the tags are empty
+    pub fn is_empty(&self) -> bool {
+        self.val == 0
     }
 
     /// encodes a sorted (!) Vec<u8> and encodes it as a u64
@@ -890,7 +908,7 @@ impl Tags {
         x += 1;
         x <<= vec[0];
 
-        return Tags { val: x }
+        Tags { val: x }
     }
 
     // turn Tags into Vec<u8>
@@ -907,20 +925,20 @@ impl Tags {
             x >>= 1;
         }
 
-        return vec
+        vec
     }
 
     // directly translate Tags to Vec<&str>
     // str_map is translatror BiMap between u8 and &str 
-    pub fn to_string_vec<'a>(&'a self, str_map: &BiMap<&'a str, u8>) -> Vec<&str> {
+    pub fn to_string_vec<'a>(&'a self, str_map: &'a BiMap<String, u8>) -> Vec<&'a str> {
         let mut x = self.val;
-        let mut vec: Vec<&str> = Vec::new();
+        let mut vec: Vec<&str> = Vec::with_capacity(x.count_ones() as usize);
 
         // iterate through bits of the u64
         for i in 0..(mem::size_of::<Tags>()*8) as u8 {
             // check if odd number: current first bit is 1
             if x % 2 != 0 {
-                match str_map.get_by_right(&(i as u8)) {
+                match str_map.get_by_right(&{ i }) {
                     Some(label) => vec.push(label),
                     None => panic!("tried to access label that does not exist!"),
                 }
@@ -928,32 +946,294 @@ impl Tags {
             // shift the u64 bitise to rotate though it
             x >>= 1;
         }
-        return vec    
+        vec    
     }
+
 
     /// compares the value of the tags with another value (marker) with a bit-wise and,
     /// returns true if the result is greater than 0:
     /// `00101 & 01000 -> false`
     /// `00101 & 00100 -> true`
-    #[cfg(feature = "sample128")]
-    pub fn bit_and(&self, marker: u128) -> bool {
+    pub fn bit_and(&self, marker: M) -> bool {
         (self.val & marker) > 0
     }
 
-    /// compares the value of the tags with another value (marker) with a bit-wise and,
-    /// returns true if the result is greater than 0:
-    /// `00101 & 01000 -> false`
-    /// `00101 & 00100 -> true`
-    #[cfg(not(feature = "sample128"))]
-    pub fn bit_and(&self, marker: u64) -> bool {
-        (self.val & marker) > 0
+    /// compares the value of the tags with another value (marker) with a bit-wise and
+    /// counts the overlaps:
+    /// `00101 & 01000 -> 0`
+    /// `00101 & 00100 -> 1`
+    /// `00101 & 00101 -> 2`
+    pub fn bit_and_dist(&self, marker: M) -> usize {
+        (self.val & marker).count_ones() as usize
     }
+}
 
+pub struct TagsFormatter<'a> {
+    tags: Tags,
+    tag_translator: &'a BiMap<String, u8>
+}
+
+impl<'a> TagsFormatter<'a> {
+    pub fn new(tags: Tags, tag_translator: &'a BiMap<String, u8>) -> TagsFormatter<'a> {
+        TagsFormatter {
+            tags,
+            tag_translator
+        }
+    }
+}
+
+impl fmt::Display for TagsFormatter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tag_vec = self.tags.to_string_vec(self.tag_translator);
+
+        writeln!(f, "samples:")?;
+
+        for label in tag_vec.into_iter() {
+            writeln!(f, "{}", label)?
+        }
+
+        Ok(())
+    }
 }
 
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_u8_vec())
+    }
+}
+
+pub struct TagsCountsFormatter<'a> {
+    tags: Tags,
+    counts: &'a [u32],
+    tag_translator: &'a BiMap<String, u8>
+}
+
+impl<'a> TagsCountsFormatter<'a> {
+    pub fn new(tags: Tags, counts: &'a [u32], tag_translator: &'a BiMap<String, u8>) -> TagsCountsFormatter<'a> {
+        TagsCountsFormatter {
+            tags,
+            counts,
+            tag_translator
+        }
+    }
+}
+
+impl fmt::Display for TagsCountsFormatter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tag_vec = self.tags.to_string_vec(self.tag_translator);
+
+        writeln!(f, "{:<20} - counts", "samples")?;
+
+        for (label, count) in tag_vec.into_iter().zip(self.counts) {
+            writeln!(f, "{:<20} - {}", label, count)?
+        }
+
+        Ok(())
+    }
+}
+
+/// multiplicities for each of the 8 possible edges
+/// indices: 
+/// 0: A left
+/// 1: C left
+/// 2: G left
+/// 3: T left
+/// 4: A right
+/// 5: C right
+/// 6: G right
+/// 7: T right
+#[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
+pub struct EdgeMult {
+    edge_mults: [u32; 8],
+
+}
+
+impl Debug for EdgeMult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "A: {}, C: {}, G: {}, T: {} | A: {}, C: {}, G: {}, T: {}", 
+            self.edge_mults[0],
+            self.edge_mults[1],
+            self.edge_mults[2],
+            self.edge_mults[3],
+            self.edge_mults[4],
+            self.edge_mults[5],
+            self.edge_mults[6],
+            self.edge_mults[7],
+        )
+    }
+}
+
+impl Display for EdgeMult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "A: {} | {}\nC: {} | {}\nG: {} | {}\nT: {} | {}\n",
+            self.edge_mults[0], self.edge_mults[4],
+            self.edge_mults[1], self.edge_mults[5],
+            self.edge_mults[2], self.edge_mults[6],
+            self.edge_mults[3], self.edge_mults[7],
+        )
+    }
+}
+
+impl EdgeMult {
+    /// a new, empty `EdgeMult`
+    pub fn new() -> Self {
+        EdgeMult { edge_mults: [0; 8] }
+    }
+
+    /// a new `EdgeMult` with values
+    pub fn new_from(edge_mults: [u32; 8]) -> Self {
+        EdgeMult { edge_mults }
+    }
+
+    /// add a count to the an edge
+    pub fn add(&mut self, index: usize, count: u32) {
+        self.edge_mults[index] += count
+    }
+
+    /// add an `Exts` to the `EdgeMult`
+    pub fn add_exts(&mut self, exts: Exts) {
+        let mut exts = exts.val;
+        for index in (0..8).rev() {
+            if exts % 2 != 0 {
+                self.edge_mults[index] += 1
+            }
+            exts >>= 1;
+        }
+    }
+
+    pub fn edge_mults(&self) -> [u32; 8] {
+        self.edge_mults
+    }
+
+    pub fn left(&self) -> [u32; 4] {
+        [self.edge_mults[0],self.edge_mults[1], self.edge_mults[2], self.edge_mults[3]]
+    }
+
+    pub fn right(&self) -> [u32; 4] {
+        [self.edge_mults[4],self.edge_mults[5], self.edge_mults[6], self.edge_mults[7]]
+    }
+
+    pub fn sum(&self) -> u32 {
+        self.edge_mults.iter().sum::<u32>()
+    }
+
+    pub fn edge_mult(&self, (base, _, dir, _): (u8, usize, Dir, bool)) -> u32 {
+        // calculate index in slice
+        let index = match dir {
+            Dir::Left => base,
+            Dir::Right => base + 4,
+        };
+
+        self.edge_mults[index as usize]
+    }
+}
+
+impl Default for EdgeMult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// TODO add methods
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Label {
+    group: char,
+    sample_label: String
+}
+
+#[cfg(test)]
+mod tests {
+    use bimap::BiMap;
+
+    use crate::{summarizer::M, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
+
+    #[test]
+    fn test_edge_mult() {
+        let mut edge_mult = EdgeMult::new();
+        assert_eq!(edge_mult.edge_mults, [0; 8]);
+
+        let exts = Exts::new(0b11111111);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [1, 1, 1, 1, 1, 1, 1, 1]);
+
+        edge_mult.add(0, 2);
+        edge_mult.add(6, 78989);
+        assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
+
+        let exts = Exts::new(0);
+        let comp = [3, 1, 1, 1, 1, 1, 78990, 1];
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, comp);
+        assert_eq!(edge_mult.sum(), comp.iter().sum::<u32>());
+
+        let exts = Exts::new(0b10101010);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [4, 1, 2, 1, 2, 1, 78991, 1]);
+
+        let exts = Exts::new(0b01010101);
+        edge_mult.add_exts(exts);
+        assert_eq!(edge_mult.edge_mults, [4, 2, 2, 2, 2, 2, 78991, 2]);
+    }
+
+    #[test]
+    fn test_bit_and_dist() {
+        let marker: M = 0b1111000011110000111100001111000011110000111100001111000011110000;
+        println!("marker:   {:064b}", marker);
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 3);
+
+        let tags = Tags::from_u8_vec(vec![1, 5, 19, 25, 32]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 5);
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 9);
+
+        let tags = Tags::from_u8_vec(vec![31]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
+
+        let tags = Tags::from_u8_vec(vec![63]);
+        println!("tags:     {:064b}", tags.val);
+        let dist = tags.bit_and_dist(marker);
+        println!("dist: {}", dist);
+        assert_eq!(tags.len(), 1);
+    }
+
+    #[test]
+    fn test_tag_formatter() {
+        let mut tag_translator = BiMap::new();
+        let samples = vec!["A", "B", "C", "D", "E", "F", "G"];
+
+        for (i, label) in samples.into_iter().enumerate() {
+            tag_translator.insert(label.to_string(), i as u8);
+        }
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        let counts = vec![1, 2, 3].into_boxed_slice();
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let counts = vec![1, 2, 3, 0].into_boxed_slice();
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        print!("{}", TagsFormatter::new(tags, &tag_translator));
+
+        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        print!("{}", TagsFormatter::new(tags, &tag_translator));
+
     }
 }
 

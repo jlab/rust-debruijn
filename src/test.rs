@@ -19,7 +19,6 @@ pub fn random_base(r: &mut impl Rng) -> u8 {
 pub fn random_dna(len: usize) -> Vec<u8> {
     let mut r = rand::thread_rng();
     (0..len)
-        .into_iter()
         .map(|_| (r.next_u64() % 4) as u8)
         .collect()
 }
@@ -134,26 +133,27 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
 
-    use crate::clean_graph::CleanGraph;
-    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers_with_hash, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
-    use crate::{DnaBytes, Mer, Tags};
+    use crate::reads::Reads;
+    use crate::{DnaBytes, Tags};
     use crate::{Dir, Exts, Kmer};
     use bimap::BiMap;
     use boomphf::hashmap::BoomHashMap2;
     use boomphf::Mphf;
     use std::collections::{HashMap, HashSet};
-    use std::fmt::Write;
     use std::fs::File;
     use std::iter::FromIterator;
     use std::marker::PhantomData;
+    use std::time;
 
     use crate::dna_string::DnaString;
-    use crate::filter::{self, CountFilterComb, CountFilterStats, KmerSummarizer, SummaryData, TagsCountData, TagsSumData};
-    use crate::kmer::{Kmer4, Kmer6};
+    use crate::filter::{self, filter_kmers};
+    use crate::kmer::Kmer6;
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
+    use crate::summarizer::{GroupFrac, SampleInfo, SummaryConfig, TagsCountsSumData, TagsSumData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -239,25 +239,30 @@ mod tests {
             .drain(..)
             .map(|x| (DnaBytes(x), Exts::empty(), ()))
             .collect();
-        let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &seqs,
-            &Box::new(filter::CountFilter::new(1)),
+
+
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+
+
+        let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
+            &Reads::from_vmer_vec(seqs),
+            &config,
             stranded,
             false,
             4,
             true,
-            true,
         );
 
         let spec =
-            SimpleCompress::new(|d1: u16, d2: &u16| ((d1 as u32 + *d2 as u32) % 65535) as u16);
+            SimpleCompress::new(|d1: u32, d2: &u32| ((d1 + *d2) % 65535));
         let from_kmers = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
             from_kmers.print();
         }
-        assert!(from_kmers.is_compressed(&spec) == None);
+        assert!(from_kmers.is_compressed(&spec).is_none());
 
         // Create a DBG with one node per input kmer
         let mut base_graph: BaseGraph<K, u16> = BaseGraph::new(stranded);
@@ -277,7 +282,7 @@ mod tests {
             simp_dbg.print();
         }
 
-        assert!(simp_dbg.is_compressed(&spec) == None);
+        assert!(simp_dbg.is_compressed(&spec).is_none());
 
         let total_kmers = valid_kmers.len();
 
@@ -299,6 +304,7 @@ mod tests {
 
         assert!(got_slot.iter().all(|x| *x));
     }
+
 
     // Take some input contig, which likely form a complicated graph,
     // and test the kmer, bsp, sedge and edge construction machinery
@@ -331,7 +337,7 @@ mod tests {
 
         // kmer set from bsps
         let mut msp_kmers = HashSet::new();
-        for &(ref v, _, _) in seqs.iter() {
+        for (v, _, _) in seqs.iter() {
             for k in v.iter_kmers::<K>() {
                 msp_kmers.insert(k.min_rc());
             }
@@ -346,14 +352,18 @@ mod tests {
         // Raw kmers and BSP kmers match
         assert!(kmer_set == msp_kmers);
 
+        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+
+
+
         // Check the correctness of the process_kmer_shard kmer filtering function
-        let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-            &seqs,
-            &Box::new(filter::CountFilter::new(2)),
+        let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
+            &Reads::from_vmer_vec(seqs),
+            &config,
             stranded,
             false,
             4,
-            true,
             true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
@@ -388,7 +398,7 @@ mod tests {
 
         assert!(kmer_set == extension_kmer_set);
 
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
+        let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
@@ -452,21 +462,25 @@ mod tests {
 
         let mut shard_asms = Vec::new();
 
+        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+
+
+
         // Do a subassembly in each shard
-        for seqs in shards.values() {
+        for seqs in shards.into_values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
-            let (valid_kmers, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
-                seqs,
-                &Box::new(filter::CountFilter::new(2)),
+            let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
+                &Reads::from_vmer_vec(seqs),
+                &config,
                 stranded,
                 false,
                 4,
                 true,
-                true
             );
 
             // Generate compress DBG for this shard
-            let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1.saturating_add(*d2));
+            let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
             let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers, true, false, true);
@@ -476,7 +490,7 @@ mod tests {
 
         // Shove the subassemblies into a partially compress base graph
         let combined_graph = BaseGraph::combine(shard_asms.into_iter()).finish();
-        let cmp = SimpleCompress::new(|a: u16, b: &u16| max(a, *b));
+        let cmp = SimpleCompress::new(|a: u32, b: &u32| max(a, *b));
         let dbg_graph = compress_graph(false, &cmp, combined_graph, None);
 
         // Switch on for debugging
@@ -525,8 +539,8 @@ mod tests {
 
         let mut rng = rand::thread_rng();
         
-        let mut clean_seqs = Vec::new();
-        let mut all_seqs = Vec::new();
+        let mut clean_seqs = Reads::new();
+        let mut all_seqs = Reads::new();
 
         // Generate 5x coverage of the main sequences & add some tips
         for c in contigs {
@@ -535,8 +549,9 @@ mod tests {
             }
 
             for _i in 0..5 {
-                clean_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
-                all_seqs.push((DnaBytes(c.clone()), Exts::empty(), rng.gen_range(0, 10) as u8));
+                let read = DnaString::from_bytes(&c);
+                clean_seqs.add_read(read.clone(), Exts::empty(), rng.gen_range(0, 10) as u8);
+                all_seqs.add_read(read, Exts::empty(), rng.gen_range(0, 10) as u8);
             }
 
             let junk = random_dna(5);
@@ -544,78 +559,68 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
-            all_seqs.push((DnaBytes(err_ctg.clone()), Exts::empty(), 3u8));
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
         }
 
-
-        // initialize global thread pool with x threads
-        let num_threads = 4;
-        rayon::ThreadPoolBuilder::new().num_threads(num_threads).build_global().unwrap();
+        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
-        let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers(
+        let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
             &clean_seqs,
-            &Box::new(filter::CountFilter::new(2)),
+            &config,
             stranded,
             false,
             4,
             true,
-            true
         );
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
+        let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_clean, true, false, true);
         let graph1 = graph.finish();
         graph1.print();
         println!("components: {:?}", graph1.components_r());
 
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers(
             &all_seqs,
-            &Box::new(filter::CountFilterStats::new(2)),
+            &config,
             stranded,
             false,
             4,
-            true,
             true,
         );
-        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
+        let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1)),
-            1,
+            &config,
             stranded,
             false,
             4,
-            true,
             true,
         );
 
         println!("1: {:?}", valid_kmers_errs);
         println!("2: {:?}", valid_kmers_errs2);
 
-        let (valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u16>, _) = filter::filter_kmers_parallel(
+        let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(filter::CountFilter::new(1)),
-            1,
+            &config,
             stranded,
             false,
             4,
             true,
-            true
         );
-        let (valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountData>, _) = filter::filter_kmers_parallel(
+        let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs,
-            Box::new(CountFilterStats::new(1)),
-            1,
+            &config,
             stranded,
             false,
             4,
             true,
-            true
         );
 
-        //println!("3: {:?}", valid_kmers_errs3);
-        //println!("4: {:?}", valid_kmers_errs4);
+        println!("3: {:?}", _valid_kmers_errs3);
+        println!("4: {:?}", _valid_kmers_errs4);
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();
@@ -639,7 +644,7 @@ mod tests {
         let path_iter = graph.iter_max_path_comp(|_| 1., |_| true);
 
         let mut file = File::create("test_fasta_out.fasta").unwrap();
-        graph.path_to_fasta(&mut file, path_iter);
+        graph.path_to_fasta(&mut file, path_iter, false);
 
         for x in graph.iter_components() {
             println!("component: {:?}", x);
@@ -647,11 +652,12 @@ mod tests {
 
         for path in graph.iter_max_path_comp(|_| 1., |_| true) {
             println!("path seq: {:?}", path);
-            println!("path seq: {:?}", graph.sequence_of_path(path.iter()));
+            println!("path seq: {:?}", graph.sequence_of_path(path.1.iter()));
         }
 
-        graph.to_gfa_with_tags("gfa_out_seq", |node| format!("{:?}", node.data())).unwrap();
-        graph.to_gfa_otags_parallel("gfa_out_par", Some(&|node: &graph::Node<K, TagsCountData>| format!("{:?}", node.data()))).unwrap();
+        graph.to_gfa_with_tags("gfa_out_seq.gfa", |node| format!("{:?}", node.data())).unwrap();
+        graph.to_gfa_otags_parallel("gfa_out_par.gfa", Some(&|node: &graph::Node<K, TagsCountsSumData>| format!("{:?}", node.data()))).unwrap();
+
         //let graph2 = graph.finish();
         //graph2.print();
         //graph.print();
@@ -685,7 +691,7 @@ mod tests {
         let str_vec = vec!["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"];
         let mut str_map = BiMap::new();
         for (i, str) in str_vec.into_iter().enumerate() {
-            str_map.insert(str, i as u8);
+            str_map.insert(str.to_string(), i as u8);
         }
 
         // build Tags from val
@@ -744,4 +750,56 @@ mod tests {
         }
         println!("{:?}", counts);
     }
+
+    #[test]
+    fn test_speed_calculation() {
+        let max_len = 150;
+        const WIDTH: i32 = 2;
+        let start = time::Instant::now();
+        for _i in 0..100000000 {
+            let _ = (max_len as f64 / 32.).ceil() as usize;
+        }
+        let after_simple = start.elapsed();
+        let start = time::Instant::now();
+        for _i in 0..100000000 {
+            let _ = ((max_len * WIDTH) >> 6) + (if (max_len * WIDTH) & 0x3F > 0 { 1 } else { 0 });
+        }
+        let after_complicated = start.elapsed();
+        println!("simple method: {} s\ncomplicated method: {} s", after_simple.as_secs_f32(), after_complicated.as_nanos());
+
+    }
+
+
+    #[test]
+    fn test_filter_kmers() {
+        let fastq = [
+            (DnaString::from_dna_string("ACGATCGATCGTAGCTACG"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("ATGCAGCTATTGCGAGCTACTTCAG"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("GTCGCAGATCGACTGAGCTAGC"), Exts::empty(), 7u8),
+            (DnaString::from_dna_string("GCGATCTACTGACGGATCTATCGGAGCTA"), Exts::empty(), 3u8),
+            (DnaString::from_dna_string("GCGATCTAGCGGATCTGCGAGCTATGC"), Exts::empty(), 6u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+        }
+
+        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+
+        let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
+            &reads, 
+            &config,
+            false, 
+            false, 
+            1,
+            false,
+         );
+
+         println!("{:?}", hm);
+
+    }
 }
+

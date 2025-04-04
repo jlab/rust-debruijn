@@ -2,6 +2,7 @@
 
 //! Create compressed DeBruijn graphs from uncompressed DeBruijn graphs, or a collection of disjoint DeBruijn graphs.
 use bit_set::BitSet;
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::debug;
 use rayon::current_num_threads;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -38,7 +39,9 @@ enum ExtModeNode {
 /// paths by inspecting in the per-kmer data of a proposed with `join_test_kmer`
 /// function.
 pub trait CompressionSpec<D> {
+    /// combine the data of two nodes
     fn reduce(&self, path_object: D, kmer_object: &D) -> D;
+    /// check if the data of two nodes can be combined
     fn join_test(&self, d1: &D, d2: &D) -> bool;
 }
 
@@ -103,6 +106,38 @@ where
     }
 }
 
+/// CompressionSpec with check and function
+pub struct CheckCompress<D, F1, F2> {
+    reduce_func: F1,
+    join_func: F2,
+    d: PhantomData<D>
+} 
+
+impl<D, F1, F2> CheckCompress<D, F1, F2> {
+    pub fn new(reduce_func: F1, join_func: F2) -> Self {
+        CheckCompress {
+            reduce_func,
+            join_func,
+            d: PhantomData,
+        }
+    }
+}
+
+impl<D, F1, F2> CompressionSpec<D> for CheckCompress<D, F1, F2>
+where
+    for<'r> F1: Fn(D, &'r D) -> D,
+    for<'r> F2: Fn(&'r D, &'r D) -> bool
+{
+    fn reduce(&self, d: D, other: &D) -> D {
+        (self.reduce_func)(d, other)
+    }
+
+    fn join_test(&self, d: &D, other: &D) -> bool {
+        (self.join_func)(d, other)
+    }
+}
+
+
 struct CompressFromGraph<'a, 'b, K: 'a + Kmer, D: 'a + PartialEq, S: CompressionSpec<D>> {
     stranded: bool,
     d: PhantomData<D>,
@@ -111,7 +146,7 @@ struct CompressFromGraph<'a, 'b, K: 'a + Kmer, D: 'a + PartialEq, S: Compression
     graph: &'a DebruijnGraph<K, D>,
 }
 
-impl<'a, 'b, K, D, S> CompressFromGraph<'a, 'b, K, D, S>
+impl<K, D, S> CompressFromGraph<'_, '_, K, D, S>
 where
     K: Kmer + Send + Sync,
     D: Debug + Clone + PartialEq,
@@ -335,7 +370,7 @@ where
         // We will have some hanging exts due to
         let mut dbg = graph.finish();
         dbg.fix_exts(None); // ????
-        debug_assert!(dbg.is_compressed(compression) == None);
+        debug_assert!(dbg.is_compressed(compression).is_none());
         dbg
     }
 }
@@ -368,7 +403,7 @@ struct CompressFromHash<'a, 'b, K: 'a + Kmer, D: 'a, S: CompressionSpec<D>> {
 }
 
 /// Compression of paths in Debruijn graph
-impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<D> + Sync> CompressFromHash<'a, 'b, K, D, S> {
+impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<D> + Sync> CompressFromHash<'_, '_, K, D, S> {
     fn get_kmer_data(&self, kmer: &K) -> (&Exts, &D) {
         match self.index.get(kmer) {
             Some(data) => data,
@@ -377,7 +412,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
     }
 
     fn get_kmer_id(&self, kmer: &K) -> Option<usize> {
-        self.index.get_key_id(kmer).map(|v| v as usize)
+        self.index.get_key_id(kmer)
     }
 
     /// Attempt to extend kmer v in direction dir. Return:
@@ -457,7 +492,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
     ///    is possible.  nextDir indicates the direction to extend nextMker
     ///    to preserve the direction of the extension.
     /// - Term(ext) no unique extension possible, indicating the extensions at this end of the line
-    fn try_extend_kmer_par(&self, kmer: K, dir: Dir, path: &mut Vec<(K, Dir)>) -> ExtMode<K> {
+    fn try_extend_kmer_par(&self, kmer: K, dir: Dir, path: &mut [(K, Dir)]) -> ExtMode<K> {
         // metadata of start kmer
         let (exts, ref kmer_data) = self.get_kmer_data(&kmer);
 
@@ -720,13 +755,11 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
         let last = path_seq.sequence.get_kmer::<K>(path_seq.sequence.len()-K::k());
         let min_last = last.min_rc();
 
-        let result = if min_first < min_last {
+        if min_first < min_last {
             (min_first, min_last)
         } else {
             (min_last, min_first)
-        };
-        
-        result
+        }
     }
 
     #[inline(never)]
@@ -838,14 +871,16 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             for _i in 0..127 {
                 print!("-");
             }
-            print!("|");
-            print!("\n");
+            println!("|");
         }
 
-        for kmer_counter in 0..n_kmers {
-            if progress {
-                    if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
-            }
+        let pb = ProgressBar::new(n_kmers as u64);
+        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_message(format!("{:<32}", "compressing graph"));
+
+
+        for kmer_counter in (0..n_kmers).progress_with(pb) {
+            if progress && (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
 
             if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) {
                 debug!("another 1/128 done: {}, data graph size: {}", (kmer_counter as f32 / steps) as i32, mem::size_of_val(&*graph.data));
@@ -858,7 +893,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             }
         }
 
-        if progress { print!("\n") };
+        if progress { println!() };
 
         graph
     }
@@ -904,8 +939,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             for _i in 0..127 {
                 print!("-");
             }
-            print!("|");
-            print!("\n");
+            println!("|");
         }
         
         // go through all kmers and find the start and end kmer of each compressable sequence node
@@ -919,9 +953,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
             for kmer_counter in range {
 
-                if progress {
-                    if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
-                }
+                if progress && (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
 
                 let mut comp = CompressFromHash {
                     stranded,
@@ -936,15 +968,13 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
                 let all_clone = Arc::clone(&all_start_end_kmers);
                 let mut all_lock = all_clone.lock().expect("lock all_start_end_kmers");
-                if !all_lock.contains_key(&kmers.0) {
-                    all_lock.insert(kmers.0, kmers.1);
-                }
+                all_lock.entry(kmers.0).or_insert(kmers.1);
             }
 
             debug!("finished range: {:?}", range2);
         });
 
-        if progress { print!("\n") }
+        if progress { println!() }
 
         // all the kmers which occurr at the beginning or end of a node are soerted and deduped
         // resulting in one (K, K) per node
@@ -984,10 +1014,9 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             for _i in 0..127 {
                 print!("-");
             }
-            print!("|");
-            print!("\n");
+            println!("|");
         }
-        let short_progress = if n_starts < 100 { true } else { false };
+        let short_progress = n_starts < 100;
 
         // go trough all start kmers and find the corresponding sequence, add them to the partial graph
         parallel_ranges.into_par_iter().for_each(|range| {
@@ -998,9 +1027,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
 
             for (i, (start, _)) in all_start_end_kmers[range].iter().enumerate() {   
 
-                if progress & !short_progress {
-                    if (i as f32 % steps >= 0.) & (i as f32 % steps < 1.) { print!("|")}
-                }
+                if progress & !short_progress && (i as f32 % steps >= 0.) & (i as f32 % steps < 1.) { print!("|")}
 
                 let mut path_buf = Vec::new();
                 let mut edge_seq_buf = VecDeque::new();
@@ -1030,7 +1057,7 @@ impl<'a, 'b, K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: Compress
             }
         }
         
-        if progress { print!("\n") }
+        if progress { println!() }
 
         // combine the graphs and return the resulting graph
         let graph = BaseGraph::combine(graphs.lock().expect("final graph lock").clone().into_iter());

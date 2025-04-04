@@ -1,12 +1,11 @@
 [package]
 name = "debruijn"
-version = "0.3.4"
-authors = ["Patrick Marks <patrick@10xgenomics.com>"]
+version = "0.4.0"
+authors = ["Patrick Marks <patrick@10xgenomics.com>", "Elena Volp <elena.volp@uni-giessen.de>"]
 license = "MIT"
 edition = '2021'
 description = "Tools for DNA sequences: efficient k-mer manipulation, De Bruijn graph construction and compaction and handling of DNA strings"
-documentation = "https://docs.rs/debruijn"
-repository = "https://github.com/10XGenomics/rust-debruijn/"
+repository = "https://github.com/jlab/rust-debruijn/"
 keywords = ["dna", "sequencing", "kmer", "debruijn", "graph"]
 readme = "README.md"
 
@@ -22,6 +21,12 @@ itertools = ">=0.7"
 log = "0.4"
 rayon = "1.10.0"
 bimap = "0.6.3"
+statrs = "0.18.0"
+indicatif = {version = "0.17.11", features = ["rayon"]}
+clap = { version = "4.5.0", features = ["derive"] }
+bincode = "1.3.3"
+colored = "3.0.0"
+
 
 [dev-dependencies]
 pretty_assertions = "1.3"
