@@ -39,7 +39,9 @@ enum ExtModeNode {
 /// paths by inspecting in the per-kmer data of a proposed with `join_test_kmer`
 /// function.
 pub trait CompressionSpec<D> {
+    /// combine the data of two nodes
     fn reduce(&self, path_object: D, kmer_object: &D) -> D;
+    /// check if the data of two nodes can be combined
     fn join_test(&self, d1: &D, d2: &D) -> bool;
 }
 
@@ -874,7 +876,7 @@ impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<
 
         let pb = ProgressBar::new(n_kmers as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("compressing graph               ");
+        pb.set_message(format!("{:<32}", "compressing graph"));
 
 
         for kmer_counter in (0..n_kmers).progress_with(pb) {

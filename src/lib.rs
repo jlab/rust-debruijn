@@ -48,6 +48,9 @@ pub mod neighbors;
 pub mod vmer;
 pub mod fastq;
 
+const BUF: usize = 64*1024;
+const BUCKETS: usize = 256;
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod bitops_avx2;
 
@@ -1029,7 +1032,7 @@ impl fmt::Display for TagsCountsFormatter<'_> {
     }
 }
 
-/// multiplicigties for each of the 8 possible edges
+/// multiplicities for each of the 8 possible edges
 /// indices: 
 /// 0: A left
 /// 1: C left

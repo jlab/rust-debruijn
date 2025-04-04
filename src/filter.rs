@@ -28,6 +28,7 @@ use crate::Dir;
 use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
+use crate::BUCKETS;
 
 // FIXME does not work with k < 4
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
@@ -153,7 +154,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let before_all = Instant::now();
 
     let rc_norm = !stranded;
-    const BUCKETS: usize = 256;
 
     // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -175,8 +175,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
         let mut bucket_ranges = Vec::with_capacity(slices);
         let mut start = 0;
-        let sz = 256 / slices + 1;
-        while start < 256 {
+        let sz = BUCKETS / slices + 1;
+        while start < BUCKETS {
             bucket_ranges.push(start..start + sz);
             start += sz;
         }
@@ -215,7 +215,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     let pb_bucket_ranges = multi_pb.add(ProgressBar::new(bucket_ranges.len() as u64));
     pb_bucket_ranges.set_style(style.clone());
-    pb_bucket_ranges.set_message("filtering kmers                 ");
+    pb_bucket_ranges.set_message(format!("{:<32}", "filtering kmers"));
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
@@ -255,15 +255,16 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
         let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb_size_buckets.set_style(style.clone());
-        pb_size_buckets.set_message("finding bucket sizes           ");
+        pb_size_buckets.set_message(format!("{:<32}", "finding bucket sizes"));
+        
 
         let pb_fill_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb_fill_buckets.set_style(style.clone());
-        pb_fill_buckets.set_message("filling buckets with k-mers    ");
+        pb_fill_buckets.set_message(format!("{:<32}", "filling buckets with k-mers"));
 
         let pb_sum_buckets = multi_pb.add(ProgressBar::new(BUCKETS as u64));
         pb_sum_buckets.set_style(style.clone());
-        pb_sum_buckets.set_message("summarizing k-mers in buckets   ");
+        pb_sum_buckets.set_message(format!("{:<32}", "summarizing k-mers in buckets"));
 
         parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
 
@@ -542,7 +543,6 @@ where
 {
     let before_all = Instant::now();
     let rc_norm = !stranded;
-    const BUCKETS: usize = 256;
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -565,8 +565,8 @@ where
     let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
         let mut bucket_ranges = Vec::with_capacity(slices);
         let mut start = 0;
-        let sz = 256 / slices + 1;
-        while start < 256 {
+        let sz = BUCKETS / slices + 1;
+        while start < BUCKETS {
             bucket_ranges.push(start..start + sz);
             start += sz;
         }
@@ -612,7 +612,7 @@ where
 
     let pb_bucket_ranges = multi_pb.add(ProgressBar::new(bucket_ranges.len() as u64));
     pb_bucket_ranges.set_style(style.clone());
-    pb_bucket_ranges.set_message("filtering k-mers                ");
+    pb_bucket_ranges.set_message(format!("{:<32}", "filtering k-mers"));
 
     // iterate over the bucket ranges
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
@@ -627,10 +627,10 @@ where
 
         let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb.set_style(style.clone());
-        pb.set_message("finding bucket lengths          ");
+        pb.set_message(format!("{:<32}", "finding bucket lengths"));
 
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
-        let mut capacities: [usize; 256] = [0; BUCKETS];
+        let mut capacities = [0; BUCKETS];
 
         for (ref seq, _, _) in seqs.iter().progress_with(pb) {
             // iterate through all kmers in seq
@@ -662,7 +662,7 @@ where
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
         let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb.set_style(style.clone());
-        pb.set_message("filling buckets with kmers      ");
+        pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
         for (ref seq, seq_exts, ref d) in seqs.iter().progress_with(pb) {
             // iterate trough all kmers in seq
@@ -710,7 +710,7 @@ where
         // go trough all buckets and summarize the contents
         let pb = multi_pb.add(ProgressBar::new(kmer_buckets.len() as u64));
         pb.set_style(style.clone());
-        pb.set_message("summarizing k-mers in buckets   ");
+        pb.set_message(format!("{:<32}", "summarizing k-mers in buckets"));
 
         for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
             debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());

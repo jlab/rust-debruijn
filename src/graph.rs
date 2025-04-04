@@ -37,6 +37,7 @@ type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::BUF;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
@@ -705,11 +706,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to a dot file
     pub fn to_dot<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F) {
-        let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
+        let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to DOT file       ");
+        pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
         for i in (0..self.len()).progress_with(pb) {
@@ -758,10 +759,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to DOT files      ");
+        pb.set_message(format!("{:<32}", "writing graph to DOT files"));
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut f = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel dot file"));
+            let mut f = BufWriter::with_capacity(BUF, File::create(&files[i]).expect("error creating parallel dot file"));
 
             for i in range {
                 self.node_to_dot(&self.get_node(i), node_label, &mut f);
@@ -772,18 +773,18 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         });
         pb.finish_and_clear();
 
-        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.dot", path)).unwrap());
+        let mut out_file = BufWriter::with_capacity(BUF, File::create(format!("{}.dot", path)).unwrap());
 
         writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("combining files                 ");
+        pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter().progress_with(pb) {
             let open_file = File::open(file).expect("error creating combined dot file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 64*1024];
+            let mut buffer = [0; BUF];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
@@ -803,11 +804,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write part of the graph to a dot file
     pub fn to_dot_partial<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F, nodes: Vec<usize>) {
-        let mut f = BufWriter::with_capacity(64*1024, File::create(path).expect("error creating dot file"));
+        let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(nodes.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to DOT file       ");
+        pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
         for i in nodes.into_iter().progress_with(pb) {
@@ -884,7 +885,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format
     pub fn to_gfa<P: AsRef<Path>>(&self, gfa_out: P) -> Result<(), Error> {
-        let wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creating gfa file"));
+        let wtr = BufWriter::with_capacity(BUF, File::create(gfa_out).expect("error creating gfa file"));
         self.write_gfa(&mut std::io::BufWriter::new(wtr))
     }
 
@@ -896,7 +897,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to GFA file       ");
+        pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
             let n = self.get_node(i);
@@ -914,12 +915,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         gfa_out: P,
         tag_func: F,
     ) -> Result<(), Error> {
-        let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creatinf gfa file"));
+        let mut wtr = BufWriter::with_capacity(BUF, File::create(gfa_out).expect("error creatinf gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to GFA file       ");
+        pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
             let n = self.get_node(i);
@@ -969,11 +970,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to GFA file       ");
+        pb.set_message(format!("{:<32}", "writing graph to GFA file"));
         
         
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
-            let mut wtr = BufWriter::with_capacity(64*1024, File::create(&files[i]).expect("error creating parallel gfa file"));
+            let mut wtr = BufWriter::with_capacity(BUF, File::create(&files[i]).expect("error creating parallel gfa file"));
 
             for i in range {
                 let n = self.get_node(i);
@@ -987,17 +988,17 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.finish_and_clear();
 
         // combine files
-        let mut out_file = BufWriter::with_capacity(64*1024, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
+        let mut out_file = BufWriter::with_capacity(BUF, File::create(format!("{}.gfa", gfa_out)).expect("error creating combined gfa file"));
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("combining files                 ");
+        pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter() {
             let open_file = File::open(file).expect("error opening parallel gfa file");
             let mut reader = BufReader::new(open_file);
-            let mut buffer = [0; 64*1024];
+            let mut buffer = [0; BUF];
 
             loop {
                 let linecount = reader.read(&mut buffer).unwrap();
@@ -1015,12 +1016,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// Write the graph to GFA format
     pub fn to_gfa_partial<P: AsRef<Path>, F: Fn(&Node<'_, K, D>) -> String>(&self, gfa_out: P, tag_func: Option<&F>, nodes: Vec<usize>) -> Result<(), Error> {
-        let mut wtr = BufWriter::with_capacity(64*1024, File::create(gfa_out).expect("error creating gfa file"));
+        let mut wtr = BufWriter::with_capacity(BUF, File::create(gfa_out).expect("error creating gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
-        pb.set_message("writing graph to GFA file       ");
+        pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in nodes.into_iter().progress_with(pb) {
             let n = self.get_node(i);
@@ -1778,8 +1779,10 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
-        let path = "400.graph.dbg";
-        let file = BufReader::with_capacity(64*1024, File::open(path).unwrap());
+        use crate::BUF;
+
+        let path = "test_data/400.graph.dbg";
+        let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
 
         let (graph, _, _): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, crate::summarizer::SummaryConfig) = 
             bincode::deserialize_from(file).expect("error deserializing graph");

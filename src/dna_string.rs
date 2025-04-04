@@ -30,7 +30,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
-use std::fmt;
+use std::error::Error;
+use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 
 use crate::{base_to_bits, base_to_bits_checked};
@@ -250,50 +251,9 @@ impl DnaString {
         dna_string
     }
 
-    /// FIXME does sometimes not recognize Ns 
-    /// Create a DnaString from an ASCII ACGT-encoded byte slice.
-    /// Non ACGT positions will cause panic
-    pub fn from_acgt_bytes_strict(bytes: &[u8]) -> DnaString {
-        let mut dna_string = DnaString::with_capacity(bytes.len());
-
-        // Accelerated avx2 mode. Should run on most machines made since 2013.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            if is_x86_feature_detected!("avx2") {
-                for chunk in bytes.chunks(32) {
-                    if chunk.len() == 32 {
-                        let (conv_chunk, correct) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
-                        if !correct { 
-                            panic!("A sequence contained a base ouside of ACGT/acgt - please filter your reads properly or use a less strict method for ascii conversion.")
-                        }
-                        let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
-                        dna_string.storage.push(packed);
-                    } else {
-                        let (b, corrects): (Vec<u8>, Vec<bool>) = chunk.iter().map(|c| base_to_bits_checked(*c)).collect();
-                        if corrects.iter().contains(&false) { 
-                            panic!("A sequence contained a base ouside of ACGT/acgt - please filter your reads properly or use a less strict meethod for ascii conversion.")
-                        }
-                        dna_string.extend(b.into_iter());
-                    }
-                }
-
-                dna_string.len = bytes.len();
-                return dna_string;
-            }
-        }
-
-        let (b, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
-        let correct = corrects.iter().contains(&false);
-        if !correct { 
-            panic!("A sequence contained a base ouside of ACGT/acgt - please filter your reads properly or use a less strict meethod for ascii conversion.")
-        }
-        dna_string.extend(b.into_iter());
-        dna_string
-    }
-
     /// Create a DnaString from an ASCII ACGT-encoded byte slice.
     /// Will return `None` if there are ambiguous bases in the DnaString
-    pub fn from_acgt_bytes_checked(bytes: &[u8]) -> Option<DnaString> {
+    pub fn from_acgt_bytes_checked(bytes: &[u8]) -> Result<DnaString, AmbiguousBasesError> {
         let mut dna_string = DnaString::with_capacity(bytes.len());
 
         // Accelerated avx2 mode. Should run on most machines made since 2013.
@@ -303,28 +263,28 @@ impl DnaString {
                 for chunk in bytes.chunks(32) {
                     if chunk.len() == 32 {
                         let (conv_chunk, correct) = unsafe { crate::bitops_avx2::convert_bases(chunk) };
-                        if !correct { return None }
+                        if !correct { return Err(AmbiguousBasesError {  }) }
                         let packed = unsafe { crate::bitops_avx2::pack_32_bases(conv_chunk) };
                         dna_string.storage.push(packed);
                     } else {
                         let (b, corrects): (Vec<u8>, Vec<bool>) = chunk.iter().map(|c| base_to_bits_checked(*c)).collect();
                         let correct = !corrects.iter().contains(&false);
-                        if !correct { return None }
+                        if !correct { return Err(AmbiguousBasesError {  }) }
                         dna_string.extend(b.into_iter());
                     }
                 }
 
                 dna_string.len = bytes.len();
-                return Some(dna_string);
+                return Ok(dna_string);
             }
         }
         
         let (b, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
         let correct = corrects.iter().contains(&false);
-        if !correct { return None }
+        if !correct { return Err(AmbiguousBasesError {  }) }
         dna_string.extend(b.into_iter());
 
-        Some(dna_string)
+        Ok(dna_string)
     }
 
     /// Create a DnaString from an ACGT-encoded byte slice,
@@ -900,6 +860,16 @@ impl PackedDnaStringSet {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmbiguousBasesError {}
+
+impl Error for AmbiguousBasesError {}
+
+impl Display for AmbiguousBasesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ambiguous base found in read")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1066,23 +1036,44 @@ mod tests {
     #[test]
     fn test_dna_string_ambig() {
         let dna = [
-            "TTTTTTTTTTTTTTTTTTTTTTTT".as_bytes(),
-            "NAGCGGAGATTATTCACGAGCATCGCGTAC".as_bytes(),
-            "GATCGATGCATGCTAGN".as_bytes(),
-            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAANAAAAATTATANTAACGT".as_bytes(),
-            "AGCTAGCTAGCTGACTGAGCGACTGA".as_bytes(),
-            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC".as_bytes(),
-            "GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC".as_bytes(),
-            "ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(),
-            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGJHSJDSDHKAJSHDK".as_bytes(),
-            ];
+            "TTTTTTTTTTTTTTTTTTTTTTTT",
+            "NAGCGGAGATTATTCACGAGCATCGCGTAC",
+            "GATCGATGCATGCTAGN",
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAANAAAAATTATANTAACGT",
+            "AGCTAGCTAGCTGACTGAGCGACTGA",
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC",
+            "GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC",
+            "ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG",
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGJHSJDSDHKAJSHDK",
+        ];
 
-        //unsafe { println!("{:?}", crate::bitops_avx2::convert_bases(&dna[3][0..32])); }
-        //let ascii = dna.as_bytes();
-        for seq in dna {
-            println!("{:?}", DnaString::from_acgt_bytes(seq));
-            println!("{:?}", DnaString::from_acgt_bytes_checked(seq));
-            //println!("{:?}", DnaString::from_acgt_bytes_strict(seq));
+        let comp_unchecked = [
+            "TTTTTTTTTTTTTTTTTTTTTTTT",
+            "AAGCGGAGATTATTCACGAGCATCGCGTAC",
+            "GATCGATGCATGCTAGA",
+            "ACGTAAAAAAAAAATTATATAACGTACGTAAAAAAAAAATTATATAACGTAACGTAAAAAAAAAAATTATAATAACGT",
+            "AGCTAGCTAGCTGACTGAGCGACTGA",
+            "AGCTAGCTAGCTGACTGAGCGACTGACGGATC",
+            "GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC",
+            "ACGATCGAATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG",
+            "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAAAAAAAAAAAAAA",
+        ];
+
+        let comp_checked = [
+            Ok("TTTTTTTTTTTTTTTTTTTTTTTT".to_string()),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+            Ok("AGCTAGCTAGCTGACTGAGCGACTGA".to_string()),
+            Ok("AGCTAGCTAGCTGACTGAGCGACTGACGGATC".to_string()),
+            Ok("GCATCGAGCATGCTACGATGCGACGATCGTACGATCGTACGATC".to_string()),
+            Err(AmbiguousBasesError {}),
+            Err(AmbiguousBasesError {}),
+        ];
+
+        for (i, seq) in dna.iter().enumerate() {
+            assert_eq!(format!("{:?}", DnaString::from_acgt_bytes(seq.as_bytes())), comp_unchecked[i]);
+            assert_eq!(DnaString::from_acgt_bytes_checked(seq.as_bytes()).map(|d| format!("{:?}", d)), comp_checked[i]);
         }
     }
 

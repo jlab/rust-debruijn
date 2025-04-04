@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use std::vec::IntoIter;
 
-const BUF: usize = 64*1024;
+use crate::BUF;
 
 pub struct FastqReader<R: BufRead> {
     buf_reader: R,
@@ -48,6 +48,7 @@ impl<R: BufRead> Iterator for FastqSequenceIterator<R> {
             
             // return read seq, take iterator and rest as &mut
             // TODO move loops to function, is repetetive
+            // 10 = ASCII character for newline
             let mut name = Vec::new();
             while !is_rest {
                 match self.iter_buffer.next() {
@@ -98,7 +99,9 @@ impl<R: BufRead> Iterator for FastqSequenceIterator<R> {
 
                 // return None if no new bytes were read
                 // TODO implement Error if there is still something in rest buffer
-                if new_bytes == 0 {return None}
+                if new_bytes == 0 {
+                    if vec_buffer.is_empty() { return None } else { panic!("error: finished reading fastq file with incomplete record in buffer") }
+                }
 
                 // append new buffer to rest from last round
                 vec_buffer.append(&mut new_buffer[..new_bytes].to_vec());
@@ -146,7 +149,7 @@ mod tests{
                     assert_eq!(compare_seqs[i], seq);
                 }
             },
-            None => panic!("hä")
+            None => panic!("error reading from fastq file")
         }
     }
 }

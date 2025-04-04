@@ -489,7 +489,7 @@ mod tests {
                     read_counter += 1;
 
                 },
-                false => assert_eq!(sequence,None),
+                false => assert!(sequence.is_err()),
             }
         }
     }
