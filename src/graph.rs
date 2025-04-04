@@ -692,11 +692,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         for (base, id, incoming_dir, flipped) in node.l_edges() {
 
-            writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped) ).unwrap();
+            writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
 
         for (base, id, incoming_dir, flipped) in node.r_edges() {
-            writeln!(f, "n{} -> n{} {}", node.node_id, id, edge_label(node, base, incoming_dir, flipped).unwrap();
+            writeln!(f, "n{} -> n{} {}", node.node_id, id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
     }
 
