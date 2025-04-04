@@ -1630,9 +1630,10 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             Dir::Right => "red",
         };
 
+        // TODO check if dir needs to be flipped
         if let Some(em) = self.data().edge_mults() {
             let count = em.edge_mult(base, incoming_dir);
-            format!("color={color}, label={count}")
+            format!("[color={color}, label={count}]")
         } else {
             format!("[color={color}]")
         }
