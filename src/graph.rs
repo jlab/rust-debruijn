@@ -35,6 +35,7 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
+use crate::complement;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryData;
@@ -689,12 +690,13 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         )
         .unwrap();
 
-        for (base, id, incoming_dir, _) in node.l_edges() {
-            writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir) ).unwrap();
+        for (base, id, incoming_dir, flipped) in node.l_edges() {
+
+            writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped) ).unwrap();
         }
 
-        for (base, id, incoming_dir, _) in node.r_edges() {
-            writeln!(f, "n{} -> n{} {}", node.node_id, id, edge_label(node, base, incoming_dir)).unwrap();
+        for (base, id, incoming_dir, flipped) in node.r_edges() {
+            writeln!(f, "n{} -> n{} {}", node.node_id, id, edge_label(node, base, incoming_dir, flipped).unwrap();
         }
     }
 
@@ -1624,15 +1626,20 @@ impl<'a, K: Kmer, D> fmt::Debug for Node<'a, K, D> where D:Debug {
 */
 
 impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
-    pub fn edge_dot_default(&self, base: u8, incoming_dir: Dir) -> String {
+    pub fn edge_dot_default(&self, base: u8, incoming_dir: Dir, flipped: bool) -> String {
         let color = match incoming_dir {
             Dir::Left => "blue",
             Dir::Right => "red",
         };
 
-        // TODO check if dir needs to be flipped
         if let Some(em) = self.data().edge_mults() {
-            let count = em.edge_mult(base, incoming_dir);
+            let (b, dir) = if flipped { 
+                (complement(base), incoming_dir.flip()) 
+            } else {
+                (base, incoming_dir)
+            };
+
+            let count = em.edge_mult(b, dir);
             format!("[color={color}, label={count}]")
         } else {
             format!("[color={color}]")
