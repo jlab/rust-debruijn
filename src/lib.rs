@@ -1117,7 +1117,7 @@ impl EdgeMult {
         self.edge_mults.iter().sum::<u32>()
     }
 
-    pub fn edge_mult(&self, (base, _, dir, _): (u8, usize, Dir, bool)) -> u32 {
+    pub fn edge_mult(&self, base: u8, dir: Dir) -> u32 {
         // calculate index in slice
         let index = match dir {
             Dir::Left => base,
