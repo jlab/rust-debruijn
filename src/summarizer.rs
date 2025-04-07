@@ -238,6 +238,8 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, V
         nobs += 1;
     }
 
+    assert_eq!(all_exts, edge_mults.exts());
+
     out_data.sort();
 
     let mut tag_counter = 1;
