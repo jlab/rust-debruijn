@@ -1634,9 +1634,9 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
 
         if let Some(em) = self.data().edge_mults() {
             let (b, dir) = if flipped { 
-                (base, incoming_dir) 
+                (base, incoming_dir.flip()) 
             } else {
-                (base, incoming_dir)
+                (complement(base), incoming_dir.flip())
             };
 
             let count = em.edge_mult(b, dir);
