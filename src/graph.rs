@@ -1640,7 +1640,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             };
 
             let count = em.edge_mult(b, dir);
-            format!("[color={color}, label=\"{count}]\"")
+            format!("[color={color}, label=\"{count}, {b}, {:?}\"]", dir)
         } else {
             format!("[color={color}]")
         }
