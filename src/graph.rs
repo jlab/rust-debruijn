@@ -671,7 +671,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir) -> String>(
+    fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir, bool) -> String>(
         &self,
         node: &Node<'_, K, D>,
         node_label: &FN,
@@ -705,7 +705,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     where 
     P: AsRef<Path>,
     FN: Fn(&Node<K, D>) -> String,
-    FE: Fn(&Node<K, D>, u8, Dir) -> String,
+    FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
     {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
@@ -735,7 +735,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         K: Sync,
         P: AsRef<Path> + Display + Sync,
         FN: Fn(&Node<K, D>) -> String + Sync,
-        FE: Fn(&Node<K, D>, u8, Dir) -> String + Sync,
+        FE: Fn(&Node<K, D>, u8, Dir, bool) -> String + Sync,
     {        
         let slices = current_num_threads();
         let n_nodes = self.len();
@@ -817,7 +817,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     where 
         P: AsRef<Path>,
         FN: Fn(&Node<K, D>) -> String,
-        FE: Fn(&Node<K, D>, u8, Dir) -> String,
+        FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
     {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
