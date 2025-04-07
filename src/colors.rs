@@ -216,7 +216,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
     
 }
 
-fn get_min_max<I: Debug, F, II, N>(iter_struct: &I, iter_value: &F) -> (Option<(N, N)>, Option<N>, Option<N>)
+pub fn get_min_max<I: Debug, F, II, N>(iter_struct: &I, iter_value: &F) -> (Option<(N, N)>, Option<N>, Option<N>)
 where
     F: Fn(&I) -> Box<II>,
     II: Iterator<Item = N>,
@@ -250,7 +250,7 @@ where
     (None, None, None)
 }
 
-trait CFilter {
+pub trait CFilter {
     fn filter(self) -> bool;
     fn to_f64(self) -> f64;
 }
