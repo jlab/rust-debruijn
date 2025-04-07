@@ -1639,9 +1639,8 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
                 incoming_dir.flip()
             };
 
-
             let count = em.edge_mult(base, dir);
-            format!("[color={color}, label=\"{count}, {base}, {:?}, {flipped}\"]", dir)
+            format!("[color={color}, label=\"{count}\"]")
         } else {
             format!("[color={color}]")
         }
