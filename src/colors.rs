@@ -135,6 +135,8 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
             None => None
         };
 
+        debug!("log10_p m, b: {:?}", log10_p_mb);
+
         let log10_em_mb = match graph.get_node(0).data().edge_mults() {
             Some(_) => {
                 let (min_max, _, _) = get_min_max(&graph, &|graph| Box::new(graph
@@ -158,7 +160,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
             None => None
         };
 
-        debug!("log10_p m, b: {:?}", log10_p_mb);
+        debug!("log10_em m, b: {:?}", log10_em_mb);
 
         let (marker0, marker1) = summary_config.get_markers();      
 
