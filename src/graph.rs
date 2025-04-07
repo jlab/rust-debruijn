@@ -1633,11 +1633,13 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         };
 
         if let Some(em) = self.data().edge_mults() {
-            let (b, dir) = if flipped { 
+            /* let (b, dir) = if flipped { 
                 (base, incoming_dir) 
             } else {
                 (complement(base), incoming_dir.flip())
-            };
+            }; */
+
+            let (b, dir) = (base, incoming_dir);
 
             let count = em.edge_mult(b, dir);
             format!("[color={color}, label=\"{count}, {b}, {:?}, {flipped}\"]", dir)

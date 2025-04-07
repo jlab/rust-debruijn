@@ -1035,14 +1035,14 @@ impl fmt::Display for TagsCountsFormatter<'_> {
 // would be more intuitive with left and right switched but Exts were built this way
 /// multiplicities for each of the 8 possible edges
 /// indices: 
-/// 0: A right
-/// 1: C right
-/// 2: G right
-/// 3: T right
-/// 4: A left
-/// 5: C left
-/// 6: G left
-/// 7: T left
+/// 0: T right
+/// 1: G right
+/// 2: C right
+/// 3: A right
+/// 4: T left
+/// 5: G left
+/// 6: C left
+/// 7: A left
 #[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
 pub struct EdgeMult {
     edge_mults: [u32; 8],
@@ -1052,14 +1052,14 @@ pub struct EdgeMult {
 impl Debug for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "A: {}, C: {}, G: {}, T: {} | A: {}, C: {}, G: {}, T: {}", 
-            self.edge_mults[4],
-            self.edge_mults[5],
-            self.edge_mults[6],
             self.edge_mults[7],
-            self.edge_mults[0],
-            self.edge_mults[1],
-            self.edge_mults[2],
+            self.edge_mults[6],
+            self.edge_mults[5],
+            self.edge_mults[4],
             self.edge_mults[3],
+            self.edge_mults[2],
+            self.edge_mults[1],
+            self.edge_mults[0],
         )
     }
 }
@@ -1067,10 +1067,10 @@ impl Debug for EdgeMult {
 impl Display for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "A: {} | {}\nC: {} | {}\nG: {} | {}\nT: {} | {}\n",
-            self.edge_mults[4], self.edge_mults[0],
-            self.edge_mults[5], self.edge_mults[1],
-            self.edge_mults[6], self.edge_mults[2],
             self.edge_mults[7], self.edge_mults[3],
+            self.edge_mults[6], self.edge_mults[2],
+            self.edge_mults[5], self.edge_mults[1],
+            self.edge_mults[4], self.edge_mults[0],
         )
     }
 }
@@ -1089,8 +1089,8 @@ impl EdgeMult {
     /// add a count to the an edge
     pub fn add(&mut self, base: u8, dir: Dir, count: u32) {
         let index = match dir {
-            Dir::Left => base + 4,
-            Dir::Right => base
+            Dir::Left => 7 - base,
+            Dir::Right => 3 - base
         };
 
         self.edge_mults[index as usize] += count
@@ -1126,8 +1126,8 @@ impl EdgeMult {
     pub fn edge_mult(&self, base: u8, dir: Dir) -> u32 {
         // calculate index in slice
         let index = match dir {
-            Dir::Right => base,
-            Dir::Left => base + 4,
+            Dir::Right => 3 - base,
+            Dir::Left => 7 - base,
         };
 
         self.edge_mults[index as usize]
@@ -1173,24 +1173,24 @@ mod tests {
 
         edge_mult.add(0, crate::Dir::Right, 2);
         edge_mult.add(2, crate::Dir::Left, 78989);
-        assert_eq!(edge_mult.edge_mults, [3, 1, 1, 1, 1, 1, 78990, 1]);
+        assert_eq!(edge_mult.edge_mults, [1, 1, 1, 3, 1, 78990, 1, 1]);
 
         let exts = Exts::new(0);
-        let comp = [3, 1, 1, 1, 1, 1, 78990, 1];
+        let comp = [1, 1, 1, 3, 1, 78990, 1, 1];
         edge_mult.add_exts(exts);
         assert_eq!(edge_mult.edge_mults, comp);
         assert_eq!(edge_mult.sum(), comp.iter().sum::<u32>());
 
         let exts = Exts::new(0b10101010);
         edge_mult.add_exts(exts);
-        assert_eq!(edge_mult.edge_mults, [4, 1, 2, 1, 2, 1, 78991, 1]);
+        assert_eq!(edge_mult.edge_mults, [2, 1, 2, 3, 2, 78990, 2, 1]);
 
         let exts = Exts::new(0b01010101);
         edge_mult.add_exts(exts);
-        assert_eq!(edge_mult.edge_mults, [4, 2, 2, 2, 2, 2, 78991, 2]);
+        assert_eq!(edge_mult.edge_mults, [2, 2, 2, 4, 2, 78991, 2, 2]);
 
         let mut em = EdgeMult::new();
-        let exts = Exts::new(0b00001111);
+        let exts = Exts::new(0b00001101);
         println!("{:?}", exts);
         em.add_exts(exts);
         println!("{}", em);

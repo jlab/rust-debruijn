@@ -1156,17 +1156,12 @@ pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
     let mut graph: BaseGraph<K, D> = BaseGraph::new(false);
     let mut kmer_seq: VecDeque<u8> = VecDeque::with_capacity(K::k());
 
-    //let n_kmers = index.len();
-
     for (kmer, exts, data) in index.into_iter() {
         kmer_seq.clear();
         for i in 0..K::k() {
             kmer_seq.push_back(kmer.get(i));
         }
-        let data2 = data.clone();
-        graph.add(&kmer_seq, *exts, data2);
-
-
+        graph.add(&kmer_seq, *exts, data.clone());
     }
     graph
 }
