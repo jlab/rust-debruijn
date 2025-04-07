@@ -16,6 +16,7 @@ pub struct Colors<SD: SummaryData<u8>> {
     log2_fc_factor: Option<f32>,
     _log2_nobs_mb: Option<(f32, f32)>,
     log10_p_mb: Option<(f32, f32)>,
+    log10_em_mb: Option<(f32, f32)>,
     phantom_data_sd: PhantomData<SD>,
 }
 
@@ -39,10 +40,12 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
     const FC_MIN: f32 = -5.;
     const P_MAX: f32 = -4.;
 
-    /// Creates a new `Colors<SD>`. 
-    /// 
-    /// The markers binary encode the groups of the tags:
-    /// `marker0 = 00010011` (shortened to `u8`) means the tags `[0, 1, 4]` are in group 1.
+    const EDGE_WIDTH_MAX: f32 = 10.;
+    const EDGE_WIDTH_MIN: f32 = 1.;
+    const EDGE_WIDTH_DEF: f32 = 1.;
+
+
+    /// Creates a new [`Colors<SD>`]. 
     pub fn new<K: Kmer>(graph: &DebruijnGraph<K, SD>, summary_config: &SummaryConfig) -> Self {
         
         let log2_fc_factor = match graph.get_node(0).data().p_value(summary_config) {
@@ -132,6 +135,29 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
             None => None
         };
 
+        let log10_em_mb = match graph.get_node(0).data().edge_mults() {
+            Some(_) => {
+                let (min_max, _, _) = get_min_max(&graph, &|graph| Box::new(graph
+                    .iter_nodes()
+                    .flat_map(|node| node.data().edge_mults().expect("error getting edge mult").edge_mults())
+                )); 
+    
+                debug!("edge mults min max: {:?}", min_max);
+    
+                min_max.map(|(min, max)|{
+                    let min = (min as f32).log10();
+                    let max = (max as f32).log10();
+    
+                    // b should be 0 -> p = 1 -> log10(1) = 0 -> VAL_MIN=0
+                    let m = (Self::EDGE_WIDTH_MAX - Self::EDGE_WIDTH_MIN) / (max - min);
+                    let b = Self::EDGE_WIDTH_MIN - m * min;
+    
+                    (m, b)
+                })
+            }, 
+            None => None
+        };
+
         debug!("log10_p m, b: {:?}", log10_p_mb);
 
         let (marker0, marker1) = summary_config.get_markers();      
@@ -142,13 +168,14 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
             log2_fc_factor,
             _log2_nobs_mb: log2_nobs_mb,
             log10_p_mb,
+            log10_em_mb,
             phantom_data_sd: PhantomData,
         }
     }
 
 
     /// get the color for a node in a HSV format
-    pub fn color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
+    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
 
         // get hue
         let hue = match self.log2_fc_factor {
@@ -213,6 +240,13 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
         // return formatted string for color, fillcolor, and fontcolor
         format!("color={prefix}\"{hue} {saturation} {value}\", fontcolor={font_color}")
     }
+
+    pub fn edge_width(&self, edge_mult: u32) -> f32 {
+        match self.log10_em_mb {
+            Some((m, b)) => (edge_mult as f32).log10() * m + b,
+            None => Self::EDGE_WIDTH_DEF
+        }
+    }
     
 }
 
@@ -258,6 +292,15 @@ pub trait CFilter {
 impl CFilter for usize {
     fn filter(self) -> bool {
         self != usize::MAX
+    }
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+
+impl CFilter for u32 {
+    fn filter(self) -> bool {
+        self != u32::MAX
     }
     fn to_f64(self) -> f64 {
         self as f64

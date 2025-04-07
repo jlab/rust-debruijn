@@ -35,9 +35,10 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
-use crate::complement;
+use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::BUF;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
@@ -1363,7 +1364,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         
         bad_nodes
     }
+}
 
+impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
+    pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
+        Colors::new(self, config)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1617,22 +1623,16 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     }
 }
 
-/*
-impl<'a, K: Kmer, D> fmt::Debug for Node<'a, K, D> where D:Debug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Node: {}, Seq: {}, Exts:{:?}, Data: {:?}", self.node_id, self.sequence().to_string(), self.exts(), self.data())
-    }
-}
-*/
-
+// TODO make generic instead of u8 (u8 is sufficient for dbg)
 impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
-    pub fn edge_dot_default(&self, base: u8, incoming_dir: Dir, flipped: bool) -> String {
+    pub fn edge_dot_default(&self, colors: &Colors<SD>, base: u8, incoming_dir: Dir, flipped: bool) -> String {
         let color = match incoming_dir {
             Dir::Left => "blue",
-            Dir::Right => "red",
+            Dir::Right => "red"
         };
-
+        
         if let Some(em) = self.data().edge_mults() {
+            
             let dir = if flipped { 
                 incoming_dir 
             } else {
@@ -1640,7 +1640,9 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             };
 
             let count = em.edge_mult(base, dir);
-            format!("[color={color}, label=\"{count}\"]")
+            let penwidth = colors.edge_width(count);
+
+            format!("color={color}, penwidth={penwidth}, label=\"{count}\"]")
         } else {
             format!("[color={color}]")
         }
