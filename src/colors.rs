@@ -142,6 +142,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
                 let (min_max, _, _) = get_min_max(&graph, &|graph| Box::new(graph
                     .iter_nodes()
                     .flat_map(|node| node.data().edge_mults().expect("error getting edge mult").edge_mults())
+                    .filter(|element| *element != 0)
                 )); 
     
                 debug!("edge mults min max: {:?}", min_max);
@@ -150,7 +151,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
                     let min = (min as f32).log10();
                     let max = (max as f32).log10();
     
-                    // b should be 0 -> p = 1 -> log10(1) = 0 -> VAL_MIN=0
+                    // b should be 1 -> em = 1 -> log10(1) = 0 -> EDGE_WITH_MIN=1
                     let m = (Self::EDGE_WIDTH_MAX - Self::EDGE_WIDTH_MIN) / (max - min);
                     let b = Self::EDGE_WIDTH_MIN - m * min;
     
