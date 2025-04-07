@@ -23,7 +23,7 @@ impl Display for NotEnoughSamplesError {
 }
 
 /// Configuration for summary processes
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
     significant: Option<u32>,
