@@ -23,7 +23,7 @@ impl Display for NotEnoughSamplesError {
 }
 
 /// Configuration for summary processes
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
     significant: Option<u32>,
@@ -237,6 +237,8 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, V
         edge_mults.add_exts(exts);
         nobs += 1;
     }
+
+    assert_eq!(all_exts, edge_mults.exts());
 
     out_data.sort();
 
