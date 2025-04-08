@@ -1615,7 +1615,9 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
 
 // TODO make generic instead of u8 (u8 is sufficient for dbg)
 impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
+    /// get default format for dot edges based on node data
     pub fn edge_dot_default(&self, colors: &Colors<SD>, base: u8, incoming_dir: Dir, flipped: bool) -> String {
+        // set color based on dir
         let color = match incoming_dir {
             Dir::Left => "blue",
             Dir::Right => "red"
@@ -1629,6 +1631,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
                 incoming_dir.flip()
             };
 
+            // set penwidth based on count
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
@@ -1638,16 +1641,21 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         }
     }
 
+    /// get default format for dot nodes, based on node data
     pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
+        // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
+        
         let data_info = self.data().print(tag_translator, config);
         let wrap = if self.len() > 40 { self.len() } else { 40 };
+
         let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, {}", 
             self.node_id,
             self.len(),
             self.sequence(),
             data_info
         ), wrap);
+
         format!("[style=filled, {color}, label=\"{label}\"]")
     }
 }
