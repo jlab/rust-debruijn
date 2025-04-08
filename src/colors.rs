@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 /// contains the hues, the markers signifying which tag belongs to which group, 
 /// the maximun kmer count and the average kmer count
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Colors<SD: SummaryData<u8>> {
     marker0: M,
     marker1: M,

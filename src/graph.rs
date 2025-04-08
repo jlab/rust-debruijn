@@ -679,17 +679,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         edge_label: &FE,
         f: &mut dyn Write,
     ) {
-        let label = node_label(node);
-        writeln!(
-            f,
-            "n{} [label=\"id: {} len: {} seq: {}\n  {}\", style=filled]",
-            node.node_id,
-            node.node_id,
-            node.sequence().len(),
-            node.sequence(),
-            label
-        )
-        .unwrap();
+        writeln!(f, "n{} {}", node.node_id, node_label(node)).unwrap();
 
         for (base, id, incoming_dir, flipped) in node.l_edges() {
 
@@ -1646,6 +1636,19 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         } else {
             format!("[color={color}]")
         }
+    }
+
+    pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
+        let color = colors.node_color(self.data(), config, outline);
+        let data_info = self.data().print(tag_translator, config);
+        let wrap = if self.len() > 40 { self.len() } else { 40 };
+        let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, {}", 
+            self.node_id,
+            self.len(),
+            self.sequence(),
+            data_info
+        ), wrap);
+        format!("[style=filled, {color}, label=\"{label}\"]")
     }
 }
 
