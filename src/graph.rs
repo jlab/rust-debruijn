@@ -1821,7 +1821,7 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
-        use crate::BUF;
+        use crate::{summarizer::SummaryData, Dir, BUF};
 
         let path = "test_data/400.graph.dbg";
         let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
@@ -1849,6 +1849,7 @@ mod test {
                 counter += 1;
             }
         }
+        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.score(), |_| true));
     }
 }
 

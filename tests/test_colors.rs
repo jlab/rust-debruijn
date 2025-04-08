@@ -44,4 +44,18 @@ fn test_colors() {
     let node = graph.get_node(node_id);
     assert_eq!("[style=filled, color=black, penwidth=7, fillcolor=\"0 1 1\", fontcolor=\"black, label=\"id: 2458, len: 16, seq:\nTCTCGTACTAAGTTCA, samples              -\ncounts\nC_H600               - 1\nP_T100               - 1\nP_T200               - 1\nP_T300               - 1\nP_T400               - 2\nsum: 6, p-value: 0.030437965,\nlog2(fold change): -4.4442472, edge\nmultiplicities:\nA: 0 | 6\nC: 6 | 0\nG: 0 | 0\nT: 0 | 0\n\n\"]", node.node_dot_default(&colors, &config, &hashed_labels, true));
     assert_eq!("[color=red, penwidth=-inf, label=\"0\"]", node.edge_dot_default(&colors, 1, debruijn::Dir::Right, true));
+
+    // write node to dot
+
+    graph.to_dot(
+        "test.dot", 
+        &|node| node.node_dot_default(&colors, &config, &hashed_labels, false), 
+        &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped)
+    );
+
+    graph.to_dot_parallel(
+        "test.dot", 
+        &|node| node.node_dot_default(&colors, &config, &hashed_labels, false), 
+        &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped)
+    );
 }
