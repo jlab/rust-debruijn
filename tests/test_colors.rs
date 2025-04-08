@@ -11,7 +11,6 @@ const TEST_FILE: &str = "test_data/sided.graph.dbg";
 const TEST_FILE: &str = "test_data/sided-128.graph.dbg";
 
 #[test]
-#[cfg(not(feature = "sample128"))]
 fn test_colors() {
     let path = TEST_FILE;
     let file = BufReader::new(File::open(path).unwrap());
