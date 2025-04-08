@@ -3,11 +3,17 @@ use std::{fs::File, io::BufReader};
 use bimap::BiMap;
 use debruijn::{colors::Colors, graph::DebruijnGraph, kmer::Kmer16, summarizer::TagsCountsPEMData};
 
+#[cfg(not(feature = "sample128"))]
+const TEST_FILE: &str = "test_data/sided.graph.dbg";
+
+// use different graph file for sample128 tests
+#[cfg(feature = "sample128")]
+const TEST_FILE: &str = "test_data/sided-128.graph.dbg";
 
 #[test]
 #[cfg(not(feature = "sample128"))]
 fn test_colors() {
-    let path = "test_data/sided.graph.dbg";
+    let path = TEST_FILE;
     let file = BufReader::new(File::open(path).unwrap());
 
     let (graph, vec_labels, config): (DebruijnGraph<Kmer16, TagsCountsPEMData>, Vec<String>, debruijn::summarizer::SummaryConfig) = 
