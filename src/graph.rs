@@ -1642,7 +1642,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
-            format!("color={color}, penwidth={penwidth}, label=\"{count}\"]")
+            format!("[color={color}, penwidth={penwidth}, label=\"{count}\"]")
         } else {
             format!("[color={color}]")
         }

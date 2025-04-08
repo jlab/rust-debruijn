@@ -40,7 +40,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
     const FC_MIN: f32 = -5.;
     const P_MAX: f32 = -4.;
 
-    const EDGE_WIDTH_MAX: f32 = 10.;
+    const EDGE_WIDTH_MAX: f32 = 20.;
     const EDGE_WIDTH_MIN: f32 = 1.;
     const EDGE_WIDTH_DEF: f32 = 1.;
 
