@@ -720,7 +720,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
@@ -791,7 +791,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let mut out_file = BufWriter::with_capacity(BUF, File::create(path).expect("error creating combined dot file"));
 
-        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
@@ -839,7 +839,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in nodes.into_iter().progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
