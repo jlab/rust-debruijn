@@ -247,7 +247,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
         let value = Self::VAL_DEF;
 
         // adapt font color to value ( currently always black)
-        let font_color= if value <= 0.5 { "\"white" } else { "\"black" };
+        let font_color= if value <= 0.5 { "white" } else { "black" };
 
         // set outline (eg if it is in a path)
         let prefix = if outline {
