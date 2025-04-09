@@ -672,6 +672,15 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
+    /// write a node to a dot file
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `node`: [`Node<K, D>`] which will be written to a dot file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    /// * `f`: writer
     fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir, bool) -> String>(
         &self,
         node: &Node<'_, K, D>,
@@ -692,6 +701,13 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write the graph to a dot file
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
     P: AsRef<Path>,
@@ -719,7 +735,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// then go though the files and add the contents to a larger file, 
     /// and delete the small files.
     /// 
-    /// The path does not need to contain the file ending.
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot_parallel<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
         D: Sync,
@@ -768,7 +789,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         });
         pb.finish_and_clear();
 
-        let mut out_file = BufWriter::with_capacity(BUF, File::create(format!("{}.dot", path)).unwrap());
+        let mut out_file = BufWriter::with_capacity(BUF, File::create(path).expect("error creating combined dot file"));
 
         writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"").unwrap();
 
@@ -777,7 +798,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter().progress_with(pb) {
-            let open_file = File::open(file).expect("error creating combined dot file");
+            let open_file = File::open(file).expect("error opening parallel dot file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; BUF];
 
@@ -802,7 +823,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// ### Arguments: 
     /// 
     /// * `path`: path to the output file
-    /// * `node_label` & `edge_label`: closures taking [`Node<K, D>`] and returning a string containing commands for dot nodes and edges 
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `nodes`: [`Vec<usize>`] listing all IDs of nodes which should be included
     pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: Vec<usize>) 
     where 
@@ -1645,9 +1668,10 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
     pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
-        
+
         let data_info = self.data().print(tag_translator, config);
-        let wrap = if self.len() > 40 { self.len() } else { 40 };
+        const MIN_TEXT_WIDTH: usize = 40;
+        let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
         let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, {}", 
             self.node_id,

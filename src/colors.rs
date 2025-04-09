@@ -11,12 +11,18 @@ use std::fmt::Debug;
 /// the maximun kmer count and the average kmer count
 #[derive(Clone, Debug, PartialEq)]
 pub struct Colors<SD: SummaryData<u8>> {
+    // 2-bit encoded group associations of labels
     marker0: M,
     marker1: M,
+    // factor (slope) for log2(fold change) to hue transformation
     log2_fc_factor: Option<f32>,
+    // slope (m) and y intercept (b) for n obs to value transformation
     _log2_nobs_mb: Option<(f32, f32)>,
+    // slope (m) and y intercept (b) for log10(p-value)) to saturation transformation
     log10_p_mb: Option<(f32, f32)>,
+    // slope (m) and y intercept (b) for log10(edge multiplicity) to pen width transformation
     log10_em_mb: Option<(f32, f32)>,
+    // phantom data who 
     phantom_data_sd: PhantomData<SD>,
 }
 
@@ -77,6 +83,8 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
                         };
 
                         // yellow should be where log2(fc) = 0
+                        // division by zero should not happen bc max has to be larger than min
+                        // and larger absolute of the two is used
                         Some(Self::HUE_YELLOW / val_fc)
                     },
                     None => None
@@ -87,7 +95,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
 
         debug!("log2_fc factor: {:?}", log2_fc_factor);
 
-        // number of observations
+        // number of observations (nobs)
         let (nobs, _, _) = get_min_max(
         &graph, 
         &|&graph| Box::new(graph

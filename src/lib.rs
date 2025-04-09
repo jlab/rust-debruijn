@@ -34,6 +34,7 @@ use summarizer::M;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
+use std::ops::Range;
 
 pub mod clean_graph;
 pub mod compression;
@@ -51,6 +52,7 @@ pub mod colors;
 
 const BUF: usize = 64*1024;
 const BUCKETS: usize = 256;
+const ALPHABET_SIZE: usize = 4;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod bitops_avx2;
@@ -589,6 +591,22 @@ impl Dir {
             Dir::Right => if_right,
         }
     }
+
+    /// get the index of the base in dir for [`Exts`] and [`EdgeMult`]
+    fn index(&self, base: u8) -> u8 {
+        match self {
+            Self::Right => ALPHABET_SIZE as u8 - 1 - base,
+            Self::Left => 2 * ALPHABET_SIZE as u8 - 1 - base,
+        }
+    }
+
+    /// get the index range of the dir for [`Exts`] and [`EdgeMult`]
+    fn index_range(&self) -> Range<usize>{
+        match self {
+            Self::Right => 0..ALPHABET_SIZE,
+            Self::Left => ALPHABET_SIZE..(2 * ALPHABET_SIZE),
+        }
+    }
 }
 
 /// Store single-base extensions for a DNA Debruijn graph.
@@ -1033,6 +1051,7 @@ impl fmt::Display for TagsCountsFormatter<'_> {
     }
 }
 
+
 // would be more intuitive with left and right switched but Exts were built this way
 /// multiplicities for each of the 8 possible edges
 /// indices: 
@@ -1047,39 +1066,37 @@ impl fmt::Display for TagsCountsFormatter<'_> {
 #[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
 pub struct EdgeMult {
     edge_mults: [u32; 8],
-
 }
 
 impl Debug for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "A: {}, C: {}, G: {}, T: {} | A: {}, C: {}, G: {}, T: {}", 
-            self.edge_mults[7],
-            self.edge_mults[6],
-            self.edge_mults[5],
-            self.edge_mults[4],
-            self.edge_mults[3],
-            self.edge_mults[2],
-            self.edge_mults[1],
-            self.edge_mults[0],
-        )
+        let edge_f = ["A:", ", C:", ", G:", ", T:", " | A:", ", C:", ", G:", ", T:"];
+        for (ef, em) in edge_f.iter().zip(self.edge_mults.iter().rev()) {
+             write!(f, "{} {}", ef, em)?
+        }
+        Ok(())
     }
 }
 
 impl Display for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "A: {} | {}\nC: {} | {}\nG: {} | {}\nT: {} | {}\n",
-            self.edge_mults[7], self.edge_mults[3],
-            self.edge_mults[6], self.edge_mults[2],
-            self.edge_mults[5], self.edge_mults[1],
-            self.edge_mults[4], self.edge_mults[0],
-        )
+        let base = ["A", "C", "G", "T"];
+        for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
+            writeln!(f, "{}: {} | {}", 
+                b, 
+                self.edge_mults[i + ALPHABET_SIZE], 
+                self.edge_mults[i]
+            )?
+        }
+
+        Ok(())
     }
 }
 
 impl EdgeMult {
     /// a new, empty `EdgeMult`
     pub fn new() -> Self {
-        EdgeMult { edge_mults: [0; 8] }
+        EdgeMult { edge_mults: [0;  2 * ALPHABET_SIZE] }
     }
 
     /// a new `EdgeMult` with values
@@ -1089,18 +1106,13 @@ impl EdgeMult {
 
     /// add a count to the an edge
     pub fn add(&mut self, base: u8, dir: Dir, count: u32) {
-        let index = match dir {
-            Dir::Left => 7 - base,
-            Dir::Right => 3 - base
-        };
-
-        self.edge_mults[index as usize] += count
+        self.edge_mults[dir.index(base) as usize] += count
     }
 
     /// add an `Exts` to the `EdgeMult`
     pub fn add_exts(&mut self, exts: Exts) {
         let mut exts = exts.val;
-        for index in (0..8).rev() {
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
             if exts % 2 != 0 {
                 self.edge_mults[index] += 1
             }
@@ -1108,32 +1120,32 @@ impl EdgeMult {
         }
     }
 
+    /// get the edge multiplicities as an array 
     pub fn edge_mults(&self) -> [u32; 8] {
         self.edge_mults
     }
 
-    pub fn right(&self) -> [u32; 4] {
-        [self.edge_mults[0],self.edge_mults[1], self.edge_mults[2], self.edge_mults[3]]
+    /// get the edge multiplicities to the right of the node
+    pub fn right(&self) -> &[u32] {
+        &self.edge_mults[(Dir::Right).index_range()]
     }
 
-    pub fn left(&self) -> [u32; 4] {
-        [self.edge_mults[4],self.edge_mults[5], self.edge_mults[6], self.edge_mults[7]]
+    /// get the edge multiplicities to the left of the node
+    pub fn left(&self) -> &[u32] {
+        &self.edge_mults[(Dir::Left).index_range()]
     }
 
+    /// get the sum of all edges of the node
     pub fn sum(&self) -> u32 {
         self.edge_mults.iter().sum::<u32>()
     }
 
+    /// get the multiplicity of a certain edge
     pub fn edge_mult(&self, base: u8, dir: Dir) -> u32 {
-        // calculate index in slice
-        let index = match dir {
-            Dir::Right => 3 - base,
-            Dir::Left => 7 - base,
-        };
-
-        self.edge_mults[index as usize]
+        self.edge_mults[dir.index(base) as usize]
     }
 
+    /// get the [`Exts`] corresponding to the `EdgeMult`
     pub fn exts(&self) -> Exts {
         let mut exts_val = 0u8;
         for (i, edge) in self.edge_mults.iter().rev().enumerate() {
@@ -1161,7 +1173,19 @@ pub struct Label {
 mod tests {
     use bimap::BiMap;
 
-    use crate::{summarizer::M, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
+    use crate::{summarizer::M, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
+
+    #[test]
+    fn test_dir_index() {
+        let bases = [0, 1, 2, 3];
+
+        for (i, (dir, base)) in [Dir::Right, Dir::Left].iter().flat_map(|d| bases.into_iter().rev().map(move |b| (d, b))).enumerate() {
+            assert_eq!(i as u8, dir.index(base))
+        }
+
+        assert_eq!((Dir::Left).index_range(), 4..8);
+        assert_eq!((Dir::Right).index_range(), 0..4);
+    }
 
     #[test]
     fn test_edge_mult() {
@@ -1191,11 +1215,15 @@ mod tests {
         assert_eq!(edge_mult.edge_mults, [2, 2, 2, 4, 2, 78991, 2, 2]);
 
         let mut em = EdgeMult::new();
-        let exts = Exts::new(0b00001101);
+        let exts = Exts::new(0b00011101);
         println!("{:?}", exts);
         em.add_exts(exts);
         println!("{}", em);
+        println!("{:?}", em);
         assert_eq!(em.exts(), exts);
+
+        assert_eq!(em.left(), &[1, 1, 0, 1]);
+        assert_eq!(em.right(), &[0, 0, 0, 1]);
     }
 
     #[test]
