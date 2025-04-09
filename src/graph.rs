@@ -35,8 +35,11 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
+use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::summarizer::SummaryConfig;
+use crate::summarizer::SummaryData;
 use crate::BUF;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
 
@@ -669,52 +672,57 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    fn node_to_dot<F: Fn(&Node<K, D>) -> String>(
+    /// write a node to a dot file
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `node`: [`Node<K, D>`] which will be written to a dot file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    /// * `f`: writer
+    fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir, bool) -> String>(
         &self,
         node: &Node<'_, K, D>,
-        node_label: &F,
+        node_label: &FN,
+        edge_label: &FE,
         f: &mut dyn Write,
     ) {
-        let label = node_label(node);
-        writeln!(
-            f,
-            "n{} [label=\"id: {} len: {} seq: {}\n  {}\", style=filled]",
-            node.node_id,
-            node.node_id,
-            node.sequence().len(),
-            node.sequence(),
-            label
-        )
-        .unwrap();
+        writeln!(f, "n{} {}", node.node_id, node_label(node)).unwrap();
 
-        for (_, id, incoming_dir, _) in node.l_edges() {
-            let color = match incoming_dir {
-                Dir::Left => "blue",
-                Dir::Right => "red",
-            };
-            writeln!(f, "n{} -> n{} [color={}]", id, node.node_id, color).unwrap();
+        for (base, id, incoming_dir, flipped) in node.l_edges() {
+
+            writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
 
-        for (_, id, incoming_dir, _) in node.r_edges() {
-            let color = match incoming_dir {
-                Dir::Left => "blue",
-                Dir::Right => "red",
-            };
-            writeln!(f, "n{} -> n{} [color={}]", node.node_id, id, color).unwrap();
+        for (base, id, incoming_dir, flipped) in node.r_edges() {
+            writeln!(f, "n{} -> n{} {}", node.node_id, id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
     }
 
     /// Write the graph to a dot file
-    pub fn to_dot<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F) {
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
+    where 
+    P: AsRef<Path>,
+    FN: Fn(&Node<K, D>) -> String,
+    FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
+    {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(self.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in (0..self.len()).progress_with(pb) {
-            self.node_to_dot(&self.get_node(i), node_label, &mut f);
+            self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
         
@@ -727,11 +735,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// then go though the files and add the contents to a larger file, 
     /// and delete the small files.
     /// 
-    /// The path does not need to contain the file ending.
-    pub fn to_dot_parallel<P: AsRef<Path> + Display + Sync, F: Fn(&Node<K, D>) -> String + Sync>(&self, path: P, node_label: &F) 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    pub fn to_dot_parallel<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
         D: Sync,
-        K: Sync
+        K: Sync,
+        P: AsRef<Path> + Display + Sync,
+        FN: Fn(&Node<K, D>) -> String + Sync,
+        FE: Fn(&Node<K, D>, u8, Dir, bool) -> String + Sync,
     {        
         let slices = current_num_threads();
         let n_nodes = self.len();
@@ -765,7 +781,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let mut f = BufWriter::with_capacity(BUF, File::create(&files[i]).expect("error creating parallel dot file"));
 
             for i in range {
-                self.node_to_dot(&self.get_node(i), node_label, &mut f);
+                self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
                 pb.inc(1);
             }
 
@@ -773,16 +789,16 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         });
         pb.finish_and_clear();
 
-        let mut out_file = BufWriter::with_capacity(BUF, File::create(format!("{}.dot", path)).unwrap());
+        let mut out_file = BufWriter::with_capacity(BUF, File::create(path).expect("error creating combined dot file"));
 
-        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter().progress_with(pb) {
-            let open_file = File::open(file).expect("error creating combined dot file");
+            let open_file = File::open(file).expect("error opening parallel dot file");
             let mut reader = BufReader::new(open_file);
             let mut buffer = [0; BUF];
 
@@ -803,16 +819,29 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write part of the graph to a dot file
-    pub fn to_dot_partial<P: AsRef<Path>, F: Fn(&Node<K, D>) -> String>(&self, path: P, node_label: &F, nodes: Vec<usize>) {
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    /// * `nodes`: [`Vec<usize>`] listing all IDs of nodes which should be included
+    pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: Vec<usize>) 
+    where 
+        P: AsRef<Path>,
+        FN: Fn(&Node<K, D>) -> String,
+        FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
+    {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(nodes.len() as u64);
         pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in nodes.into_iter().progress_with(pb) {
-            self.node_to_dot(&self.get_node(i), node_label, &mut f);
+            self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
 
@@ -1348,7 +1377,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         
         bad_nodes
     }
+}
 
+impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
+    pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
+        Colors::new(self, config)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1602,13 +1636,53 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     }
 }
 
-/*
-impl<'a, K: Kmer, D> fmt::Debug for Node<'a, K, D> where D:Debug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Node: {}, Seq: {}, Exts:{:?}, Data: {:?}", self.node_id, self.sequence().to_string(), self.exts(), self.data())
+// TODO make generic instead of u8 (u8 is sufficient for dbg)
+impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
+    /// get default format for dot edges based on node data
+    pub fn edge_dot_default(&self, colors: &Colors<SD>, base: u8, incoming_dir: Dir, flipped: bool) -> String {
+        // set color based on dir
+        let color = match incoming_dir {
+            Dir::Left => "blue",
+            Dir::Right => "red"
+        };
+        
+        if let Some(em) = self.data().edge_mults() {
+            
+            let dir = if flipped { 
+                incoming_dir 
+            } else {
+                incoming_dir.flip()
+            };
+
+            // set penwidth based on count
+            let count = em.edge_mult(base, dir);
+            let penwidth = colors.edge_width(count);
+
+            format!("[color={color}, penwidth={penwidth}, label=\"{count}\"]")
+        } else {
+            format!("[color={color}]")
+        }
+    }
+
+    /// get default format for dot nodes, based on node data
+    pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
+        // set color based on labels/fold change/p-value
+        let color = colors.node_color(self.data(), config, outline);
+
+        let data_info = self.data().print(tag_translator, config);
+        const MIN_TEXT_WIDTH: usize = 40;
+        let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
+
+        let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, {}", 
+            self.node_id,
+            self.len(),
+            self.sequence(),
+            data_info
+        ), wrap);
+
+        format!("[style=filled, {color}, label=\"{label}\"]")
     }
 }
-*/
 
 impl<K: Kmer, D> fmt::Debug for Node<'_, K, D>
 where
@@ -1779,7 +1853,7 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
-        use crate::BUF;
+        use crate::{summarizer::SummaryData, Dir, BUF};
 
         let path = "test_data/400.graph.dbg";
         let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
@@ -1807,6 +1881,7 @@ mod test {
                 counter += 1;
             }
         }
+        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.score(), |_| true));
     }
 }
 

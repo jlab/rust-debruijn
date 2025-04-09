@@ -1,6 +1,6 @@
 [package]
 name = "debruijn"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Patrick Marks <patrick@10xgenomics.com>", "Elena Volp <elena.volp@uni-giessen.de>"]
 license = "MIT"
 edition = '2021'
@@ -26,6 +26,7 @@ indicatif = {version = "0.17.11", features = ["rayon"]}
 clap = { version = "4.5.0", features = ["derive"] }
 bincode = "1.3.3"
 colored = "3.0.0"
+textwrap = "0.16.2"
 
 
 [dev-dependencies]
