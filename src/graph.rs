@@ -35,6 +35,7 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
+use crate::bits_to_base;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
@@ -689,9 +690,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         f: &mut dyn Write,
     ) {
         writeln!(f, "n{} {}", node.node_id, node_label(node)).unwrap();
+        assert_eq!(node.exts().val.count_ones() as usize, node.l_edges().len() + node.r_edges().len());
 
         for (base, id, incoming_dir, flipped) in node.l_edges() {
-
             writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
 
@@ -1582,19 +1583,19 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     }
 
     /// Edges leaving the left side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn l_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Left)
     }
 
     /// Edges leaving the right side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn r_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Right)
     }
 
     /// Edges leaving the 'dir' side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn edges(&self, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, dir)
     }
@@ -1659,7 +1660,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
-            format!("[color={color}, penwidth={penwidth}, label=\"{count}\"]")
+            format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\"]", bits_to_base(base))
         } else {
             format!("[color={color}]")
         }
@@ -1674,11 +1675,11 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
-        let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, exts: {:?}, {}", 
+        let label = textwrap::fill(&format!("id: {}, len: {}, exts: {:?}, seq: {}, {}", 
             self.node_id,
             self.len(),
-            self.sequence(),
             self.exts(),
+            self.sequence(),
             data_info
         ), wrap);
 
