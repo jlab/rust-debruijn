@@ -74,12 +74,12 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::Reads;
+/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
 /// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new();
+/// let mut seqs = Reads::new(Stranded::Unstranded);
 /// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
@@ -104,9 +104,8 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
 /// );
 ///    
 /// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData>(
-///     &seqs,
+///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
-///     false,
 ///     false,
 ///     10,
 ///     false,
@@ -229,6 +228,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
             size = capacity;
         }
     }   
+    bucket_ranges.push(start_bucket..BUCKETS);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -490,12 +490,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::Reads;
+/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
 /// use debruijn::filter::filter_kmers;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new();
+/// let mut seqs = Reads::new(Stranded::Unstranded);
 /// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
@@ -520,9 +520,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// );
 ///    
 /// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
-///     &seqs,
+///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
-///     false,
 ///     false,
 ///     10,
 ///    false,
@@ -617,6 +616,7 @@ where
             size = *capacity;
         }
     }
+    bucket_ranges.push(start_bucket..BUCKETS);
 
     debug!("bucket ranges: {:?}", bucket_ranges);
 
