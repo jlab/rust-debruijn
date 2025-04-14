@@ -7,6 +7,13 @@ use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
+pub enum Stranded {
+    Forward,
+    Reverse,
+    Unstranded
+}
+
 /// Store many DNA sequences together with an Exts and data each compactly packed together
 /// 
 /// #### fields:
@@ -22,20 +29,27 @@ pub struct Reads<D> {
     ends: Vec<usize>,
     exts: Vec<Exts>,
     data: Vec<D>,
-    len: usize
+    len: usize,
+    stranded: Stranded
 }
 
 impl<D: Clone + Copy> Reads<D> {
 
     /// Returns a new `Reads`
-    pub fn new() -> Self {
+    pub fn new(stranded: Stranded) -> Self {
         Reads {
             storage: Vec::new(),
             ends: Vec::new(),
             exts: Vec::new(),
             data: Vec::new(),
-            len: 0
+            len: 0,
+            stranded
         }
+    }
+
+    #[inline(always)]
+    pub fn stranded(&self) -> Stranded {
+        self.stranded
     }
 
     #[inline(always)]
@@ -62,8 +76,8 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
     // TODO test if memory efficient
-    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S) -> Self {
-        let mut reads = Reads::new();
+    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S, stranded: Stranded) -> Self {
+        let mut reads = Reads::new(stranded);
         for (vmer, exts, data) in vec_iter {
             for base in vmer.iter() {
                 reads.push_base(base);
@@ -321,7 +335,7 @@ impl<D: Clone + Copy> Reads<D> {
 
 impl<D: Clone + Copy> Default for Reads<D> {
     fn default() -> Self {
-        Self::new()
+        Self::new(Stranded::Unstranded)
     }
 }
 
@@ -339,7 +353,7 @@ pub struct ReadsIter<'a, D> {
 impl<D: Clone + Copy> Iterator for ReadsIter<'_, D> {
     type Item = (DnaString, Exts, D);
 
-    fn next(&mut self) -> Option<(DnaString, Exts, D)> {
+    fn next(&mut self) -> Option<Self::Item> {
         if (self.i < self.reads.n_reads()) && (self.i < self.end) {
             let value = self.reads.get_read(self.i);
             self.i += 1;
@@ -363,6 +377,26 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
     }
 }
 
+pub enum ReadsPaired<D> {
+    Unpaired { reads: Reads<D> },
+    Paired { r1: Reads<D>, r2: Reads<D> }
+}
+
+impl<D: Clone + Copy> ReadsPaired<D> {
+    pub fn iterable(&self) -> Vec<&Reads<D>> {
+        match self {
+            Self::Unpaired { reads  } => vec![reads],
+            Self::Paired { r1, r2 } => vec![r1, r2]
+        }
+    }
+
+    pub fn n_reads(&self) -> usize {
+        match self {
+            Self::Unpaired { reads  } => reads.n_reads(),
+            Self::Paired { r1, r2 } => r1.n_reads() + r2.n_reads(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -371,7 +405,7 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, Exts};
+    use crate::{dna_string::DnaString, reads::Stranded, Exts};
     use super::Reads;
 
     #[test]
@@ -389,7 +423,7 @@ mod tests {
         ];
 
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Stranded::Unstranded);
         for (read, ext, data) in fastq.clone() {
             reads.add_read(read, ext, data);
         }
@@ -422,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_get_read() {
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Stranded::Unstranded);
         //reads.add_read(DnaString::from_acgt_bytes("AGCTAGCTAGC".as_bytes()), Exts::empty(), 67u8);
         reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), Exts::empty(), 67u8);
         let read = reads.get_read(0);
@@ -444,7 +478,7 @@ mod tests {
             "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for seq in dna {
             reads.add_from_bytes(seq, Exts::empty(), random());
 
@@ -472,7 +506,7 @@ mod tests {
             "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         let mut corrects = Vec::new();
         for seq in dna {
             corrects.push(reads.add_from_bytes_checked(seq, Exts::empty(), random()));
@@ -519,7 +553,7 @@ mod tests {
 
 
         let ds_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_read(DnaString::from_acgt_bytes(dna), Exts::empty(), random());
@@ -528,7 +562,7 @@ mod tests {
         let ds_finish = ds_start.elapsed();
 
         let r_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_from_bytes(dna, Exts::empty(), random());
