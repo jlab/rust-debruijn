@@ -252,6 +252,26 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         for i in 0..4 {
             if exts.has_ext(dir, i) {
+                let link = self.find_link(kmer.extend(i, dir), dir).expect("missing link");
+                edges.push((i, link.0, link.1, link.2));
+            }
+        }
+
+        edges
+    }
+
+    /// Find the edges leaving node `node_id` in direction `Dir`. Should generally be
+    /// accessed via a Node wrapper object
+    /// 
+    /// allows missing links
+    fn _find_edges_sharded(&self, node_id: usize, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
+        let exts = self.base.exts[node_id];
+        let sequence = self.base.sequences.get(node_id);
+        let kmer: K = sequence.term_kmer(dir);
+        let mut edges = SmallVec4::new();
+
+        for i in 0..4 {
+            if exts.has_ext(dir, i) {
                 let link = self.find_link(kmer.extend(i, dir), dir); //.expect("missing link");
                 if let Some(l) = link {
                     edges.push((i, l.0, l.1, l.2));
