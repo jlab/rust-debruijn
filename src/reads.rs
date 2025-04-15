@@ -23,6 +23,7 @@ pub enum Stranded {
 /// * `exts`: `Vec` with one Exts for each sequence
 /// * `data`: `Vec` with data for each sequence
 /// * `len`: length of all sequences together
+/// * `stranded`: [`Stranded`] conveying the strandedness and direction of the reads
 #[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct Reads<D> {
     storage: Vec<u64>,
@@ -377,6 +378,7 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReadsPaired<D> {
     Unpaired { reads: Reads<D> },
     Paired { r1: Reads<D>, r2: Reads<D> }
