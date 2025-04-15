@@ -1109,7 +1109,12 @@ impl EdgeMult {
         self.edge_mults[dir.index(base) as usize] += count
     }
 
-    /// add an `Exts` to the `EdgeMult`
+    /// remove an edge from the `EdgeMult`
+    pub fn remove(&mut self, base: u8, dir: Dir) {
+        self.edge_mults[dir.index(base) as usize] = 0;
+    }
+
+    /// add an [`Exts`] to the `EdgeMult`
     pub fn add_exts(&mut self, exts: Exts) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
