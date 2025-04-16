@@ -4,6 +4,7 @@
 
 use std::fmt::Debug;
 use std::mem;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -27,6 +28,7 @@ use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
 use crate::BUCKETS;
+use crate::PROGRESS_STYLE;
 
 // FIXME does not work with k < 4
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
@@ -34,6 +36,51 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
         | (kmer.get(1) as usize) << 4
         | (kmer.get(2) as usize) << 2
         | (kmer.get(3) as usize)
+}
+
+fn bucket_flip<K: Kmer>(kmer: K, stranded: Stranded) -> usize {
+    // if not stranded choose lexiographically lesser of kmer and rc of kmer
+    // if forward, use original kmer
+    // if reverse, use rc of kmer
+    let min_kmer = match stranded {
+        Stranded::Unstranded => {
+            let (min_kmer, _) = kmer.min_rc_flip();
+            min_kmer
+        },
+        Stranded::Forward => kmer,
+        Stranded::Reverse => kmer.rc(),
+    };
+
+    // calculate which bucket this kmer belongs to
+    if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize }
+    //let bucket = bucket(min_kmer);
+}
+
+fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Stranded, bucket_range: Range<usize>) ->Option<(K, Exts, usize)> {
+    // if not stranded choose lexiographically lesser of kmer and rc of kmer
+    // if forward, use original kmer
+    // if reverse, use rc of kmer
+    let (min_kmer, flip_exts) = match stranded {
+        Stranded::Unstranded => {
+            let (min_kmer, flip) = kmer.min_rc_flip();
+            let flip_exts = if flip { exts.rc() } else { exts };
+            (min_kmer, flip_exts)
+        },
+        Stranded::Forward => (kmer, exts),
+        Stranded::Reverse => (kmer.rc(), exts.rc()),
+    };
+
+    // calculate which bucket this kmer belongs to
+    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+    //let bucket = bucket(min_kmer);
+    // check if bucket is in current range and if so, push kmer to bucket
+    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
+
+    if in_range {
+        Some((min_kmer, flip_exts, bucket))
+    } else {
+        None
+    }
 }
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
@@ -126,7 +173,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     // progress bars
     let multi_pb = MultiProgress::new();
-    let style = ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-");
+    let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
 
     // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -185,22 +232,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         { 
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
-                // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                // if forward, use original kmer
-                // if reverse, use rc of kmer
-                let min_kmer = match stranded {
-                    Stranded::Unstranded => {
-                        let (min_kmer, _) = kmer.min_rc_flip();
-                        min_kmer
-                    },
-                    Stranded::Forward => kmer,
-                    Stranded::Reverse => kmer.rc(),
-                };
-
                 // calculate which bucket this kmer belongs to
-                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                //let bucket = bucket(min_kmer);
-                thread_capacities[bucket] += 1;
+                thread_capacities[bucket_flip(kmer, stranded)] += 1;
             }
             pb_size_buckets.inc(1);
         }
@@ -297,27 +330,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
                     .map(|read| (read, reads.stranded()))) 
             {
                 for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                    // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                    // if forward, use original kmer
-                    // if reverse, use rc of kmer
-                    let (min_kmer, flip_exts) = match stranded {
-                        Stranded::Unstranded => {
-                            let (min_kmer, flip) = kmer.min_rc_flip();
-                            let flip_exts = if flip { exts.rc() } else { exts };
-                            (min_kmer, flip_exts)
-                        },
-                        Stranded::Forward => (kmer, exts),
-                        Stranded::Reverse => (kmer.rc(), exts.rc()),
-                    };
-
-                    // calculate which bucket this kmer belongs to
-                    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                    //let bucket = bucket(min_kmer);
+                    // if needed, flip kmer and exts
                     // check if bucket is in current range and if so, push kmer to bucket
-                    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                    if in_range {
+                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
                         kmer_buckets1d[bucket].push((min_kmer, flip_exts, *d));
                     }
+
                 }
 
                 pb_fill_buckets.inc(1);
@@ -542,7 +560,7 @@ where
 
     // progress bars
     let multi_pb = MultiProgress::new();
-    let style = ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-");
+    let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
 
     // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
     let input_kmers: usize = seqs
@@ -581,21 +599,8 @@ where
     {
         // iterate through all kmers in seq
         for kmer in seq.iter_kmers::<K>() {
-            // if not stranded choose lexiographically lesser of kmer and rc of kmer
-            // if forward, use original kmer
-            // if reverse, use rc of kmer
-            let min_kmer = match stranded {
-                Stranded::Unstranded => {
-                    let (min_kmer, _) = kmer.min_rc_flip();
-                    min_kmer
-                },
-                Stranded::Forward => kmer,
-                Stranded::Reverse => kmer.rc(),
-            };
-
             // calculate which bucket this kmer belongs to
-            let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-            capacities[bucket] += 1 
+            capacities[bucket_flip(kmer, stranded)] += 1 
         }
     }
 
@@ -686,25 +691,9 @@ where
         {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                // if forward, use original kmer
-                // if reverse, use rc of kmer
-                let (min_kmer, flip_exts) = match stranded {
-                    Stranded::Unstranded => {
-                        let (min_kmer, flip) = kmer.min_rc_flip();
-                        let flip_exts = if flip { exts.rc() } else { exts };
-                        (min_kmer, flip_exts)
-                    },
-                    Stranded::Forward => (kmer, exts),
-                    Stranded::Reverse => (kmer.rc(), exts.rc()),
-                };
-
-                // calculate which bucket this kmer belongs to
-                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                //let bucket = bucket(min_kmer);
+                // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
-                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                if in_range {
+                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, *d));
                 }
             }
