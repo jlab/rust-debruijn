@@ -404,6 +404,15 @@ impl<D: Clone + Copy> ReadsPaired<D> {
             Self::Combined { r1, r2, unpaired } => r1.n_reads() + r2.n_reads() + unpaired.n_reads(),
         }
     }
+
+    pub fn mem(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Unpaired { reads } => reads.mem(),
+            Self::Paired { r1, r2 } => r1.mem() + r2.mem(),
+            Self::Combined { r1, r2, unpaired } => r1.mem() + r2.mem() + unpaired.mem(),
+        }
+    }
 }
 
 #[cfg(test)]
