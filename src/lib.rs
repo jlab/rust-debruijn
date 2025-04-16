@@ -1159,6 +1159,19 @@ impl EdgeMult {
 
         Exts::new(exts_val)
     }
+
+    /// clean the edge mults by removing edge counts that led to filtered kmers
+    /// based on a correct [`Exts`]
+    pub fn clean_edges(&mut self, exts: Exts) {
+        let mut exts = exts.val;
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
+            if exts % 2 == 0 {
+                self.edge_mults[index] = 0;
+            }
+            exts >>= 1;
+        }
+        
+    }
 }
 
 impl Default for EdgeMult {
@@ -1218,6 +1231,10 @@ mod tests {
         let exts = Exts::new(0b01010101);
         edge_mult.add_exts(exts);
         assert_eq!(edge_mult.edge_mults, [2, 2, 2, 4, 2, 78991, 2, 2]);
+
+        let clean_exts = Exts::new(0b10010101);
+        edge_mult.clean_edges(clean_exts);
+        assert_eq!(edge_mult.edge_mults, [2, 0, 0, 4, 0, 78991, 0, 2]);
 
         let mut em = EdgeMult::new();
         let exts = Exts::new(0b00011101);
