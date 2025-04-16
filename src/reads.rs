@@ -413,6 +413,24 @@ impl<D: Clone + Copy> ReadsPaired<D> {
             Self::Combined { r1, r2, unpaired } => r1.mem() + r2.mem() + unpaired.mem(),
         }
     }
+
+    // TODO complex logic, add test!!!
+    // TODO add assertions to identify problems with read formatting
+    /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
+    /// depending on the contents of the [`Reads`]
+    pub fn from_reads(reads: (Reads<D>, Reads<D>, Reads<D>)) -> Self {
+        if (reads.0.n_reads() + reads.1.n_reads() + reads.2.n_reads()) == 0 {
+            panic!("Error: files empty, no reads to process")
+        } else if (reads.0.n_reads() + reads.1.n_reads()) == 0 && reads.2.n_reads() > 0 {
+            ReadsPaired::Unpaired { reads: reads.2 }
+        } else if reads.0.n_reads() > 0 && reads.0.n_reads() == reads.0.n_reads() && reads.2.n_reads() == 0 {
+            ReadsPaired::Paired { r1: reads.0, r2: reads.1 }
+        } else if reads.0.n_reads() > 0 && reads.0.n_reads() == reads.0.n_reads() && reads.2.n_reads() > 0 {
+            ReadsPaired::Combined { r1: reads.0, r2: reads.1, unpaired: reads.2 }
+        } else {
+            panic!("error in transforming reads into ReadsPaired")
+        }
+    }
 }
 
 #[cfg(test)]
