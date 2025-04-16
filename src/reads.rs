@@ -380,6 +380,7 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReadsPaired<D> {
+    Empty,
     Unpaired { reads: Reads<D> },
     Paired { r1: Reads<D>, r2: Reads<D> },
     Combined {r1: Reads<D>, r2: Reads<D>, unpaired: Reads<D>}
@@ -388,6 +389,7 @@ pub enum ReadsPaired<D> {
 impl<D: Clone + Copy> ReadsPaired<D> {
     pub fn iterable(&self) -> Vec<&Reads<D>> {
         match self {
+            Self::Empty => vec![],
             Self::Unpaired { reads  } => vec![reads],
             Self::Paired { r1, r2 } => vec![r1, r2],
             Self::Combined { r1, r2, unpaired } => vec![r1, r2, unpaired],
@@ -396,6 +398,7 @@ impl<D: Clone + Copy> ReadsPaired<D> {
 
     pub fn n_reads(&self) -> usize {
         match self {
+            Self::Empty => 0,
             Self::Unpaired { reads  } => reads.n_reads(),
             Self::Paired { r1, r2 } => r1.n_reads() + r2.n_reads(),
             Self::Combined { r1, r2, unpaired } => r1.n_reads() + r2.n_reads() + unpaired.n_reads(),
