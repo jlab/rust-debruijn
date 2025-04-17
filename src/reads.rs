@@ -437,6 +437,7 @@ impl<D: Clone + Copy> ReadsPaired<D> {
             panic!("error in transforming Reads into ReadsPaired")
         }
     }
+
 }
 
 #[cfg(test)]

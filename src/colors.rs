@@ -279,31 +279,34 @@ where
     II: Iterator<Item = N>,
     N: CFilter + Sum + PartialOrd + Copy + Display
 {  
-    let min = iter_value(iter_struct)
+    let min_o = iter_value(iter_struct)
         .filter(|value| value.filter())
-        .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .expect("error: empty iterator");
-    let max = iter_value(iter_struct)
-        .filter(|value| value.filter())
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .expect("error: empty iterator");
+        .min_by(|a, b| a.partial_cmp(b).unwrap());
 
-    if max > min {
-        let snd_max = iter_value(iter_struct)
-            .filter(|value| *value != max && value.filter())
+    // check if there are actually elements to process
+    if let Some(min) = min_o {
+        let max = iter_value(iter_struct)
+            .filter(|value| value.filter())
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .expect("error: empty iterator");
-        let snd_min = iter_value(iter_struct)
-            .filter(|value| *value != min && value.filter())
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .expect("error: empty iterator");
-        
-        let outlier_max = if (max.to_f64() / snd_max.to_f64()) > 3. { Some(snd_max) } else { None };
-        let outlier_min = if (min.to_f64() / snd_min.to_f64()) > 3. { Some(snd_min) } else { None };
 
-        return (Some((min, max)), outlier_min, outlier_max)
-    }
+        if max > min {
+            let snd_max = iter_value(iter_struct)
+                .filter(|value| *value != max && value.filter())
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .expect("error: empty iterator");
+            let snd_min = iter_value(iter_struct)
+                .filter(|value| *value != min && value.filter())
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .expect("error: empty iterator");
+            
+            let outlier_max = if (max.to_f64() / snd_max.to_f64()) > 3. { Some(snd_max) } else { None };
+            let outlier_min = if (min.to_f64() / snd_min.to_f64()) > 3. { Some(snd_min) } else { None };
 
+            return (Some((min, max)), outlier_min, outlier_max)
+        }
+    }   
+    
     (None, None, None)
 }
 

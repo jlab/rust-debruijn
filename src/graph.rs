@@ -1707,7 +1707,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
-        let label = textwrap::fill(&format!("id: {}, len: {}, exts: {:?}, seq: {}, {}", 
+        let label = textwrap::fill(&format!("id: {}, len: {}, exts: {:?}, seq: {}\n{}", 
             self.node_id,
             self.len(),
             self.exts(),
