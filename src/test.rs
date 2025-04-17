@@ -153,7 +153,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{GroupFrac, SampleInfo, SummaryConfig, TagsCountsSumData, TagsSumData};
+    use crate::summarizer::{GroupFrac, SampleInfo, SummaryConfig, TagsCountsEMData, TagsCountsSumData, TagsSumData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -561,7 +561,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(2, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -604,7 +604,7 @@ mod tests {
             4,
             true,
         );
-        let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
+        let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsEMData>, _) = filter::filter_kmers_parallel(
             &all_seqs_p,
             &config,
             stranded,
@@ -622,7 +622,9 @@ mod tests {
         let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, false, true);
         println!("graph: {:?}", graph);
 
-        let graph = graph.finish();
+        let mut graph = graph.finish();
+        graph.fix_exts(None);
+        graph.fix_edge_mults();
         graph.print();
         /* graph.to_dot("test_out", &|d| format!("{:?}", d));
         graph.to_dot_parallel("test_out_par", &|d  format!("{:?}", d)); */

@@ -30,11 +30,11 @@ where
 
     let em = data.edge_mults().cloned();
 
-    if data.edge_mults().is_some() {
-        data.fix_edge_mults(Exts::new(0));
-        assert_eq!(data.edge_mults().unwrap().edge_mults(), [0; 8]);
+    data.fix_edge_mults(Exts::new(0));
+    if let Some(e) = data.edge_mults() {
+        assert_eq!(e.edge_mults(), [0; 8]);
     }
-
+    
     (
         count,
         tags_sum,
