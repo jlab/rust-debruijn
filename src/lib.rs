@@ -53,6 +53,7 @@ pub mod colors;
 const BUF: usize = 64*1024;
 const BUCKETS: usize = 256;
 const ALPHABET_SIZE: usize = 4;
+const PROGRESS_STYLE: &str = "{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})";
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod bitops_avx2;

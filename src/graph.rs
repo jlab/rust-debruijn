@@ -42,6 +42,7 @@ use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::BUF;
+use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
@@ -738,7 +739,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
@@ -795,7 +796,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT files"));
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
@@ -815,7 +816,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter().progress_with(pb) {
@@ -857,7 +858,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(nodes.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "# {:?}", nodes).unwrap();
@@ -947,7 +948,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let dummy_opt: Option<&DummyFn<K, D>> = None;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
@@ -970,7 +971,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
@@ -1020,7 +1021,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
         
         
@@ -1043,7 +1044,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter() {
@@ -1071,7 +1072,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in nodes.into_iter().progress_with(pb) {

@@ -135,7 +135,7 @@ mod tests {
 
     use crate::compression::{compress_graph, compress_kmers_with_hash, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
-    use crate::reads::Reads;
+    use crate::reads::{Reads, Stranded};
     use crate::{DnaBytes, Tags};
     use crate::{Dir, Exts, Kmer};
     use bimap::BiMap;
@@ -246,10 +246,9 @@ mod tests {
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &Reads::from_vmer_vec(seqs),
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
             &config,
             stranded,
-            false,
             4,
             true,
         );
@@ -359,10 +358,9 @@ mod tests {
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &Reads::from_vmer_vec(seqs),
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
             &config,
             stranded,
-            false,
             4,
             true,
         );
@@ -471,10 +469,9 @@ mod tests {
         for seqs in shards.into_values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-                &Reads::from_vmer_vec(seqs),
+                &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
                 &config,
                 stranded,
-                false,
                 4,
                 true,
             );
@@ -539,8 +536,8 @@ mod tests {
 
         let mut rng = rand::thread_rng();
         
-        let mut clean_seqs = Reads::new();
-        let mut all_seqs = Reads::new();
+        let mut clean_seqs = Reads::new(Stranded::Unstranded);
+        let mut all_seqs = Reads::new(Stranded::Unstranded);
 
         // Generate 5x coverage of the main sequences & add some tips
         for c in contigs {
@@ -568,10 +565,9 @@ mod tests {
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &clean_seqs,
+            &crate::reads::ReadsPaired::Unpaired { reads: clean_seqs },
             &config,
             stranded,
-            false,
             4,
             true,
         );
@@ -581,20 +577,19 @@ mod tests {
         graph1.print();
         println!("components: {:?}", graph1.components_r());
 
+        let all_seqs_p = crate::reads::ReadsPaired::Unpaired { reads: all_seqs };
         // Assemble w/ tips
         let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers(
-            &all_seqs,
+            &all_seqs_p,
             &config,
             stranded,
-            false,
             4,
             true,
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
-            &all_seqs,
+            &all_seqs_p,
             &config,
             stranded,
-            false,
             4,
             true,
         );
@@ -603,18 +598,16 @@ mod tests {
         println!("2: {:?}", valid_kmers_errs2);
 
         let (_valid_kmers_errs3, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers_parallel(
-            &all_seqs,
+            &all_seqs_p,
             &config,
             stranded,
-            false,
             4,
             true,
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
-            &all_seqs,
+            &all_seqs_p,
             &config,
             stranded,
-            false,
             4,
             true,
         );
@@ -780,7 +773,7 @@ mod tests {
             (DnaString::from_dna_string("GCGATCTAGCGGATCTGCGAGCTATGC"), Exts::empty(), 6u8),
         ];
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Stranded::Unstranded);
 
         for (read, exts, data) in fastq {
             reads.add_read(read, exts, data);
@@ -790,9 +783,8 @@ mod tests {
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
-            &reads, 
+            &crate::reads::ReadsPaired::Unpaired { reads }, 
             &config,
-            false, 
             false, 
             1,
             false,
