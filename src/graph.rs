@@ -379,6 +379,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Remove non-existent extensions that may be created due to filtered kmers
+    /// 
+    /// if `valid_nodes` if `None`, all nodes are valid
     pub fn fix_exts(&mut self, valid_nodes: Option<&BitSet>) {
         for i in 0..self.len() {
             let valid_exts = self.get_valid_exts(i, valid_nodes);
@@ -1405,6 +1407,15 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
     pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
         Colors::new(self, config)
+    }
+    
+    /// edge mults will contain hanging edges if the nodes were filtered
+    pub fn fix_edge_mults(&mut self) {
+        if self.get_node(0).data().edge_mults().is_some() {
+            for i in 0..self.len() {
+                self.base.data[i].fix_edge_mults(self.base.exts[i]);
+            }
+        }
     }
 }
 

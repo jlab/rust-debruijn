@@ -367,9 +367,9 @@ where
             }
         }
 
-        // We will have some hanging exts due to
+        // We will have some hanging exts due to removed nodes
         let mut dbg = graph.finish();
-        dbg.fix_exts(None); // ????
+        dbg.fix_exts(None); 
         debug_assert!(dbg.is_compressed(compression).is_none());
         dbg
     }
