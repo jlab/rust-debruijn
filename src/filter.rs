@@ -194,7 +194,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
     let n_threads = current_num_threads();
-    let n_reads = seqs.n_reads();
+    /* let n_reads = seqs.n_reads();
     let sz = n_reads / n_threads + 1;
 
     debug!("n_reads: {}", n_reads);
@@ -209,7 +209,9 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
     parallel_ranges.push(last_start..n_reads);
-    debug!("parallel ranges: {:?}", parallel_ranges);
+    debug!("parallel ranges: {:?}", parallel_ranges); */
+
+    let parallel_ranges = seqs.parallel_ranges(n_threads);
 
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
 

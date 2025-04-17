@@ -1,5 +1,6 @@
 use std::ops::Range;
 use itertools::Itertools;
+use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -414,7 +415,6 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
-    // TODO complex logic, add test!!!
     /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
     /// depending on the contents of the [`Reads`]
     pub fn from_reads((r1, r2, up): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
@@ -435,6 +435,79 @@ impl<D: Clone + Copy> ReadsPaired<D> {
             ReadsPaired::Combined { r1, r2, unpaired: up }
         } else {
             panic!("error in transforming Reads into ReadsPaired")
+        }
+    }
+
+    pub fn parallel_ranges(&self, n_threads: usize) -> Vec<Range<usize>> {
+        match self {
+            Self::Empty => panic!("Error: no reads to process"),
+            Self::Unpaired { reads } => {
+                let n_reads = reads.n_reads();
+                let sz = n_reads / n_threads + 1;
+                let mut parallel_ranges = Vec::with_capacity(n_threads);
+                let mut start = 0;
+                while start < n_reads {
+                    parallel_ranges.push(start..start + sz);
+                    start += sz;
+                }
+
+                let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
+                parallel_ranges.push(last_start..n_reads);
+                debug!("parallel ranges: {:?}", parallel_ranges);
+                parallel_ranges
+            },
+            Self::Paired { r1, r2 } => {
+                let n_r1 = r1.n_reads();
+                let n_r2 = r2.n_reads();
+                let threads_r1 = n_threads * (n_r1 / self.n_reads() + 1);
+                let threads_r2 = n_threads * (n_r2 / self.n_reads() + 1);
+                let sz_r1 = n_r1 / threads_r1 + 1;
+                let sz_r2 = n_r2 / threads_r2 + 1;
+
+                let mut parallel_ranges = Vec::with_capacity(n_threads);
+
+                // push ranges for R1 first, then ranges for R2
+                for (n_reads, sz) in [(n_r1, sz_r1), (n_r2, sz_r2)] {
+                    let mut start = 0;
+                    while start < n_reads {
+                        parallel_ranges.push(start..start + sz);
+                        start += sz;
+                    }
+                    let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
+                    parallel_ranges.push(last_start..n_reads);
+                }
+                
+                debug!("parallel ranges: {:?}", parallel_ranges);
+                parallel_ranges
+            },
+            Self::Combined { r1, r2, unpaired } => {
+                let n_r1 = r1.n_reads();
+                let n_r2 = r2.n_reads();
+                let n_up = unpaired.n_reads();
+                let threads_r1 = n_threads * (n_r1 / self.n_reads() + 1);
+                let threads_r2 = n_threads * (n_r2 / self.n_reads() + 1);
+                let threads_up = n_threads * (n_up / self.n_reads() + 1);
+                let sz_r1 = n_r1 / threads_r1 + 1;
+                let sz_r2 = n_r2 / threads_r2 + 1;
+                let sz_up = n_up / threads_up + 1;
+
+
+                let mut parallel_ranges = Vec::with_capacity(n_threads);
+
+                // push ranges for R1 first, then ranges for R2, then ranges for unpaired reads
+                for (n_reads, sz) in [(n_r1, sz_r1), (n_r2, sz_r2), (n_up, sz_up)] {
+                    let mut start = 0;
+                    while start < n_reads {
+                        parallel_ranges.push(start..start + sz);
+                        start += sz;
+                    }
+                    let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
+                    parallel_ranges.push(last_start..n_reads);
+                }
+                
+                debug!("parallel ranges: {:?}", parallel_ranges);
+                parallel_ranges
+            }
         }
     }
 
