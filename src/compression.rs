@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use crate::dna_string::{DnaString, PackedDnaStringSet};
 use crate::graph::{BaseGraph, DebruijnGraph};
-use crate::Dir;
+use crate::{Dir, PROGRESS_STYLE};
 use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
@@ -367,9 +367,9 @@ where
             }
         }
 
-        // We will have some hanging exts due to
+        // We will have some hanging exts due to removed nodes
         let mut dbg = graph.finish();
-        dbg.fix_exts(None); // ????
+        dbg.fix_exts(None); 
         debug_assert!(dbg.is_compressed(compression).is_none());
         dbg
     }
@@ -875,7 +875,7 @@ impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<
         }
 
         let pb = ProgressBar::new(n_kmers as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "compressing graph"));
 
 

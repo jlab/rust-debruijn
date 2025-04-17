@@ -7,6 +7,13 @@ use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
+pub enum Stranded {
+    Forward,
+    Reverse,
+    Unstranded
+}
+
 /// Store many DNA sequences together with an Exts and data each compactly packed together
 /// 
 /// #### fields:
@@ -16,26 +23,34 @@ use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 /// * `exts`: `Vec` with one Exts for each sequence
 /// * `data`: `Vec` with data for each sequence
 /// * `len`: length of all sequences together
+/// * `stranded`: [`Stranded`] conveying the strandedness and direction of the reads
 #[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct Reads<D> {
     storage: Vec<u64>,
     ends: Vec<usize>,
     exts: Vec<Exts>,
     data: Vec<D>,
-    len: usize
+    len: usize,
+    stranded: Stranded
 }
 
 impl<D: Clone + Copy> Reads<D> {
 
     /// Returns a new `Reads`
-    pub fn new() -> Self {
+    pub fn new(stranded: Stranded) -> Self {
         Reads {
             storage: Vec::new(),
             ends: Vec::new(),
             exts: Vec::new(),
             data: Vec::new(),
-            len: 0
+            len: 0,
+            stranded
         }
+    }
+
+    #[inline(always)]
+    pub fn stranded(&self) -> Stranded {
+        self.stranded
     }
 
     #[inline(always)]
@@ -62,8 +77,8 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
     // TODO test if memory efficient
-    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S) -> Self {
-        let mut reads = Reads::new();
+    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S, stranded: Stranded) -> Self {
+        let mut reads = Reads::new(stranded);
         for (vmer, exts, data) in vec_iter {
             for base in vmer.iter() {
                 reads.push_base(base);
@@ -321,7 +336,7 @@ impl<D: Clone + Copy> Reads<D> {
 
 impl<D: Clone + Copy> Default for Reads<D> {
     fn default() -> Self {
-        Self::new()
+        Self::new(Stranded::Unstranded)
     }
 }
 
@@ -339,7 +354,7 @@ pub struct ReadsIter<'a, D> {
 impl<D: Clone + Copy> Iterator for ReadsIter<'_, D> {
     type Item = (DnaString, Exts, D);
 
-    fn next(&mut self) -> Option<(DnaString, Exts, D)> {
+    fn next(&mut self) -> Option<Self::Item> {
         if (self.i < self.reads.n_reads()) && (self.i < self.end) {
             let value = self.reads.get_read(self.i);
             self.i += 1;
@@ -363,6 +378,66 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReadsPaired<D> {
+    Empty,
+    Unpaired { reads: Reads<D> },
+    Paired { r1: Reads<D>, r2: Reads<D> },
+    Combined {r1: Reads<D>, r2: Reads<D>, unpaired: Reads<D>}
+}
+
+impl<D: Clone + Copy> ReadsPaired<D> {
+    pub fn iterable(&self) -> Vec<&Reads<D>> {
+        match self {
+            Self::Empty => vec![],
+            Self::Unpaired { reads  } => vec![reads],
+            Self::Paired { r1, r2 } => vec![r1, r2],
+            Self::Combined { r1, r2, unpaired } => vec![r1, r2, unpaired],
+        }
+    }
+
+    pub fn n_reads(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Unpaired { reads  } => reads.n_reads(),
+            Self::Paired { r1, r2 } => r1.n_reads() + r2.n_reads(),
+            Self::Combined { r1, r2, unpaired } => r1.n_reads() + r2.n_reads() + unpaired.n_reads(),
+        }
+    }
+
+    pub fn mem(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Unpaired { reads } => reads.mem(),
+            Self::Paired { r1, r2 } => r1.mem() + r2.mem(),
+            Self::Combined { r1, r2, unpaired } => r1.mem() + r2.mem() + unpaired.mem(),
+        }
+    }
+
+    // TODO complex logic, add test!!!
+    /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
+    /// depending on the contents of the [`Reads`]
+    pub fn from_reads((r1, r2, up): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
+        // first two elements should be paired reads and thus have same n
+        assert_eq!(r1.n_reads(), r2.n_reads(), "Error: R1 read and R2 read counts have to match");
+
+        if (r1.n_reads() + r2.n_reads() + up.n_reads()) == 0 {
+            // no reads
+            ReadsPaired::Empty
+        } else if r1.n_reads() == 0 && up.n_reads() > 0 {
+            // only reads in third element -> unpaired
+            ReadsPaired::Unpaired { reads: up }
+        } else if r1.n_reads() > 0 && up.n_reads() == 0 {
+            // reads in first and second element -> paired
+            ReadsPaired::Paired { r1, r2 }
+        } else if r1.n_reads() > 0 && up.n_reads() > 0 {
+            // reads in all elements: both paired and unpaired reads
+            ReadsPaired::Combined { r1, r2, unpaired: up }
+        } else {
+            panic!("error in transforming Reads into ReadsPaired")
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -371,8 +446,8 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, Exts};
-    use super::Reads;
+    use crate::{dna_string::DnaString, reads::Stranded, Exts};
+    use super::{Reads, ReadsPaired};
 
     #[test]
     fn test_add() {
@@ -389,7 +464,7 @@ mod tests {
         ];
 
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Stranded::Unstranded);
         for (read, ext, data) in fastq.clone() {
             reads.add_read(read, ext, data);
         }
@@ -422,7 +497,7 @@ mod tests {
 
     #[test]
     fn test_get_read() {
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Stranded::Unstranded);
         //reads.add_read(DnaString::from_acgt_bytes("AGCTAGCTAGC".as_bytes()), Exts::empty(), 67u8);
         reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), Exts::empty(), 67u8);
         let read = reads.get_read(0);
@@ -444,7 +519,7 @@ mod tests {
             "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for seq in dna {
             reads.add_from_bytes(seq, Exts::empty(), random());
 
@@ -472,7 +547,7 @@ mod tests {
             "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         let mut corrects = Vec::new();
         for seq in dna {
             corrects.push(reads.add_from_bytes_checked(seq, Exts::empty(), random()));
@@ -519,7 +594,7 @@ mod tests {
 
 
         let ds_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_read(DnaString::from_acgt_bytes(dna), Exts::empty(), random());
@@ -528,7 +603,7 @@ mod tests {
         let ds_finish = ds_start.elapsed();
 
         let r_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Stranded::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_from_bytes(dna, Exts::empty(), random());
@@ -539,5 +614,76 @@ mod tests {
         println!("through DnaString: {} s \n direct to Read: {} s", ds_finish.as_secs_f32(), r_finish.as_secs_f32())
 
 
+    }
+
+    #[test]
+    fn test_reads_paired() {
+        let mut r1 = Reads::new(Stranded::Unstranded);
+        let mut r2 = Reads::new(Stranded::Unstranded);
+        let mut up = Reads::new(Stranded::Unstranded);
+
+        let reads_r1 = [
+            "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
+            "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
+            "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
+            "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
+        ];
+
+        let reads_r2 = [
+            "AGCTAGCTAGCTACTGATCGTAGCTAGCTGATCGA",
+            "AGCGATCGTACGTAGCTAGCTA",
+            "CGATCGATCGACTAGCGTAGCTGACTGAC",
+            "CAGATGCTCTGCTGACTGACTGATCGTACTGACTAGCATCTAGC",
+        ];
+
+        let reads_up = [
+            "CGTACTAGCTGACGTAC",
+            "CGATGCTAGCTAGCTAGCGATCG",
+        ];
+
+        reads_r1.iter().for_each(|read| r1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_r2.iter().for_each(|read| r2.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_up.iter().for_each(|read| up.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+
+        let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Stranded::Unstranded), Reads::new(Stranded::Unstranded), Reads::new(Stranded::Unstranded)));
+        assert_eq!(empty, ReadsPaired::Empty);
+        assert_eq!(empty.mem(), 0);
+        assert_eq!(empty.n_reads(), 0);
+        assert_eq!(empty.iterable(), Vec::<&Reads<u8>>::new());
+
+        let unpaired = ReadsPaired::from_reads((Reads::new(Stranded::Unstranded), Reads::new(Stranded::Unstranded), up.clone()));
+        assert_eq!(ReadsPaired::Unpaired { reads: up.clone() }, unpaired);
+        assert_eq!(unpaired.mem(), 148);
+        assert_eq!(unpaired.n_reads(), 2);
+        assert_eq!(unpaired.iterable(), vec![&up]);
+
+        let paired = ReadsPaired::from_reads((r1.clone(), r2.clone(), Reads::new(Stranded::Unstranded)));
+        assert_eq!(ReadsPaired::Paired { r1: r1.clone(), r2: r2.clone() }, paired);        
+        assert_eq!(paired.mem(), 384);
+        assert_eq!(paired.n_reads(), 8);
+        assert_eq!(paired.iterable(), vec![&r1, &r2]);
+
+        let combined = ReadsPaired::from_reads((r1.clone(), r2.clone(), up.clone()));
+        assert_eq!(ReadsPaired::Combined { r1: r1.clone(), r2: r2.clone(), unpaired: up.clone() }, combined);
+        assert_eq!(combined.mem(), 532);
+        assert_eq!(combined.n_reads(), 10);
+        assert_eq!(combined.iterable(), vec![&r1, &r2, &up]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_reads_paired_panic() {
+        let mut r1 = Reads::new(Stranded::Unstranded);
+
+        let reads_r1 = [
+            "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
+            "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
+            "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
+            "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
+        ];
+
+        reads_r1.iter().for_each(|read| r1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+
+        let _ = ReadsPaired::from_reads((r1, Reads::new(Stranded::Unstranded), Reads::new(Stranded::Unstranded)));
     }
 }
