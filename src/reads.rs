@@ -270,7 +270,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     /// get the `i`th read in a `Reads`
-    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D)> {
+    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D, Stranded)> {
         if i >= self.n_reads() { return None }
 
         let mut sequence = DnaString::new();
@@ -287,7 +287,7 @@ impl<D: Clone + Copy> Reads<D> {
             sequence.push(base);
         }
 
-        Some((sequence, self.exts[i], self.data[i]))
+        Some((sequence, self.exts[i], self.data[i], self.stranded))
     }
 
 
@@ -353,7 +353,7 @@ pub struct ReadsIter<'a, D> {
 }
 
 impl<D: Clone + Copy> Iterator for ReadsIter<'_, D> {
-    type Item = (DnaString, Exts, D);
+    type Item = (DnaString, Exts, D, Stranded);
 
     fn next(&mut self) -> Option<Self::Item> {
         if (self.i < self.reads.n_reads()) && (self.i < self.end) {
@@ -374,7 +374,7 @@ impl<D: Copy> ExactSizeIterator for ReadsIter<'_, D> {
 
 impl<D: Clone + Copy + Debug> Display for Reads<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let vec: Vec<(DnaString, Exts, D)> = self.iter().collect();
+        let vec: Vec<(DnaString, Exts, D, Stranded)> = self.iter().collect();
         write!(f, "{:?}", vec)
     }
 }
@@ -438,7 +438,7 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
-    pub fn parallel_ranges(&self, n_threads: usize) -> Vec<Range<usize>> {
+    pub fn parallel_ranges(&self, n_threads: usize) -> Vec<Vec<Range<usize>>> {
         match self {
             Self::Empty => panic!("Error: no reads to process"),
             Self::Unpaired { reads } => {
@@ -454,7 +454,7 @@ impl<D: Clone + Copy> ReadsPaired<D> {
                 let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
                 parallel_ranges.push(last_start..n_reads);
                 debug!("parallel ranges: {:?}", parallel_ranges);
-                parallel_ranges
+                vec![parallel_ranges]
             },
             Self::Paired { r1, r2 } => {
                 let n_r1 = r1.n_reads();
@@ -464,17 +464,18 @@ impl<D: Clone + Copy> ReadsPaired<D> {
                 let sz_r1 = n_r1 / threads_r1 + 1;
                 let sz_r2 = n_r2 / threads_r2 + 1;
 
-                let mut parallel_ranges = Vec::with_capacity(n_threads);
-
+                let mut parallel_ranges = Vec::with_capacity(2);
                 // push ranges for R1 first, then ranges for R2
-                for (n_reads, sz) in [(n_r1, sz_r1), (n_r2, sz_r2)] {
+                for (n_reads, sz, n_t) in [(n_r1, sz_r1, threads_r1), (n_r2, sz_r2, threads_r2)] {
+                    let mut pr = Vec::with_capacity(n_t);
                     let mut start = 0;
                     while start < n_reads {
-                        parallel_ranges.push(start..start + sz);
+                        pr.push(start..start + sz);
                         start += sz;
                     }
-                    let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
-                    parallel_ranges.push(last_start..n_reads);
+                    let last_start = pr.pop().expect("Error: no reads to process").start;
+                    pr.push(last_start..n_reads);
+                    parallel_ranges.push(pr);
                 }
                 
                 debug!("parallel ranges: {:?}", parallel_ranges);
@@ -492,17 +493,19 @@ impl<D: Clone + Copy> ReadsPaired<D> {
                 let sz_up = n_up / threads_up + 1;
 
 
-                let mut parallel_ranges = Vec::with_capacity(n_threads);
+                let mut parallel_ranges = Vec::with_capacity(3);
 
                 // push ranges for R1 first, then ranges for R2, then ranges for unpaired reads
-                for (n_reads, sz) in [(n_r1, sz_r1), (n_r2, sz_r2), (n_up, sz_up)] {
+                for (n_reads, sz, n_t) in [(n_r1, sz_r1, threads_r1), (n_r2, sz_r2, threads_r2), (n_up, sz_up, threads_up)] {
+                    let mut pr = Vec::with_capacity(n_t);
                     let mut start = 0;
                     while start < n_reads {
-                        parallel_ranges.push(start..start + sz);
+                        pr.push(start..start + sz);
                         start += sz;
                     }
-                    let last_start = parallel_ranges.pop().expect("Error: no reads to process").start;
-                    parallel_ranges.push(last_start..n_reads);
+                    let last_start = pr.pop().expect("Error: no reads to process").start;
+                    pr.push(last_start..n_reads);
+                    parallel_ranges.push(pr);
                 }
                 
                 debug!("parallel ranges: {:?}", parallel_ranges);
@@ -511,6 +514,58 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (DnaString, Exts, D, Stranded)> + '_> {
+        match self {
+            ReadsPaired::Empty => panic!("Error: no reads to process"),
+            ReadsPaired::Unpaired { reads } => Box::new(reads.iter()),
+            ReadsPaired::Paired { r1, r2 } => Box::new(r1.iter().chain(r2.iter())),
+            ReadsPaired::Combined { r1, r2, unpaired } => Box::new(r1.iter().chain(r2.iter()).chain(unpaired.iter())),
+        }
+    }
+
+    pub fn iter_partial(&self, range: Range<usize>) -> Box<dyn Iterator<Item = (DnaString, Exts, D, Stranded)> + '_> {
+        match self {
+            Self::Empty => panic!("Error: no reads to process"),
+            Self::Unpaired { reads } => Box::new(reads.partial_iter(range)),
+            Self::Paired { r1, r2 } => {
+                let n_r1 = r1.n_reads();
+                if range.start >= r1.n_reads() {
+                    // range is fully in r2
+                    Box::new(r2.partial_iter((range.start - n_r1)..(range.end - n_r1)))
+                } else if range.end <= n_r1 {
+                    // range is fully in r1
+                    Box::new(r1.partial_iter(range))
+                } else {
+                    // range is both in r1 and r2
+                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..(range.end - n_r1))))
+                }
+            },
+            Self::Combined { r1, r2, unpaired } => {
+                let n_r1 = r1.n_reads();
+                let n_r2 = r2.n_reads();
+                let n_r12 = n_r1 + r2.n_reads();
+                if range.end <= n_r1 {
+                    // range is only in r1
+                    Box::new(r1.partial_iter(range))
+                } else if range.end >= n_r1 && range.end <= n_r12 && range.start >= n_r1 && range.start <= n_r12 {
+                    // range is only in r2
+                    Box::new(r2.partial_iter((range.start - n_r1)..(range.end - n_r1)))
+                } else if range.start >= n_r12 {
+                    // range is only in unpaired
+                    Box::new(unpaired.partial_iter((range.start - n_r12)..(range.end - n_r12)))
+                } else if range.start <= n_r1 && range.end >= n_r1 && range.end <= n_r12 {
+                    // range is in r1 and r2
+                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..(range.end - n_r1))))
+                } else if range.start >= n_r1 && range.start <= n_r12 && range.end >= n_r12 {
+                    // range is in r2 and unpaired
+                    Box::new(r2.partial_iter((range.start - n_r1)..n_r2).chain(unpaired.partial_iter(0..(range.end - n_r12))))
+                } else {
+                    // range is in r1, r2, and in unpaired
+                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..n_r2)).chain(unpaired.partial_iter(0..(range.end - n_r12))))
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -554,10 +609,10 @@ mod tests {
 
         for (i, _) in fastq.iter().enumerate() {
             //println!("read {}: {:?}", i, reads.get_read(i))
-            assert_eq!(fastq[i], reads.get_read(i).unwrap())
+            assert_eq!((fastq[i].0.clone(), fastq[i].1, fastq[i].2, Stranded::Unstranded), reads.get_read(i).unwrap())
         }
 
-        for (seq, _, _) in reads.iter() {
+        for (seq, _, _, _) in reads.iter() {
             println!("{:?}, {}", seq, seq.len())
         }
         println!();

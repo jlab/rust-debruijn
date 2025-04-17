@@ -180,7 +180,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         .iterable()
         .iter()
         .flat_map(|reads| reads.iter())
-        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -194,7 +194,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
     let n_threads = current_num_threads();
-    /* let n_reads = seqs.n_reads();
+    let n_reads = seqs.n_reads();
     let sz = n_reads / n_threads + 1;
 
     debug!("n_reads: {}", n_reads);
@@ -209,9 +209,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
     parallel_ranges.push(last_start..n_reads);
-    debug!("parallel ranges: {:?}", parallel_ranges); */
-
-    let parallel_ranges = seqs.parallel_ranges(n_threads);
+    debug!("parallel ranges: {:?}", parallel_ranges);
 
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
 
@@ -225,12 +223,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut thread_capacities = [0usize; BUCKETS];
-        for ((ref seq, _, _), stranded) in seqs
-            .iterable()
-            .iter()
-            .flat_map(|reads| reads
-                .partial_iter(range.clone())
-                .map(|read| (read, reads.stranded()))) 
+        for (ref seq, _, _, stranded) in seqs.iter_partial(range.clone())
         { 
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
@@ -325,11 +318,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
             }
 
             // fill buckets with kmers
-            for ((ref seq, seq_exts, ref d), stranded) in seqs
-                .iterable()
-                .iter()
-                .flat_map(|reads| reads.partial_iter(range.clone())
-                    .map(|read| (read, reads.stranded()))) 
+            for (ref seq, seq_exts, ref d, stranded) in seqs.iter_partial(range.clone())
             {
                 for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
                     // if needed, flip kmer and exts
@@ -569,7 +558,7 @@ where
         .iterable()
         .iter()
         .flat_map(|reads| reads.iter())
-        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
+        .map(|(ref read, _, _, _)| read.len().saturating_sub(K::k() - 1))
         .sum();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
@@ -591,13 +580,7 @@ where
     // first go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
 
-    for ((ref seq, _, _), stranded) in seqs
-        .iterable()
-        .iter()
-        .flat_map(|reads| reads
-            .iter()
-            .map(|read| (read, reads.stranded())))
-        .progress_with(pb) 
+    for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
     {
         // iterate through all kmers in seq
         for kmer in seq.iter_kmers::<K>() {
@@ -683,13 +666,7 @@ where
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
-        for ((ref seq, seq_exts, ref d), stranded) in seqs
-            .iterable()
-            .iter()
-            .flat_map(|reads| reads
-                .iter()
-                .map(|read| (read, reads.stranded())))
-            .progress_with(pb) 
+        for (ref seq, seq_exts, ref d, stranded) in seqs.iter().progress_with(pb)             
         {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
