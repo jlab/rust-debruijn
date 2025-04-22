@@ -175,23 +175,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let multi_pb = MultiProgress::new();
     let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
 
-    // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
-    let input_kmers: usize = seqs
-        .iterable()
-        .iter()
-        .flat_map(|reads| reads.iter())
-        .map(|(ref read, _, _, _)| read.len().saturating_sub(K::k() - 1))
-        .sum();
-
-    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
-
-    let kmer_mem = input_kmers * mem::size_of::<(K, Exts, u8)>();
-    let max_mem = memory_size * 10_usize.pow(9);
-    let slices_seq = kmer_mem / max_mem + 1;
-    let slices = slices_seq;
-    //let sz = buckets / slices + 1;
-
-
     // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
     let n_threads = current_num_threads();
     let n_reads = seqs.n_reads();
@@ -210,8 +193,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
     parallel_ranges.push(last_start..n_reads);
     debug!("parallel ranges: {:?}", parallel_ranges);
-
-    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
 
     let capacities = Arc::new(Mutex::new(vec![[0; BUCKETS]; n_threads]));
 
@@ -238,12 +219,22 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     });
 
     let capacities = capacities.lock().expect("error in final lock capacites");
+    let input_kmers = capacities.iter().flatten().sum::<usize>();
+
+    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
+
+    // estimate the number of slices needed to adhere to memory limit
+    let mem_per_kmer = mem::size_of::<(K, Exts, u8)>();
+    let max_mem = memory_size * 10_usize.pow(9);
+    let slices = mem_per_kmer * input_kmers / max_mem + 1;
+
+    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, slices);
     
     // split ranges into slices according no of kmers inside
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = input_kmers / slices;
+    let max_size = max_mem / mem_per_kmer;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
@@ -553,25 +544,6 @@ where
     let multi_pb = MultiProgress::new();
     let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
 
-    // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
-    let input_kmers: usize = seqs
-        .iterable()
-        .iter()
-        .flat_map(|reads| reads.iter())
-        .map(|(ref read, _, _, _)| read.len().saturating_sub(K::k() - 1))
-        .sum();
-
-    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
-
-    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
-    debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
-    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
-    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
-    debug!("type D1: {}", std::any::type_name::<D1>());
-
-    let max_mem: usize = memory_size * 10_usize.pow(9);
-    let slices: usize = kmer_mem / max_mem + 1;
-
     let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
     pb.set_style(style.clone());
     pb.set_message(format!("{:<32}", "finding bucket lengths"));
@@ -591,10 +563,23 @@ where
 
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, D1)>());
 
+    let input_kmers = capacities.iter().sum::<usize>();
+
+    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
+
+    let mem_per_kmer = mem::size_of::<(K, D1)>();
+    debug!("size used for calculation: {} B", mem_per_kmer);
+    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
+    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
+    debug!("type D1: {}", std::any::type_name::<D1>());
+
+    let max_mem: usize = memory_size * 10_usize.pow(9);
+    let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
+
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = input_kmers / slices;
+    let max_size = max_mem / mem_per_kmer;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
@@ -610,7 +595,7 @@ where
 
     debug!("bucket ranges: {:?}", bucket_ranges);
 
-    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
+    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", mem_per_kmer * input_kmers, max_mem, slices);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
