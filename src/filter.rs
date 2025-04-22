@@ -19,6 +19,7 @@ use log::debug;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
+use crate::kmer;
 use crate::reads::ReadsPaired;
 use crate::reads::Stranded;
 use crate::summarizer::SummaryConfig;
@@ -243,7 +244,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = max_mem / slices;
+    let max_size = ( max_mem / kmer_mem ) / slices;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
