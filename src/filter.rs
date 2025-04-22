@@ -594,7 +594,7 @@ where
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = max_mem / slices;
+    let max_size = ( max_mem / kmer_mem ) / slices;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
