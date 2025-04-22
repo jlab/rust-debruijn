@@ -64,6 +64,15 @@ fn test_colors() {
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped)
     );
 
+    graph.to_dot_partial(
+        "test_dot_partial.dot", 
+        &|node| node.node_dot_default(&colors, &config, &hashed_labels, false), 
+        &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped),
+        vec![0, 1, 2, 3]
+    );
+
     remove_file("test_dot.dot").unwrap();
     remove_file("test_dot_parallel.dot").unwrap();
+    remove_file("test_dot_partial.dot").unwrap();
+
 }
