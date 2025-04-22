@@ -668,6 +668,13 @@ mod tests {
 
     }
 
+
+    #[test]
+    fn test_reads_stranded() {
+        let reads: Reads<u8> = Reads::new(Stranded::Forward);
+        assert_eq!(reads.stranded(), Stranded::Forward);
+    }
+
     #[test]
     fn test_reads_paired() {
         let mut r1 = Reads::new(Stranded::Unstranded);
@@ -720,6 +727,30 @@ mod tests {
         assert_eq!(combined.mem(), 532);
         assert_eq!(combined.n_reads(), 10);
         assert_eq!(combined.iterable(), vec![&r1, &r2, &up]);
+
+
+        // test iter
+
+        assert_eq!(unpaired.iter().collect::<Vec<_>>(), up.iter().collect::<Vec<_>>());
+        assert_eq!(paired.iter().collect::<Vec<_>>(), r1.iter().chain(r2.iter()).collect::<Vec<_>>());
+        assert_eq!(combined.iter().collect::<Vec<_>>(), r1.iter().chain(r2.iter()).chain(up.iter()).collect::<Vec<_>>());
+
+        // test partial iter
+
+        assert_eq!(unpaired.iter_partial(0..1).collect::<Vec<_>>(), up.partial_iter(0..1).collect::<Vec<_>>());
+
+        assert_eq!(paired.iter_partial(0..1).collect::<Vec<_>>(), r1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(5..7).collect::<Vec<_>>(), r2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(1..8).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).collect::<Vec<_>>());
+
+        assert_eq!(combined.iter_partial(0..1).collect::<Vec<_>>(), r1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(5..7).collect::<Vec<_>>(), r2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(8..10).collect::<Vec<_>>(), up.partial_iter(0..2).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..8).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), r2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+
+
     }
 
     #[test]
