@@ -244,7 +244,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = ( max_mem / kmer_mem ) / slices;
+    let max_size = input_kmers / slices;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
@@ -595,7 +595,7 @@ where
     let mut start_bucket = 0;
     let mut size = 0;
 
-    let max_size = ( max_mem / kmer_mem ) / slices;
+    let max_size = input_kmers / slices;
 
     let mut bucket_ranges = Vec::with_capacity(slices);
 
