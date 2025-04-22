@@ -1,6 +1,5 @@
 use std::ops::Range;
 use itertools::Itertools;
-use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;

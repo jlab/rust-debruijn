@@ -19,7 +19,6 @@ use log::debug;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
-use crate::kmer;
 use crate::reads::ReadsPaired;
 use crate::reads::Stranded;
 use crate::summarizer::SummaryConfig;
