@@ -561,6 +561,21 @@ impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
     }
 }
 
+impl ReadsPaired<u8> {
+    pub fn tag_kmers(&self, k: usize) -> Vec<usize>{
+        let hashed_kmer_counts = self.data_kmers(k);
+
+        let n_samples = hashed_kmer_counts.keys().max().expect("Error: no samples");
+
+        let mut kmer_counts = vec![0; *n_samples as usize + 1];
+        for (tag, kmer_count) in hashed_kmer_counts {
+            kmer_counts[tag as usize] += kmer_count;
+        }
+
+        kmer_counts
+    }
+}
+
 impl<D: Clone + Copy> Display for ReadsPaired<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
