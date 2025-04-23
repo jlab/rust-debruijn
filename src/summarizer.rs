@@ -516,9 +516,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI> {
     /// format the noda data 
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print_ol(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
@@ -546,11 +546,11 @@ pub trait SummaryData<DI> {
 
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
@@ -601,13 +601,15 @@ impl<DI> SummaryData<DI> for u32 {
 }
 
 /// data the k-mer was observed with
-impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
-        format!("samples: {:?}", self).replace("\"", "\'")
+impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
+    fn print(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+        let samples = self.iter().map(|sample_id| tag_translator.get_by_right(sample_id)).collect::<Vec<_>>();
+        format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
-        format!("samples: {:?}", self).replace("\"", "\'")
+    fn print_ol(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+        let samples = self.iter().map(|sample_id| tag_translator.get_by_right(sample_id)).collect::<Vec<_>>();
+        format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
