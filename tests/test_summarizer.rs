@@ -89,7 +89,7 @@ fn test_summary_data() {
     assert_eq!(data, (count, None, 4, None, None, None, None, true, "count: 6".to_string(), "count: 6".to_string()));
 
     let data = test_summarize::<Vec<u8>, _, _>(input.into_iter(), &summary_config, &tag_translator);
-    assert_eq!(data, (None, None, 30, None, None, sample_count, None, true, "samples: [0, 1, 2, 3, 7, 8]".to_string(), "samples: [0, 1, 2, 3, 7, 8]".to_string()));
+    assert_eq!(data, (None, None, 30, None, None, sample_count, None, true, "samples: ['0', '1', '2', '3', '7', '8']".to_string(), "samples: ['0', '1', '2', '3', '7', '8']".to_string()));
 
     let data = test_summarize::<TagsSumData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2, None, None, sample_count, None, true, "samples:\n0\n1\n2\n3\n7\n8\nsum: 6".to_string(), "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string())); // mem: M + 4 + alignment buffer

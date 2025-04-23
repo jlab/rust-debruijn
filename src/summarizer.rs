@@ -603,12 +603,18 @@ impl<DI> SummaryData<DI> for u32 {
 /// data the k-mer was observed with
 impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
     fn print(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
-        let samples = self.iter().map(|sample_id| tag_translator.get_by_right(sample_id)).collect::<Vec<_>>();
+        let samples = self
+            .iter()
+            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
         format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
     fn print_ol(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
-        let samples = self.iter().map(|sample_id| tag_translator.get_by_right(sample_id)).collect::<Vec<_>>();
+        let samples = self
+            .iter()
+            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
         format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
