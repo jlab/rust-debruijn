@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::mem::take;
 use std::ops::Range;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
@@ -300,8 +302,6 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.shrink_to_fit();
     }
 
-
-
     /// Iterate over the reads as (DnaString, Exts, D).
     pub fn iter(&self) -> ReadsIter<'_, D> {
         ReadsIter {
@@ -332,6 +332,26 @@ impl<D: Clone + Copy> Reads<D> {
         println!()
     }
 
+    pub fn info(&self) -> String {
+        format!("Reads {{ n reads: {}, stranded: {:?} }}", self.n_reads(), self.stranded)
+    }
+}
+
+impl<D: Clone + Copy + Eq + Hash> Reads<D> {
+    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+        let mut hm = HashMap::new();
+
+        self.iter().for_each(|(read, _, data, _)| {
+            let kmers = read.len().saturating_sub(k - 1);
+            if let Some(count) = hm.get_mut(&data) {
+                *count += kmers;
+            } else {
+                hm.insert(data, kmers);
+            }
+        });
+
+        hm
+    }
 }
 
 impl<D: Clone + Copy> Default for Reads<D> {
@@ -339,9 +359,6 @@ impl<D: Clone + Copy> Default for Reads<D> {
         Self::new(Stranded::Unstranded)
     }
 }
-
-
-
 
 /// Iterator over values of a DnaStringoded sequence (values will be unpacked into bytes).
 pub struct ReadsIter<'a, D> {
@@ -487,6 +504,70 @@ impl<D: Clone + Copy> ReadsPaired<D> {
                     Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..n_r2)).chain(unpaired.partial_iter(0..(range.end - n_r12))))
                 }
             }
+        }
+    }
+
+    /// if the `ReadsPaired` is of `Combined` type, remove the unpaired reads
+    pub fn decombine(&mut self) {
+        if let Self::Combined { r1, r2, unpaired: _ } = self {
+            *self = ReadsPaired::Paired { r1: take(r1), r2: take(r2) }
+        }
+    }
+}
+
+impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
+    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+        match self {
+            Self::Empty => HashMap::new(),
+            Self::Unpaired { reads } => reads.data_kmers(k),
+            Self::Paired { r1, r2 } => {
+                let mut hm_r1 = r1.data_kmers(k);
+                let hm_r2 = r2.data_kmers(k);
+
+                hm_r2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_r1.get_mut(&data) {
+                    *count += kmers;
+                   } else {
+                    hm_r1.insert(data, kmers);
+                   }
+                });
+
+                hm_r1
+            },
+            Self::Combined { r1, r2, unpaired } => {
+                let mut hm_r1 = r1.data_kmers(k);
+                let hm_r2 = r2.data_kmers(k);
+                let hm_up = unpaired.data_kmers(k);
+
+                hm_r2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_r1.get_mut(&data) {
+                    *count += kmers;
+                   } else {
+                    hm_r1.insert(data, kmers);
+                   }
+                });
+
+                hm_up.into_iter().for_each(|(data, kmers)| {
+                    if let Some(count) = hm_r1.get_mut(&data) {
+                     *count += kmers;
+                    } else {
+                     hm_r1.insert(data, kmers);
+                    }
+                 });
+
+                hm_r1
+            }
+        }
+    }
+}
+
+impl<D: Clone + Copy> Display for ReadsPaired<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "empty ReadsPaired"),
+            Self::Unpaired { reads } => write!(f, "unpaired ReadsPaired: \n{}", reads.info()),
+            Self::Paired { r1, r2 } => write!(f, "paired ReadsPaired: \n{}\n{}", r1.info(), r2.info()),
+            Self::Combined { r1, r2, unpaired } => write!(f, "combined ReadsPaired: \n{}\n{}\n{}", r1.info(), r2.info(), unpaired.info()),
         }
     }
 }
