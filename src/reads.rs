@@ -7,6 +7,13 @@ use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
+pub enum Strandedness {
+    Forward,
+    Reverse,
+    Unstranded
+}
+
 /// Store many DNA sequences together with an Exts and data each compactly packed together
 /// 
 /// #### fields:
@@ -16,26 +23,34 @@ use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 /// * `exts`: `Vec` with one Exts for each sequence
 /// * `data`: `Vec` with data for each sequence
 /// * `len`: length of all sequences together
+/// * `stranded`: [`Stranded`] conveying the strandedness and direction of the reads
 #[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct Reads<D> {
     storage: Vec<u64>,
     ends: Vec<usize>,
     exts: Vec<Exts>,
     data: Vec<D>,
-    len: usize
+    len: usize,
+    stranded: Strandedness
 }
 
 impl<D: Clone + Copy> Reads<D> {
 
     /// Returns a new `Reads`
-    pub fn new() -> Self {
+    pub fn new(stranded: Strandedness) -> Self {
         Reads {
             storage: Vec::new(),
             ends: Vec::new(),
             exts: Vec::new(),
             data: Vec::new(),
-            len: 0
+            len: 0,
+            stranded
         }
+    }
+
+    #[inline(always)]
+    pub fn stranded(&self) -> Strandedness {
+        self.stranded
     }
 
     #[inline(always)]
@@ -62,8 +77,8 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
     // TODO test if memory efficient
-    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S) -> Self {
-        let mut reads = Reads::new();
+    pub fn from_vmer_vec<V: Vmer, S: IntoIterator<Item=(V, Exts, D)>>(vec_iter: S, stranded: Strandedness) -> Self {
+        let mut reads = Reads::new(stranded);
         for (vmer, exts, data) in vec_iter {
             for base in vmer.iter() {
                 reads.push_base(base);
@@ -254,7 +269,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     /// get the `i`th read in a `Reads`
-    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D)> {
+    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D, Strandedness)> {
         if i >= self.n_reads() { return None }
 
         let mut sequence = DnaString::new();
@@ -271,7 +286,7 @@ impl<D: Clone + Copy> Reads<D> {
             sequence.push(base);
         }
 
-        Some((sequence, self.exts[i], self.data[i]))
+        Some((sequence, self.exts[i], self.data[i], self.stranded))
     }
 
 
@@ -321,7 +336,7 @@ impl<D: Clone + Copy> Reads<D> {
 
 impl<D: Clone + Copy> Default for Reads<D> {
     fn default() -> Self {
-        Self::new()
+        Self::new(Strandedness::Unstranded)
     }
 }
 
@@ -337,9 +352,9 @@ pub struct ReadsIter<'a, D> {
 }
 
 impl<D: Clone + Copy> Iterator for ReadsIter<'_, D> {
-    type Item = (DnaString, Exts, D);
+    type Item = (DnaString, Exts, D, Strandedness);
 
-    fn next(&mut self) -> Option<(DnaString, Exts, D)> {
+    fn next(&mut self) -> Option<Self::Item> {
         if (self.i < self.reads.n_reads()) && (self.i < self.end) {
             let value = self.reads.get_read(self.i);
             self.i += 1;
@@ -358,11 +373,123 @@ impl<D: Copy> ExactSizeIterator for ReadsIter<'_, D> {
 
 impl<D: Clone + Copy + Debug> Display for Reads<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let vec: Vec<(DnaString, Exts, D)> = self.iter().collect();
+        let vec: Vec<(DnaString, Exts, D, Strandedness)> = self.iter().collect();
         write!(f, "{:?}", vec)
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReadsPaired<D> {
+    Empty,
+    Unpaired { reads: Reads<D> },
+    Paired { paired1: Reads<D>, paired2: Reads<D> },
+    Combined {paired1: Reads<D>, paired2: Reads<D>, unpaired: Reads<D>}
+}
+
+impl<D: Clone + Copy> ReadsPaired<D> {
+    pub fn iterable(&self) -> Vec<&Reads<D>> {
+        match self {
+            Self::Empty => vec![],
+            Self::Unpaired { reads  } => vec![reads],
+            Self::Paired { paired1, paired2 } => vec![paired1, paired2],
+            Self::Combined { paired1, paired2, unpaired } => vec![paired1, paired2, unpaired],
+        }
+    }
+
+    pub fn n_reads(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Unpaired { reads  } => reads.n_reads(),
+            Self::Paired { paired1, paired2 } => paired1.n_reads() + paired2.n_reads(),
+            Self::Combined { paired1, paired2, unpaired } => paired1.n_reads() + paired2.n_reads() + unpaired.n_reads(),
+        }
+    }
+
+    pub fn mem(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Unpaired { reads } => reads.mem(),
+            Self::Paired { paired1, paired2 } => paired1.mem() + paired2.mem(),
+            Self::Combined { paired1, paired2, unpaired } => paired1.mem() + paired2.mem() + unpaired.mem(),
+        }
+    }
+
+    /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
+    /// depending on the contents of the [`Reads`]
+    pub fn from_reads((paired1, paired2, unpaired): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
+        // first two elements should be paired reads and thus have same n
+        assert_eq!(paired1.n_reads(), paired2.n_reads(), "Error: R1 read and R2 read counts have to match");
+
+        if (paired1.n_reads() + paired2.n_reads() + unpaired.n_reads()) == 0 {
+            // no reads
+            ReadsPaired::Empty
+        } else if paired1.n_reads() == 0 && unpaired.n_reads() > 0 {
+            // only reads in third element -> unpaired
+            ReadsPaired::Unpaired { reads: unpaired }
+        } else if paired1.n_reads() > 0 && unpaired.n_reads() == 0 {
+            // reads in first and second element -> paired
+            ReadsPaired::Paired { paired1, paired2 }
+        } else if paired1.n_reads() > 0 && unpaired.n_reads() > 0 {
+            // reads in all elements: both paired and unpaired reads
+            ReadsPaired::Combined { paired1, paired2, unpaired }
+        } else {
+            panic!("error in transforming Reads into ReadsPaired")
+        }
+    }
+
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (DnaString, Exts, D, Strandedness)> + '_> {
+        match self {
+            ReadsPaired::Empty => panic!("Error: no reads to process"),
+            ReadsPaired::Unpaired { reads } => Box::new(reads.iter()),
+            ReadsPaired::Paired { paired1, paired2 } => Box::new(paired1.iter().chain(paired2.iter())),
+            ReadsPaired::Combined { paired1, paired2, unpaired } => Box::new(paired1.iter().chain(paired2.iter()).chain(unpaired.iter())),
+        }
+    }
+
+    pub fn iter_partial(&self, range: Range<usize>) -> Box<dyn Iterator<Item = (DnaString, Exts, D, Strandedness)> + '_> {
+        match self {
+            Self::Empty => panic!("Error: no reads to process"),
+            Self::Unpaired { reads } => Box::new(reads.partial_iter(range)),
+            Self::Paired { paired1, paired2 } => {
+                let n_p1 = paired1.n_reads();
+                if range.start >= n_p1 {
+                    // range is fully in paired2
+                    Box::new(paired2.partial_iter((range.start - n_p1)..(range.end - n_p1)))
+                } else if range.end <= n_p1 {
+                    // range is fully in paired1
+                    Box::new(paired1.partial_iter(range))
+                } else {
+                    // range is both in paired1 and paired2
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..(range.end - n_p1))))
+                }
+            },
+            Self::Combined { paired1, paired2, unpaired } => {
+                let n_p1 = paired1.n_reads();
+                let n_p2 = paired2.n_reads();
+                let n_p12 = n_p1 + paired2.n_reads();
+                if range.end <= n_p1 {
+                    // range is only in paired1
+                    Box::new(paired1.partial_iter(range))
+                } else if range.end >= n_p1 && range.end <= n_p12 && range.start >= n_p1 && range.start <= n_p12 {
+                    // range is only in paired2
+                    Box::new(paired2.partial_iter((range.start - n_p1)..(range.end - n_p1)))
+                } else if range.start >= n_p12 {
+                    // range is only in unpaired
+                    Box::new(unpaired.partial_iter((range.start - n_p12)..(range.end - n_p12)))
+                } else if range.start <= n_p1 && range.end >= n_p1 && range.end <= n_p12 {
+                    // range is in paired1 and paired2
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..(range.end - n_p1))))
+                } else if range.start >= n_p1 && range.start <= n_p12 && range.end >= n_p12 {
+                    // range is in paired2 and unpaired
+                    Box::new(paired2.partial_iter((range.start - n_p1)..n_p2).chain(unpaired.partial_iter(0..(range.end - n_p12))))
+                } else {
+                    // range is in paired1, paired2, and in unpaired
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..n_p2)).chain(unpaired.partial_iter(0..(range.end - n_p12))))
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -371,8 +498,8 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, Exts};
-    use super::Reads;
+    use crate::{dna_string::DnaString, reads::Strandedness, Exts};
+    use super::{Reads, ReadsPaired};
 
     #[test]
     fn test_add() {
@@ -389,7 +516,7 @@ mod tests {
         ];
 
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Strandedness::Unstranded);
         for (read, ext, data) in fastq.clone() {
             reads.add_read(read, ext, data);
         }
@@ -405,10 +532,10 @@ mod tests {
 
         for (i, _) in fastq.iter().enumerate() {
             //println!("read {}: {:?}", i, reads.get_read(i))
-            assert_eq!(fastq[i], reads.get_read(i).unwrap())
+            assert_eq!((fastq[i].0.clone(), fastq[i].1, fastq[i].2, Strandedness::Unstranded), reads.get_read(i).unwrap())
         }
 
-        for (seq, _, _) in reads.iter() {
+        for (seq, _, _, _) in reads.iter() {
             println!("{:?}, {}", seq, seq.len())
         }
         println!();
@@ -422,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_get_read() {
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(Strandedness::Unstranded);
         //reads.add_read(DnaString::from_acgt_bytes("AGCTAGCTAGC".as_bytes()), Exts::empty(), 67u8);
         reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), Exts::empty(), 67u8);
         let read = reads.get_read(0);
@@ -444,7 +571,7 @@ mod tests {
             "ACGATCGATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCGAAGGGCAGTTAGGCCGTAAGCGCGAT".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for seq in dna {
             reads.add_from_bytes(seq, Exts::empty(), random());
 
@@ -472,7 +599,7 @@ mod tests {
             "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".as_bytes(),
         ];
 
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         let mut corrects = Vec::new();
         for seq in dna {
             corrects.push(reads.add_from_bytes_checked(seq, Exts::empty(), random()));
@@ -519,7 +646,7 @@ mod tests {
 
 
         let ds_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_read(DnaString::from_acgt_bytes(dna), Exts::empty(), random());
@@ -528,7 +655,7 @@ mod tests {
         let ds_finish = ds_start.elapsed();
 
         let r_start= time::Instant::now();
-        let mut reads: Reads<u8> = Reads::new();
+        let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
                 reads.add_from_bytes(dna, Exts::empty(), random());
@@ -539,5 +666,107 @@ mod tests {
         println!("through DnaString: {} s \n direct to Read: {} s", ds_finish.as_secs_f32(), r_finish.as_secs_f32())
 
 
+    }
+
+
+    #[test]
+    fn test_reads_stranded() {
+        let reads: Reads<u8> = Reads::new(Strandedness::Forward);
+        assert_eq!(reads.stranded(), Strandedness::Forward);
+    }
+
+    #[test]
+    fn test_reads_paired() {
+        let mut p1 = Reads::new(Strandedness::Unstranded);
+        let mut p2 = Reads::new(Strandedness::Unstranded);
+        let mut up = Reads::new(Strandedness::Unstranded);
+
+        let reads_p1 = [
+            "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
+            "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
+            "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
+            "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
+        ];
+
+        let reads_p2 = [
+            "AGCTAGCTAGCTACTGATCGTAGCTAGCTGATCGA",
+            "AGCGATCGTACGTAGCTAGCTA",
+            "CGATCGATCGACTAGCGTAGCTGACTGAC",
+            "CAGATGCTCTGCTGACTGACTGATCGTACTGACTAGCATCTAGC",
+        ];
+
+        let reads_up = [
+            "CGTACTAGCTGACGTAC",
+            "CGATGCTAGCTAGCTAGCGATCG",
+        ];
+
+        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_p2.iter().for_each(|read| p2.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_up.iter().for_each(|read| up.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+
+        let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
+        assert_eq!(empty, ReadsPaired::Empty);
+        assert_eq!(empty.mem(), 0);
+        assert_eq!(empty.n_reads(), 0);
+        assert_eq!(empty.iterable(), Vec::<&Reads<u8>>::new());
+
+        let unpaired = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), up.clone()));
+        assert_eq!(ReadsPaired::Unpaired { reads: up.clone() }, unpaired);
+        assert_eq!(unpaired.mem(), 148);
+        assert_eq!(unpaired.n_reads(), 2);
+        assert_eq!(unpaired.iterable(), vec![&up]);
+
+        let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
+        assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
+        assert_eq!(paired.mem(), 384);
+        assert_eq!(paired.n_reads(), 8);
+        assert_eq!(paired.iterable(), vec![&p1, &p2]);
+
+        let combined = ReadsPaired::from_reads((p1.clone(), p2.clone(), up.clone()));
+        assert_eq!(ReadsPaired::Combined { paired1: p1.clone(), paired2: p2.clone(), unpaired: up.clone() }, combined);
+        assert_eq!(combined.mem(), 532);
+        assert_eq!(combined.n_reads(), 10);
+        assert_eq!(combined.iterable(), vec![&p1, &p2, &up]);
+
+
+        // test iter
+
+        assert_eq!(unpaired.iter().collect::<Vec<_>>(), up.iter().collect::<Vec<_>>());
+        assert_eq!(paired.iter().collect::<Vec<_>>(), p1.iter().chain(p2.iter()).collect::<Vec<_>>());
+        assert_eq!(combined.iter().collect::<Vec<_>>(), p1.iter().chain(p2.iter()).chain(up.iter()).collect::<Vec<_>>());
+
+        // test partial iter
+
+        assert_eq!(unpaired.iter_partial(0..1).collect::<Vec<_>>(), up.partial_iter(0..1).collect::<Vec<_>>());
+
+        assert_eq!(paired.iter_partial(0..1).collect::<Vec<_>>(), p1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(5..7).collect::<Vec<_>>(), p2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(1..8).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).collect::<Vec<_>>());
+
+        assert_eq!(combined.iter_partial(0..1).collect::<Vec<_>>(), p1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(5..7).collect::<Vec<_>>(), p2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(8..10).collect::<Vec<_>>(), up.partial_iter(0..2).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..8).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), p2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+
+
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_reads_paired_panic() {
+        let mut p1 = Reads::new(Strandedness::Unstranded);
+
+        let reads_p1 = [
+            "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
+            "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
+            "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
+            "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
+        ];
+
+        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+
+        let _ = ReadsPaired::from_reads((p1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
     }
 }

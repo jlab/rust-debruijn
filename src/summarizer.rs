@@ -516,9 +516,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI> {
     /// format the noda data 
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print_ol(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
@@ -535,6 +535,8 @@ pub trait SummaryData<DI> {
     fn sample_count(&self) -> Option<usize>;
     /// get edge multiplicities
     fn edge_mults(&self) -> Option<&EdgeMult>;
+    /// fix the [`EdgeMult`] by removing hanging edges
+    fn fix_edge_mults(&mut self, exts: Exts);
     /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, config: &SummaryConfig) -> bool;
     /// summarize k-mers
@@ -544,11 +546,11 @@ pub trait SummaryData<DI> {
 
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
@@ -574,6 +576,8 @@ impl<DI> SummaryData<DI> for u32 {
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
+    fn fix_edge_mults(&mut self, _: Exts) { }
+
     fn valid(&self, config: &SummaryConfig) -> bool {
         *self >= config.min_kmer_obs as u32
     }
@@ -597,13 +601,21 @@ impl<DI> SummaryData<DI> for u32 {
 }
 
 /// data the k-mer was observed with
-impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
-        format!("samples: {:?}", self).replace("\"", "\'")
+impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
+    fn print(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+        let samples = self
+            .iter()
+            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
+        format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
-        format!("samples: {:?}", self).replace("\"", "\'")
+    fn print_ol(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+        let samples = self
+            .iter()
+            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
+        format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -627,6 +639,8 @@ impl<DI: Debug + Ord> SummaryData<DI> for Vec<DI> {
     }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
+    
+    fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn valid(&self, _: &SummaryConfig) -> bool {
         true
@@ -697,6 +711,8 @@ impl SummaryData<u8> for TagsSumData {
     }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum, config)
@@ -785,6 +801,8 @@ impl SummaryData<u8> for TagsCountsSumData {
     }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -900,6 +918,8 @@ impl SummaryData<u8> for TagsCountsData {
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
+    fn fix_edge_mults(&mut self, _: Exts) { }
+
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
             Some(p) => self.p_value(config).expect("error calculating p-value") <= p,
@@ -1003,6 +1023,8 @@ impl SummaryData<u8> for TagsCountsPData {
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
+    fn fix_edge_mults(&mut self, _: Exts) { }
+
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum(), config) 
             && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
@@ -1105,6 +1127,11 @@ impl SummaryData<u8> for TagsCountsEMData {
     fn edge_mults(&self) -> Option<&EdgeMult> {
         Some(&self.edge_mults)
     }
+
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
@@ -1212,6 +1239,10 @@ impl SummaryData<u8> for TagsCountsPEMData{
         Some(&self.edge_mults)
     }
 
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum(), config) 
             && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
@@ -1279,6 +1310,8 @@ impl SummaryData<u8> for GroupCountData {
     fn sample_count(&self) -> Option<usize> { None }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.sum() >= config.min_kmer_obs as u32
@@ -1358,6 +1391,8 @@ impl SummaryData<u8> for RelCountData {
     fn sample_count(&self) -> Option<usize> { None }
 
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.count >= config.min_kmer_obs as u32

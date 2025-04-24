@@ -8,7 +8,7 @@ fn test_summarize<SD: SummaryData<u8>, F, K: Kmer>(items: F, config: &SummaryCon
 where 
     F: Iterator<Item = (K, Exts, u8)>,
 {
-    let (valid, _, data) = SD::summarize(items, config);
+    let (valid, _, mut data) = SD::summarize(items, config);
 
     let count = data.count();
     let score = data.score();
@@ -30,6 +30,11 @@ where
 
     let em = data.edge_mults().cloned();
 
+    data.fix_edge_mults(Exts::new(0));
+    if let Some(e) = data.edge_mults() {
+        assert_eq!(e.edge_mults(), [0; 8]);
+    }
+    
     (
         count,
         tags_sum,
@@ -84,7 +89,7 @@ fn test_summary_data() {
     assert_eq!(data, (count, None, 4, None, None, None, None, true, "count: 6".to_string(), "count: 6".to_string()));
 
     let data = test_summarize::<Vec<u8>, _, _>(input.into_iter(), &summary_config, &tag_translator);
-    assert_eq!(data, (None, None, 30, None, None, sample_count, None, true, "samples: [0, 1, 2, 3, 7, 8]".to_string(), "samples: [0, 1, 2, 3, 7, 8]".to_string()));
+    assert_eq!(data, (None, None, 30, None, None, sample_count, None, true, "samples: ['0', '1', '2', '3', '7', '8']".to_string(), "samples: ['0', '1', '2', '3', '7', '8']".to_string()));
 
     let data = test_summarize::<TagsSumData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2, None, None, sample_count, None, true, "samples:\n0\n1\n2\n3\n7\n8\nsum: 6".to_string(), "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string())); // mem: M + 4 + alignment buffer
@@ -109,14 +114,14 @@ fn test_summary_data() {
 
     let data = test_summarize::<TagsCountsEMData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), true, 
-        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 6 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 6, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 0, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 
     let data = test_summarize::<TagsCountsPEMData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), true,  
-        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 6 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 6, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 0, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 
     let data = test_summarize::<GroupCountData, _, _>(input.into_iter(), &summary_config, &tag_translator);
@@ -128,21 +133,21 @@ fn test_summary_data() {
     let summary_config = SummaryConfig::new(1, None, GroupFrac::One, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
     let data = test_summarize::<TagsCountsPEMData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), true,  
-        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 6 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 6, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 0, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 
     let summary_config = SummaryConfig::new(1, None, GroupFrac::Both, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
     let data = test_summarize::<TagsCountsPEMData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), false,  
-        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 6 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 6, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 0, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 
     let summary_config = SummaryConfig::new(1, None, GroupFrac::One, 0.33, sample_info.clone(), Some(0.05), summarizer::StatTest::WelchsTTest);
     let data = test_summarize::<TagsCountsPEMData, _, _>(input.into_iter(), &summary_config, &tag_translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2 + 16 + 6*4 + 4*8, p_value, fold_change, sample_count, edge_mults.clone(), false,  
-        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 6 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 6, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+        "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: \nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge multiplicities: A: 0, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 }

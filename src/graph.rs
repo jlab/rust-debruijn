@@ -35,12 +35,14 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
+use crate::bits_to_base;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::BUF;
+use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
@@ -251,6 +253,26 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         for i in 0..4 {
             if exts.has_ext(dir, i) {
+                let link = self.find_link(kmer.extend(i, dir), dir).expect("missing link");
+                edges.push((i, link.0, link.1, link.2));
+            }
+        }
+
+        edges
+    }
+
+    /// Find the edges leaving node `node_id` in direction `Dir`. Should generally be
+    /// accessed via a Node wrapper object
+    /// 
+    /// allows missing links
+    fn _find_edges_sharded(&self, node_id: usize, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
+        let exts = self.base.exts[node_id];
+        let sequence = self.base.sequences.get(node_id);
+        let kmer: K = sequence.term_kmer(dir);
+        let mut edges = SmallVec4::new();
+
+        for i in 0..4 {
+            if exts.has_ext(dir, i) {
                 let link = self.find_link(kmer.extend(i, dir), dir); //.expect("missing link");
                 if let Some(l) = link {
                     edges.push((i, l.0, l.1, l.2));
@@ -357,6 +379,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Remove non-existent extensions that may be created due to filtered kmers
+    /// 
+    /// if `valid_nodes` if `None`, all nodes are valid
     pub fn fix_exts(&mut self, valid_nodes: Option<&BitSet>) {
         for i in 0..self.len() {
             let valid_exts = self.get_valid_exts(i, valid_nodes);
@@ -689,9 +713,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         f: &mut dyn Write,
     ) {
         writeln!(f, "n{} {}", node.node_id, node_label(node)).unwrap();
+        assert_eq!(node.exts().val.count_ones() as usize, node.l_edges().len() + node.r_edges().len());
 
         for (base, id, incoming_dir, flipped) in node.l_edges() {
-
             writeln!(f, "n{} -> n{} {}", id, node.node_id, edge_label(node, base, incoming_dir, flipped)).unwrap();
         }
 
@@ -717,7 +741,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
@@ -774,7 +798,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT files"));
     
         parallel_ranges.into_par_iter().enumerate().for_each(|(i, range)| {
@@ -794,7 +818,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter().progress_with(pb) {
@@ -836,9 +860,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
         let pb = ProgressBar::new(nodes.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
+        writeln!(&mut f, "# {:?}", nodes).unwrap();
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in nodes.into_iter().progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
@@ -925,7 +950,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let dummy_opt: Option<&DummyFn<K, D>> = None;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
@@ -948,7 +973,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in (0..self.len()).progress_with(pb) {
@@ -998,7 +1023,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         } 
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
         
         
@@ -1021,7 +1046,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(out_file, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "combining files"));
 
         for file in files.iter() {
@@ -1049,7 +1074,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
-        pb.set_style(ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-"));
+        pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to GFA file"));
 
         for i in nodes.into_iter().progress_with(pb) {
@@ -1383,6 +1408,15 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
     pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
         Colors::new(self, config)
     }
+    
+    /// edge mults will contain hanging edges if the nodes were filtered
+    pub fn fix_edge_mults(&mut self) {
+        if self.get_node(0).data().edge_mults().is_some() {
+            for i in 0..self.len() {
+                self.base.data[i].fix_edge_mults(self.base.exts[i]);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1581,19 +1615,19 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     }
 
     /// Edges leaving the left side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn l_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Left)
     }
 
     /// Edges leaving the right side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn r_edges(&self) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, Dir::Right)
     }
 
     /// Edges leaving the 'dir' side of the node in the format
-    //// (target_node id, incoming side of target node, whether target node has is flipped)
+    /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn edges(&self, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, dir)
     }
@@ -1658,7 +1692,7 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
-            format!("[color={color}, penwidth={penwidth}, label=\"{count}\"]")
+            format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\"]", bits_to_base(base))
         } else {
             format!("[color={color}]")
         }
@@ -1673,9 +1707,10 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
-        let label = textwrap::fill(&format!("id: {}, len: {}, seq: {}, {}", 
+        let label = textwrap::fill(&format!("id: {}, len: {}, exts: {:?}, seq: {}\n{}", 
             self.node_id,
             self.len(),
+            self.exts(),
             self.sequence(),
             data_info
         ), wrap);

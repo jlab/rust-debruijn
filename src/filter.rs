@@ -2,7 +2,6 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
-use core::f32;
 use std::fmt::Debug;
 use std::mem;
 use std::ops::Range;
@@ -17,11 +16,11 @@ use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
-use num_traits::Pow;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
-use crate::reads::Reads;
+use crate::reads::ReadsPaired;
+use crate::reads::Strandedness;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::Dir;
@@ -29,6 +28,7 @@ use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
 use crate::BUCKETS;
+use crate::PROGRESS_STYLE;
 
 // FIXME does not work with k < 4
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
@@ -38,30 +38,50 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
         | (kmer.get(3) as usize)
 }
 
-fn lin_quant(p: f32, m: f32, b: f32) -> f32 {
-    ((b * b + 2. * m * p).sqrt() - b) / m
+fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
+    // if not stranded choose lexiographically lesser of kmer and rc of kmer
+    // if forward, use original kmer
+    // if reverse, use rc of kmer
+    let min_kmer = match stranded {
+        Strandedness::Unstranded => {
+            let (min_kmer, _) = kmer.min_rc_flip();
+            min_kmer
+        },
+        Strandedness::Forward => kmer,
+        Strandedness::Reverse => kmer.rc(),
+    };
+
+    // calculate which bucket this kmer belongs to
+    if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize }
+    //let bucket = bucket(min_kmer);
 }
 
-fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
-    let b: f32 = 2f32/buckets as f32;
-    let m: f32 = - 2f32/(buckets as f32).pow(2);
+fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_range: Range<usize>) ->Option<(K, Exts, usize)> {
+    // if not stranded choose lexiographically lesser of kmer and rc of kmer
+    // if forward, use original kmer
+    // if reverse, use rc of kmer
+    let (min_kmer, flip_exts) = match stranded {
+        Strandedness::Unstranded => {
+            let (min_kmer, flip) = kmer.min_rc_flip();
+            let flip_exts = if flip { exts.rc() } else { exts };
+            (min_kmer, flip_exts)
+        },
+        Strandedness::Forward => (kmer, exts),
+        Strandedness::Reverse => (kmer.rc(), exts.rc()),
+    };
 
-    let mut bucket_ranges_lin: Vec<std::ops::Range<usize>> = Vec::with_capacity(if slices < buckets {slices} else {buckets});
+    // calculate which bucket this kmer belongs to
+    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
+    //let bucket = bucket(min_kmer);
+    // check if bucket is in current range and if so, push kmer to bucket
+    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
 
-    for i in 1..=slices {
-        // calculate lower and upper bound with Quantile function of linear probability distribution
-        let lbound = lin_quant((i as f32 - 1.)/slices as f32, m, b) as usize;
-        let ubound = lin_quant((i as f32)/slices as f32, m, b) as usize;
-
-        // if upper bound is above no of buckets (256), reduce to no of buckets
-        let ubound: usize = if ubound > buckets { buckets } else { ubound };
-        if ubound > lbound && lbound < buckets { bucket_ranges_lin.push(lbound..ubound) };
+    if in_range {
+        Some((min_kmer, flip_exts, bucket))
+    } else {
+        None
     }
-
-    bucket_ranges_lin
 }
-
-
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
 /// their extensions, and summarize associated label/'color' data. The input
@@ -101,12 +121,12 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::Reads;
+/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
 /// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new();
+/// let mut seqs = Reads::new(Stranded::Unstranded);
 /// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
@@ -131,9 +151,8 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 /// );
 ///    
 /// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData>(
-///     &seqs,
+///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
-///     false,
 ///     false,
 ///     10,
 ///     false,
@@ -142,9 +161,8 @@ fn lin_dist_range(buckets: usize, slices: usize) -> Vec<Range<usize>> {
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
 pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug + Send + SummaryData<u8>>(
-    seqs: &Reads<u8>,
+    seqs: &ReadsPaired<u8>,
     summariy_config: &SummaryConfig,
-    stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
@@ -153,38 +171,83 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
     // take timestamp before all processes
     let before_all = Instant::now();
 
-    let rc_norm = !stranded;
+    // progress bars
+    let multi_pb = MultiProgress::new();
+    let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
 
-    // Estimate 6 consumed by Kmer vectors, and set iteration count appropriately
-    let input_kmers: usize = seqs
-        .iter()
-        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
-        .sum();
+    // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
+    let n_threads = current_num_threads();
+    let n_reads = seqs.n_reads();
+    let sz = n_reads / n_threads + 1;
+
+    debug!("n_reads: {}", n_reads);
+    debug!("sz: {}", sz);
+
+    let mut parallel_ranges = Vec::with_capacity(n_threads);
+    let mut start = 0;
+    while start < n_reads {
+        parallel_ranges.push(start..start + sz);
+        start += sz;
+    }
+
+    let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
+    parallel_ranges.push(last_start..n_reads);
+    debug!("parallel ranges: {:?}", parallel_ranges);
+
+    let capacities = Arc::new(Mutex::new(vec![[0; BUCKETS]; n_threads]));
+
+    let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
+    pb_size_buckets.set_style(style.clone());
+    pb_size_buckets.set_message(format!("{:<32}", "finding bucket sizes"));
+
+    parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
+
+        // first go trough all kmers to find the length of all buckets (to reserve capacity)
+        let mut thread_capacities = [0usize; BUCKETS];
+        for (ref seq, _, _, stranded) in seqs.iter_partial(range.clone())
+        { 
+            // iterate through all kmers in seq
+            for kmer in seq.iter_kmers::<K>() {
+                // calculate which bucket this kmer belongs to
+                thread_capacities[bucket_flip(kmer, stranded)] += 1;
+            }
+            pb_size_buckets.inc(1);
+        }
+
+        let mut cap = capacities.lock().expect("error locking capacity mutex");
+        cap[i] = thread_capacities;
+    });
+
+    let capacities = capacities.lock().expect("error in final lock capacites");
+    let input_kmers = capacities.iter().flatten().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    let kmer_mem = input_kmers * mem::size_of::<(K, Exts, u8)>();
+    // estimate the number of slices needed to adhere to memory limit
+    let mem_per_kmer = mem::size_of::<(K, Exts, u8)>();
     let max_mem = memory_size * 10_usize.pow(9);
-    let slices_seq = kmer_mem / max_mem + 1;
-    let slices = slices_seq;
-    //let sz = buckets / slices + 1;
+    let slices = mem_per_kmer * input_kmers / max_mem + 1;
 
-    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), kmer_mem, slices);
+    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, slices);
     
-    // split ranges into slices according to constant probrbiliy dist. if stranded, else according to linear probability distribition
-    let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
-        let mut bucket_ranges = Vec::with_capacity(slices);
-        let mut start = 0;
-        let sz = BUCKETS / slices + 1;
-        while start < BUCKETS {
-            bucket_ranges.push(start..start + sz);
-            start += sz;
+    // split ranges into slices according no of kmers inside
+    let mut start_bucket = 0;
+    let mut size = 0;
+
+    let max_size = max_mem / mem_per_kmer;
+
+    let mut bucket_ranges = Vec::with_capacity(slices);
+
+    for i in 0..BUCKETS {
+        let capacity = capacities.iter().map(|c_bucket| c_bucket[i]).sum::<usize>(); 
+        size += capacity;
+        if size > max_size {
+            bucket_ranges.push(start_bucket..i);
+            start_bucket = i;
+            size = capacity;
         }
-        bucket_ranges
-    } else {
-        lin_dist_range(BUCKETS, slices)
-    };
-        
+    }   
+    bucket_ranges.push(start_bucket..BUCKETS);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -209,10 +272,6 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 
     if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    // progress bars
-    let multi_pb = MultiProgress::new();
-    let style = ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-");
-
     let pb_bucket_ranges = multi_pb.add(ProgressBar::new(bucket_ranges.len() as u64));
     pb_bucket_ranges.set_style(style.clone());
     pb_bucket_ranges.set_message(format!("{:<32}", "filtering kmers"));
@@ -228,35 +287,10 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
 
-        // split all reads into ranges to be processed in parallel for counting capacities and picking kmers
-
-        let n_threads = current_num_threads();
-        let n_reads = seqs.n_reads();
-        let sz = n_reads / n_threads + 1;
-
-        debug!("n_reads: {}", n_reads);
-        debug!("sz: {}", sz);
-
-        let mut parallel_ranges = Vec::with_capacity(slices);
-        let mut start = 0;
-        while start < n_reads {
-            parallel_ranges.push(start..start + sz);
-            start += sz;
-        }
-
-        let last_start = parallel_ranges.pop().expect("no kmers in parallel ranges").start;
-        parallel_ranges.push(last_start..n_reads);
-        debug!("parallel ranges: {:?}", parallel_ranges);
-
 
         let kmer_buckets = Arc::new(Mutex::new(vec![Vec::new(); n_threads]));
 
         let before_picking_parallel = Instant::now();
-
-        let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
-        pb_size_buckets.set_style(style.clone());
-        pb_size_buckets.set_message(format!("{:<32}", "finding bucket sizes"));
-        
 
         let pb_fill_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
         pb_fill_buckets.set_style(style.clone());
@@ -267,58 +301,23 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
         pb_sum_buckets.set_message(format!("{:<32}", "summarizing k-mers in buckets"));
 
         parallel_ranges.clone().into_par_iter().enumerate().for_each(|(i, range)| {
-
-            // first go trough all kmers to find the length of all buckets (to reserve capacity)
-            let mut capacities = [0usize; BUCKETS];
-            for (ref seq, _, _) in seqs.partial_iter(range.clone()) { 
-                // iterate through all kmers in seq
-                for kmer in seq.iter_kmers::<K>() {
-                    // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                    let min_kmer = if rc_norm {
-                        let (min_kmer, _) = kmer.min_rc_flip();
-                        min_kmer
-                    } else {
-                        kmer
-                    };
-
-                    // calculate which bucket this kmer belongs to
-                    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                    //let bucket = bucket(min_kmer);
-                    // check if bucket is in current range and if so, add one to needed capacity
-                    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                    if in_range { 
-                        capacities[bucket] += 1;
-                    }
-                }
-                pb_size_buckets.inc(1);
-            }
-
             let mut kmer_buckets1d = Vec::with_capacity(BUCKETS); 
             
             // reserve capacities needed for current range in each bucket
-            for capacity in capacities.into_iter() {
+            for capacity in capacities[i].into_iter() {
                 kmer_buckets1d.push(Vec::with_capacity(capacity));
             }
 
             // fill buckets with kmers
-            for (ref seq, seq_exts, ref d) in seqs.partial_iter(range) {
+            for (ref seq, seq_exts, ref d, stranded) in seqs.iter_partial(range.clone())
+            {
                 for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                    let (min_kmer, flip_exts) = if rc_norm {
-                        let (min_kmer, flip) = kmer.min_rc_flip();
-                        let flip_exts = if flip { exts.rc() } else { exts };
-                        (min_kmer, flip_exts)
-                    } else {
-                        (kmer, exts)
-                    };
-
-                    // calculate which bucket this kmer belongs to
-                    let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                    //let bucket = bucket(min_kmer);
+                    // if needed, flip kmer and exts
                     // check if bucket is in current range and if so, push kmer to bucket
-                    let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                    if in_range {
+                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
                         kmer_buckets1d[bucket].push((min_kmer, flip_exts, *d));
                     }
+
                 }
 
                 pb_fill_buckets.inc(1);
@@ -491,12 +490,12 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::Reads;
+/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
 /// use debruijn::filter::filter_kmers;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new();
+/// let mut seqs = Reads::new(Stranded::Unstranded);
 /// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
 /// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
@@ -521,9 +520,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// );
 ///    
 /// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
-///     &seqs,
+///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
-///     false,
 ///     false,
 ///     10,
 ///    false,
@@ -531,9 +529,8 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// ```
 #[inline(never)]
 pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug>(
-    seqs: &Reads<D1>,
+    seqs: &ReadsPaired<D1>,
     summary_config: &SummaryConfig,
-    stranded: bool,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
@@ -542,42 +539,63 @@ where
     SD: Debug + SummaryData<D1>,
 {
     let before_all = Instant::now();
-    let rc_norm = !stranded;
 
-    // Estimate memory consumed by Kmer vectors, and set iteration count appropriately
-    let input_kmers: usize = seqs
-        .iter()
-        .map(|(ref read, _, _)| read.len().saturating_sub(K::k() - 1))
-        .sum();
+    // progress bars
+    let multi_pb = MultiProgress::new();
+    let style = ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-");
+
+    let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
+    pb.set_style(style.clone());
+    pb.set_message(format!("{:<32}", "finding bucket lengths"));
+
+
+    // first go trough all kmers to find the length of all buckets (to reserve capacity)
+    let mut capacities = [0; BUCKETS];
+
+    for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
+    {
+        // iterate through all kmers in seq
+        for kmer in seq.iter_kmers::<K>() {
+            // calculate which bucket this kmer belongs to
+            capacities[bucket_flip(kmer, stranded)] += 1 
+        }
+    }
+
+    debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, D1)>());
+
+    let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    let kmer_mem = input_kmers * mem::size_of::<(K, D1)>();
-    debug!("size used for calculation: {}B", mem::size_of::<(K, D1)>());
+    let mem_per_kmer = mem::size_of::<(K, D1)>();
+    debug!("size used for calculation: {} B", mem_per_kmer);
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
     debug!("type D1: {}", std::any::type_name::<D1>());
 
     let max_mem: usize = memory_size * 10_usize.pow(9);
-    let slices: usize = kmer_mem / max_mem + 1;
-  
-    // split ranges into slices according to constant probrbiliy dist. if stranded, else according to linear probability distribition
-    let bucket_ranges: Vec<std::ops::Range<usize>> = if stranded {
-        let mut bucket_ranges = Vec::with_capacity(slices);
-        let mut start = 0;
-        let sz = BUCKETS / slices + 1;
-        while start < BUCKETS {
-            bucket_ranges.push(start..start + sz);
-            start += sz;
+    let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
+
+    let mut start_bucket = 0;
+    let mut size = 0;
+
+    let max_size = max_mem / mem_per_kmer;
+
+    let mut bucket_ranges = Vec::with_capacity(slices);
+
+    for (i, capacity) in capacities.iter().enumerate() {
+        size += capacity;
+        if size > max_size {
+            bucket_ranges.push(start_bucket..i);
+            start_bucket = i;
+            size = *capacity;
         }
-        bucket_ranges
-    } else {
-        lin_dist_range(BUCKETS, slices)
-    };
+    }
+    bucket_ranges.push(start_bucket..BUCKETS);
 
     debug!("bucket ranges: {:?}", bucket_ranges);
 
-    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", kmer_mem, max_mem, slices);
+    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", mem_per_kmer * input_kmers, max_mem, slices);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -606,13 +624,10 @@ where
 
     if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    // progress bars
-    let multi_pb = MultiProgress::new();
-    let style = ProgressStyle::with_template("{msg} [{elapsed_precise}] {bar:60.cyan/blue} ({pos}/{len})").unwrap().progress_chars("#/-");
-
     let pb_bucket_ranges = multi_pb.add(ProgressBar::new(bucket_ranges.len() as u64));
     pb_bucket_ranges.set_style(style.clone());
     pb_bucket_ranges.set_message(format!("{:<32}", "filtering k-mers"));
+
 
     // iterate over the bucket ranges
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
@@ -624,34 +639,6 @@ where
         // all kmers starting with "AAAA" go in kmer_buckets[0], all starting with AAAC go in kmer_buckets[1] and so on
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
-
-        let pb = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
-        pb.set_style(style.clone());
-        pb.set_message(format!("{:<32}", "finding bucket lengths"));
-
-        // first go trough all kmers to find the length of all buckets (to reserve capacity)
-        let mut capacities = [0; BUCKETS];
-
-        for (ref seq, _, _) in seqs.iter().progress_with(pb) {
-            // iterate through all kmers in seq
-            for kmer in seq.iter_kmers::<K>() {
-                // if not stranded choose lexiographically lesser of kmer and rc of kmer
-                let min_kmer = if rc_norm {
-                    let (min_kmer, _) = kmer.min_rc_flip();
-                    min_kmer
-                } else {
-                    kmer
-                };
-
-                // calculate which bucket this kmer belongs to
-                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                //let bucket = bucket(min_kmer);                // check if bucket is in current range and if so, add one to needed capacity
-                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                if in_range { capacities[bucket] += 1 }
-            }
-        }
-
-        debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, D1)>());
         
         let mut kmer_buckets = Vec::new();
         // reserve needed capacity in each bucket
@@ -664,24 +651,13 @@ where
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
-        for (ref seq, seq_exts, ref d) in seqs.iter().progress_with(pb) {
+        for (ref seq, seq_exts, ref d, stranded) in seqs.iter().progress_with(pb)             
+        {
             // iterate trough all kmers in seq
             for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
-                // // if not stranded choose lexiographically lesser of kmer and rc of kmer, flip exts if needed
-                let (min_kmer, flip_exts) = if rc_norm {
-                    let (min_kmer, flip) = kmer.min_rc_flip();
-                    let flip_exts = if flip { exts.rc() } else { exts };
-                    (min_kmer, flip_exts)
-                } else {
-                    (kmer, exts)
-                };
-
-                // calculate which bucket this kmer belongs to
-                let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-                //let bucket = bucket(min_kmer);
+                // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
-                let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
-                if in_range {
+                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
                     kmer_buckets[bucket].push((min_kmer, flip_exts, *d));
                 }
             }
@@ -883,7 +859,7 @@ mod tests {
             (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
         ];
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
 
         for (read, exts, data) in fastq {
             reads.add_read(read, exts, data);
@@ -895,9 +871,8 @@ mod tests {
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
-            &reads, 
+            &ReadsPaired::Unpaired { reads }, 
             &config,
-            false, 
             false, 
             1,
             false,
@@ -922,7 +897,7 @@ mod tests {
 
         } */
 
-        let mut reads = Reads::new();
+        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
 
         for _i in 0..10000 {
             let dna = random_dna(150);
@@ -934,9 +909,8 @@ mod tests {
 
 
         let (hm, _): (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(
-            &reads, 
+            &ReadsPaired::Unpaired { reads }, 
             &config,
-            false, 
             false, 
             1,
             false,         
@@ -945,4 +919,5 @@ mod tests {
         println!("{:?}", hm);
 
     }
+
 }
