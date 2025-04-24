@@ -436,7 +436,7 @@ impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync, S: CompressionSpec<
 
             let mut do_flip = false;
             
-            // decide if direction needs to be changed (how?????????) turn kmer into rc
+            // decide if direction needs to be changed turn kmer into rc
             if !self.stranded {
                 let flip_rc = next_kmer.min_rc_flip();
                 do_flip = flip_rc.1;

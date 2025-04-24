@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::mem::take;
 use std::ops::Range;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
@@ -300,8 +302,6 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.shrink_to_fit();
     }
 
-
-
     /// Iterate over the reads as (DnaString, Exts, D).
     pub fn iter(&self) -> ReadsIter<'_, D> {
         ReadsIter {
@@ -325,13 +325,26 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
-    pub fn print_bin(&self) {
-        for element in self.storage.iter() {
-            print!("{:#066b} - ", element)
-        }
-        println!()
+    pub fn info(&self) -> String {
+        format!("Reads {{ n reads: {}, stranded: {:?} }}", self.n_reads(), self.stranded)
     }
+}
 
+impl<D: Clone + Copy + Eq + Hash> Reads<D> {
+    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+        let mut hm = HashMap::new();
+
+        self.iter().for_each(|(read, _, data, _)| {
+            let kmers = read.len().saturating_sub(k - 1);
+            if let Some(count) = hm.get_mut(&data) {
+                *count += kmers;
+            } else {
+                hm.insert(data, kmers);
+            }
+        });
+
+        hm
+    }
 }
 
 impl<D: Clone + Copy> Default for Reads<D> {
@@ -339,9 +352,6 @@ impl<D: Clone + Copy> Default for Reads<D> {
         Self::new(Strandedness::Unstranded)
     }
 }
-
-
-
 
 /// Iterator over values of a DnaStringoded sequence (values will be unpacked into bytes).
 pub struct ReadsIter<'a, D> {
@@ -489,11 +499,90 @@ impl<D: Clone + Copy> ReadsPaired<D> {
             }
         }
     }
+
+    /// if the `ReadsPaired` is of `Combined` type, remove the unpaired reads
+    pub fn decombine(&mut self) {
+        if let Self::Combined { paired1, paired2, unpaired: _ } = self {
+            *self = ReadsPaired::Paired { paired1: take(paired1), paired2: take(paired2) }
+        }
+    }
+}
+
+impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
+    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+        match self {
+            Self::Empty => HashMap::new(),
+            Self::Unpaired { reads } => reads.data_kmers(k),
+            Self::Paired { paired1, paired2 } => {
+                let mut hm_p1 = paired1.data_kmers(k);
+                let hm_p2 = paired2.data_kmers(k);
+
+                hm_p2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_p1.get_mut(&data) {
+                    *count += kmers;
+                   } else {
+                    hm_p1.insert(data, kmers);
+                   }
+                });
+
+                hm_p1
+            },
+            Self::Combined { paired1, paired2, unpaired } => {
+                let mut hm_p1 = paired1.data_kmers(k);
+                let hm_p2 = paired2.data_kmers(k);
+                let hm_up = unpaired.data_kmers(k);
+
+                hm_p2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_p1.get_mut(&data) {
+                    *count += kmers;
+                   } else {
+                    hm_p1.insert(data, kmers);
+                   }
+                });
+
+                hm_up.into_iter().for_each(|(data, kmers)| {
+                    if let Some(count) = hm_p1.get_mut(&data) {
+                     *count += kmers;
+                    } else {
+                     hm_p1.insert(data, kmers);
+                    }
+                 });
+
+                hm_p1
+            }
+        }
+    }
+}
+
+impl ReadsPaired<u8> {
+    pub fn tag_kmers(&self, k: usize) -> Vec<u64>{
+        let hashed_kmer_counts = self.data_kmers(k);
+
+        let n_samples = hashed_kmer_counts.keys().max().expect("Error: no samples");
+
+        let mut kmer_counts = vec![0; *n_samples as usize + 1];
+        for (tag, kmer_count) in hashed_kmer_counts {
+            kmer_counts[tag as usize] += kmer_count as u64;
+        }
+
+        kmer_counts
+    }
+}
+
+impl<D: Clone + Copy> Display for ReadsPaired<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "empty ReadsPaired"),
+            Self::Unpaired { reads } => write!(f, "unpaired ReadsPaired: \n{}", reads.info()),
+            Self::Paired { paired1, paired2 } => write!(f, "paired ReadsPaired: \n{}\n{}", paired1.info(), paired2.info()),
+            Self::Combined { paired1, paired2, unpaired } => write!(f, "combined ReadsPaired: \n{}\n{}\n{}", paired1.info(), paired2.info(), unpaired.info()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time;
+    use std::{collections::HashMap, time};
 
     use itertools::enumerate;
     use rand::random;
@@ -676,6 +765,39 @@ mod tests {
     }
 
     #[test]
+    fn test_reads_data_kmers() {
+        let mut reads = Reads::new(Strandedness::Unstranded);
+        let seqs = [
+            ("ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA", 0),
+            ("CGATGCTATCAGCGAGCGATCGTACGTAGCTACG", 1),
+            ("CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA", 2),
+            ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
+        ];
+
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+        let data_kmers = reads.data_kmers(16);
+       
+        let comp_hm: HashMap<u8, usize> = [(0, 30), (1, 19), (2, 26), (3, 21)].into_iter().collect();
+
+        assert_eq!(comp_hm, data_kmers);
+    }
+
+    #[test]
+    fn test_reads_info() {
+        let mut reads = Reads::new(Strandedness::Unstranded);
+        let seqs = [
+            ("ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA", 0),
+            ("CGATGCTATCAGCGAGCGATCGTACGTAGCTACG", 1),
+            ("CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA", 2),
+            ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
+        ];
+
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+
+        assert_eq!(reads.info(), "Reads { n reads: 4, stranded: Unstranded }".to_string());
+    }
+
+    #[test]
     fn test_reads_paired() {
         let mut p1 = Reads::new(Strandedness::Unstranded);
         let mut p2 = Reads::new(Strandedness::Unstranded);
@@ -700,9 +822,11 @@ mod tests {
             "CGATGCTAGCTAGCTAGCGATCG",
         ];
 
-        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
-        reads_p2.iter().for_each(|read| p2.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
-        reads_up.iter().for_each(|read| up.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        let tags = (0..4).collect::<Vec<u8>>();
+
+        reads_p1.iter().enumerate().for_each(|(i, read)| p1.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_p2.iter().enumerate().for_each(|(i, read)| p2.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
 
         let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
         assert_eq!(empty, ReadsPaired::Empty);
@@ -715,7 +839,7 @@ mod tests {
         assert_eq!(unpaired.mem(), 148);
         assert_eq!(unpaired.n_reads(), 2);
         assert_eq!(unpaired.iterable(), vec![&up]);
-
+      
         let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
         assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
         assert_eq!(paired.mem(), 384);
@@ -750,6 +874,30 @@ mod tests {
         assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), p2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
         assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
 
+        // test tag kmers (and data_kmers)
+        assert_eq!(unpaired.tag_kmers(16), vec![2, 8]);
+        assert_eq!(paired.tag_kmers(16), vec![50, 26, 40, 50]);
+        assert_eq!(combined.tag_kmers(16), vec![52, 34, 40, 50]);
+
+        // test decombine
+        let mut paired_dc = paired.clone();
+        paired_dc.decombine();
+        let mut combined_dc = combined.clone();
+        combined_dc.decombine();
+        assert_eq!(paired_dc, paired);
+        assert_eq!(combined_dc, paired);
+
+        // display
+        assert_eq!(format!("{}", empty), "empty ReadsPaired".to_string());
+        assert_eq!(format!("{}", unpaired), "unpaired ReadsPaired: 
+Reads { n reads: 2, stranded: Unstranded }".to_string());
+        assert_eq!(format!("{}", paired), "paired ReadsPaired: 
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 4, stranded: Unstranded }".to_string());
+        assert_eq!(format!("{}", combined), "combined ReadsPaired: 
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 2, stranded: Unstranded }".to_string());
 
     }
 
