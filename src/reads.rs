@@ -392,8 +392,8 @@ impl<D: Clone + Copy + Debug> Display for Reads<D> {
 pub enum ReadsPaired<D> {
     Empty,
     Unpaired { reads: Reads<D> },
-    Paired { r1: Reads<D>, r2: Reads<D> },
-    Combined {r1: Reads<D>, r2: Reads<D>, unpaired: Reads<D>}
+    Paired { paired1: Reads<D>, paired2: Reads<D> },
+    Combined {paired1: Reads<D>, paired2: Reads<D>, unpaired: Reads<D>}
 }
 
 impl<D: Clone + Copy> ReadsPaired<D> {
@@ -401,8 +401,8 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         match self {
             Self::Empty => vec![],
             Self::Unpaired { reads  } => vec![reads],
-            Self::Paired { r1, r2 } => vec![r1, r2],
-            Self::Combined { r1, r2, unpaired } => vec![r1, r2, unpaired],
+            Self::Paired { paired1, paired2 } => vec![paired1, paired2],
+            Self::Combined { paired1, paired2, unpaired } => vec![paired1, paired2, unpaired],
         }
     }
 
@@ -410,8 +410,8 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         match self {
             Self::Empty => 0,
             Self::Unpaired { reads  } => reads.n_reads(),
-            Self::Paired { r1, r2 } => r1.n_reads() + r2.n_reads(),
-            Self::Combined { r1, r2, unpaired } => r1.n_reads() + r2.n_reads() + unpaired.n_reads(),
+            Self::Paired { paired1, paired2 } => paired1.n_reads() + paired2.n_reads(),
+            Self::Combined { paired1, paired2, unpaired } => paired1.n_reads() + paired2.n_reads() + unpaired.n_reads(),
         }
     }
 
@@ -419,29 +419,29 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         match self {
             Self::Empty => 0,
             Self::Unpaired { reads } => reads.mem(),
-            Self::Paired { r1, r2 } => r1.mem() + r2.mem(),
-            Self::Combined { r1, r2, unpaired } => r1.mem() + r2.mem() + unpaired.mem(),
+            Self::Paired { paired1, paired2 } => paired1.mem() + paired2.mem(),
+            Self::Combined { paired1, paired2, unpaired } => paired1.mem() + paired2.mem() + unpaired.mem(),
         }
     }
 
     /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
     /// depending on the contents of the [`Reads`]
-    pub fn from_reads((r1, r2, up): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
+    pub fn from_reads((paired1, paired2, unpaired): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
         // first two elements should be paired reads and thus have same n
-        assert_eq!(r1.n_reads(), r2.n_reads(), "Error: R1 read and R2 read counts have to match");
+        assert_eq!(paired1.n_reads(), paired2.n_reads(), "Error: R1 read and R2 read counts have to match");
 
-        if (r1.n_reads() + r2.n_reads() + up.n_reads()) == 0 {
+        if (paired1.n_reads() + paired2.n_reads() + unpaired.n_reads()) == 0 {
             // no reads
             ReadsPaired::Empty
-        } else if r1.n_reads() == 0 && up.n_reads() > 0 {
+        } else if paired1.n_reads() == 0 && unpaired.n_reads() > 0 {
             // only reads in third element -> unpaired
-            ReadsPaired::Unpaired { reads: up }
-        } else if r1.n_reads() > 0 && up.n_reads() == 0 {
+            ReadsPaired::Unpaired { reads: unpaired }
+        } else if paired1.n_reads() > 0 && unpaired.n_reads() == 0 {
             // reads in first and second element -> paired
-            ReadsPaired::Paired { r1, r2 }
-        } else if r1.n_reads() > 0 && up.n_reads() > 0 {
+            ReadsPaired::Paired { paired1, paired2 }
+        } else if paired1.n_reads() > 0 && unpaired.n_reads() > 0 {
             // reads in all elements: both paired and unpaired reads
-            ReadsPaired::Combined { r1, r2, unpaired: up }
+            ReadsPaired::Combined { paired1, paired2, unpaired }
         } else {
             panic!("error in transforming Reads into ReadsPaired")
         }
@@ -451,8 +451,8 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         match self {
             ReadsPaired::Empty => panic!("Error: no reads to process"),
             ReadsPaired::Unpaired { reads } => Box::new(reads.iter()),
-            ReadsPaired::Paired { r1, r2 } => Box::new(r1.iter().chain(r2.iter())),
-            ReadsPaired::Combined { r1, r2, unpaired } => Box::new(r1.iter().chain(r2.iter()).chain(unpaired.iter())),
+            ReadsPaired::Paired { paired1, paired2 } => Box::new(paired1.iter().chain(paired2.iter())),
+            ReadsPaired::Combined { paired1, paired2, unpaired } => Box::new(paired1.iter().chain(paired2.iter()).chain(unpaired.iter())),
         }
     }
 
@@ -460,41 +460,41 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         match self {
             Self::Empty => panic!("Error: no reads to process"),
             Self::Unpaired { reads } => Box::new(reads.partial_iter(range)),
-            Self::Paired { r1, r2 } => {
-                let n_r1 = r1.n_reads();
-                if range.start >= r1.n_reads() {
-                    // range is fully in r2
-                    Box::new(r2.partial_iter((range.start - n_r1)..(range.end - n_r1)))
-                } else if range.end <= n_r1 {
-                    // range is fully in r1
-                    Box::new(r1.partial_iter(range))
+            Self::Paired { paired1, paired2 } => {
+                let n_p1 = paired1.n_reads();
+                if range.start >= n_p1 {
+                    // range is fully in paired2
+                    Box::new(paired2.partial_iter((range.start - n_p1)..(range.end - n_p1)))
+                } else if range.end <= n_p1 {
+                    // range is fully in paired1
+                    Box::new(paired1.partial_iter(range))
                 } else {
-                    // range is both in r1 and r2
-                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..(range.end - n_r1))))
+                    // range is both in paired1 and paired2
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..(range.end - n_p1))))
                 }
             },
-            Self::Combined { r1, r2, unpaired } => {
-                let n_r1 = r1.n_reads();
-                let n_r2 = r2.n_reads();
-                let n_r12 = n_r1 + r2.n_reads();
-                if range.end <= n_r1 {
-                    // range is only in r1
-                    Box::new(r1.partial_iter(range))
-                } else if range.end >= n_r1 && range.end <= n_r12 && range.start >= n_r1 && range.start <= n_r12 {
-                    // range is only in r2
-                    Box::new(r2.partial_iter((range.start - n_r1)..(range.end - n_r1)))
-                } else if range.start >= n_r12 {
+            Self::Combined { paired1, paired2, unpaired } => {
+                let n_p1 = paired1.n_reads();
+                let n_p2 = paired2.n_reads();
+                let n_p12 = n_p1 + paired2.n_reads();
+                if range.end <= n_p1 {
+                    // range is only in paired1
+                    Box::new(paired1.partial_iter(range))
+                } else if range.end >= n_p1 && range.end <= n_p12 && range.start >= n_p1 && range.start <= n_p12 {
+                    // range is only in paired2
+                    Box::new(paired2.partial_iter((range.start - n_p1)..(range.end - n_p1)))
+                } else if range.start >= n_p12 {
                     // range is only in unpaired
-                    Box::new(unpaired.partial_iter((range.start - n_r12)..(range.end - n_r12)))
-                } else if range.start <= n_r1 && range.end >= n_r1 && range.end <= n_r12 {
-                    // range is in r1 and r2
-                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..(range.end - n_r1))))
-                } else if range.start >= n_r1 && range.start <= n_r12 && range.end >= n_r12 {
-                    // range is in r2 and unpaired
-                    Box::new(r2.partial_iter((range.start - n_r1)..n_r2).chain(unpaired.partial_iter(0..(range.end - n_r12))))
+                    Box::new(unpaired.partial_iter((range.start - n_p12)..(range.end - n_p12)))
+                } else if range.start <= n_p1 && range.end >= n_p1 && range.end <= n_p12 {
+                    // range is in paired1 and paired2
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..(range.end - n_p1))))
+                } else if range.start >= n_p1 && range.start <= n_p12 && range.end >= n_p12 {
+                    // range is in paired2 and unpaired
+                    Box::new(paired2.partial_iter((range.start - n_p1)..n_p2).chain(unpaired.partial_iter(0..(range.end - n_p12))))
                 } else {
-                    // range is in r1, r2, and in unpaired
-                    Box::new(r1.partial_iter(range.start..n_r1).chain(r2.partial_iter(0..n_r2)).chain(unpaired.partial_iter(0..(range.end - n_r12))))
+                    // range is in paired1, paired2, and in unpaired
+                    Box::new(paired1.partial_iter(range.start..n_p1).chain(paired2.partial_iter(0..n_p2)).chain(unpaired.partial_iter(0..(range.end - n_p12))))
                 }
             }
         }
@@ -799,18 +799,18 @@ mod tests {
 
     #[test]
     fn test_reads_paired() {
-        let mut r1 = Reads::new(Strandedness::Unstranded);
-        let mut r2 = Reads::new(Strandedness::Unstranded);
+        let mut p1 = Reads::new(Strandedness::Unstranded);
+        let mut p2 = Reads::new(Strandedness::Unstranded);
         let mut up = Reads::new(Strandedness::Unstranded);
 
-        let reads_r1 = [
+        let reads_p1 = [
             "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
             "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
             "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
             "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
         ];
 
-        let reads_r2 = [
+        let reads_p2 = [
             "AGCTAGCTAGCTACTGATCGTAGCTAGCTGATCGA",
             "AGCGATCGTACGTAGCTAGCTA",
             "CGATCGATCGACTAGCGTAGCTGACTGAC",
@@ -824,8 +824,8 @@ mod tests {
 
         let tags = (0..4).collect::<Vec<u8>>();
 
-        reads_r1.iter().enumerate().for_each(|(i, read)| r1.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
-        reads_r2.iter().enumerate().for_each(|(i, read)| r2.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_p1.iter().enumerate().for_each(|(i, read)| p1.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_p2.iter().enumerate().for_each(|(i, read)| p2.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
         reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
 
         let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
@@ -839,40 +839,40 @@ mod tests {
         assert_eq!(unpaired.mem(), 148);
         assert_eq!(unpaired.n_reads(), 2);
         assert_eq!(unpaired.iterable(), vec![&up]);
-
-        let paired = ReadsPaired::from_reads((r1.clone(), r2.clone(), Reads::new(Strandedness::Unstranded)));
-        assert_eq!(ReadsPaired::Paired { r1: r1.clone(), r2: r2.clone() }, paired);        
+      
+        let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
+        assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
         assert_eq!(paired.mem(), 384);
         assert_eq!(paired.n_reads(), 8);
-        assert_eq!(paired.iterable(), vec![&r1, &r2]);
+        assert_eq!(paired.iterable(), vec![&p1, &p2]);
 
-        let combined = ReadsPaired::from_reads((r1.clone(), r2.clone(), up.clone()));
-        assert_eq!(ReadsPaired::Combined { r1: r1.clone(), r2: r2.clone(), unpaired: up.clone() }, combined);
+        let combined = ReadsPaired::from_reads((p1.clone(), p2.clone(), up.clone()));
+        assert_eq!(ReadsPaired::Combined { paired1: p1.clone(), paired2: p2.clone(), unpaired: up.clone() }, combined);
         assert_eq!(combined.mem(), 532);
         assert_eq!(combined.n_reads(), 10);
-        assert_eq!(combined.iterable(), vec![&r1, &r2, &up]);
+        assert_eq!(combined.iterable(), vec![&p1, &p2, &up]);
 
 
         // test iter
 
         assert_eq!(unpaired.iter().collect::<Vec<_>>(), up.iter().collect::<Vec<_>>());
-        assert_eq!(paired.iter().collect::<Vec<_>>(), r1.iter().chain(r2.iter()).collect::<Vec<_>>());
-        assert_eq!(combined.iter().collect::<Vec<_>>(), r1.iter().chain(r2.iter()).chain(up.iter()).collect::<Vec<_>>());
+        assert_eq!(paired.iter().collect::<Vec<_>>(), p1.iter().chain(p2.iter()).collect::<Vec<_>>());
+        assert_eq!(combined.iter().collect::<Vec<_>>(), p1.iter().chain(p2.iter()).chain(up.iter()).collect::<Vec<_>>());
 
         // test partial iter
 
         assert_eq!(unpaired.iter_partial(0..1).collect::<Vec<_>>(), up.partial_iter(0..1).collect::<Vec<_>>());
 
-        assert_eq!(paired.iter_partial(0..1).collect::<Vec<_>>(), r1.partial_iter(0..1).collect::<Vec<_>>());
-        assert_eq!(paired.iter_partial(5..7).collect::<Vec<_>>(), r2.partial_iter(1..3).collect::<Vec<_>>());
-        assert_eq!(paired.iter_partial(1..8).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(0..1).collect::<Vec<_>>(), p1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(5..7).collect::<Vec<_>>(), p2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(paired.iter_partial(1..8).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).collect::<Vec<_>>());
 
-        assert_eq!(combined.iter_partial(0..1).collect::<Vec<_>>(), r1.partial_iter(0..1).collect::<Vec<_>>());
-        assert_eq!(combined.iter_partial(5..7).collect::<Vec<_>>(), r2.partial_iter(1..3).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(0..1).collect::<Vec<_>>(), p1.partial_iter(0..1).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(5..7).collect::<Vec<_>>(), p2.partial_iter(1..3).collect::<Vec<_>>());
         assert_eq!(combined.iter_partial(8..10).collect::<Vec<_>>(), up.partial_iter(0..2).collect::<Vec<_>>());
-        assert_eq!(combined.iter_partial(1..8).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).collect::<Vec<_>>());
-        assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), r2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
-        assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..8).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), p2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
+        assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
 
         // test tag kmers (and data_kmers)
         assert_eq!(unpaired.tag_kmers(16), vec![2, 8]);
@@ -904,17 +904,17 @@ Reads { n reads: 2, stranded: Unstranded }".to_string());
     #[test]
     #[should_panic]
     fn test_reads_paired_panic() {
-        let mut r1 = Reads::new(Strandedness::Unstranded);
+        let mut p1 = Reads::new(Strandedness::Unstranded);
 
-        let reads_r1 = [
+        let reads_p1 = [
             "ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA",
             "CGATGCTATCAGCGAGCGATCGTACGTAGCTACG",
             "CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA",
             "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
         ];
 
-        reads_r1.iter().for_each(|read| r1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
 
-        let _ = ReadsPaired::from_reads((r1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
+        let _ = ReadsPaired::from_reads((p1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
     }
 }
