@@ -135,7 +135,7 @@ mod tests {
 
     use crate::compression::{compress_graph, compress_kmers_with_hash, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
-    use crate::reads::{Reads, Stranded};
+    use crate::reads::{Reads, Strandedness};
     use crate::{DnaBytes, Tags};
     use crate::{Dir, Exts, Kmer};
     use bimap::BiMap;
@@ -246,7 +246,7 @@ mod tests {
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
             &config,
             stranded,
             4,
@@ -358,7 +358,7 @@ mod tests {
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
             &config,
             stranded,
             4,
@@ -469,7 +469,7 @@ mod tests {
         for seqs in shards.into_values() {
             // Check the correctness of the process_kmer_shard kmer filtering function
             let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-                &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Stranded::Unstranded) },
+                &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
                 &config,
                 stranded,
                 4,
@@ -536,8 +536,8 @@ mod tests {
 
         let mut rng = rand::thread_rng();
         
-        let mut clean_seqs = Reads::new(Stranded::Unstranded);
-        let mut all_seqs = Reads::new(Stranded::Unstranded);
+        let mut clean_seqs = Reads::new(Strandedness::Unstranded);
+        let mut all_seqs = Reads::new(Strandedness::Unstranded);
 
         // Generate 5x coverage of the main sequences & add some tips
         for c in contigs {
@@ -775,7 +775,7 @@ mod tests {
             (DnaString::from_dna_string("GCGATCTAGCGGATCTGCGAGCTATGC"), Exts::empty(), 6u8),
         ];
 
-        let mut reads = Reads::new(Stranded::Unstranded);
+        let mut reads = Reads::new(Strandedness::Unstranded);
 
         for (read, exts, data) in fastq {
             reads.add_read(read, exts, data);

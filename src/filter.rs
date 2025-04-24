@@ -21,7 +21,7 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 
 use crate::reads::ReadsPaired;
-use crate::reads::Stranded;
+use crate::reads::Strandedness;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::Dir;
@@ -39,17 +39,17 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
         | (kmer.get(3) as usize)
 }
 
-fn bucket_flip<K: Kmer>(kmer: K, stranded: Stranded) -> usize {
+fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
     // if not stranded choose lexiographically lesser of kmer and rc of kmer
     // if forward, use original kmer
     // if reverse, use rc of kmer
     let min_kmer = match stranded {
-        Stranded::Unstranded => {
+        Strandedness::Unstranded => {
             let (min_kmer, _) = kmer.min_rc_flip();
             min_kmer
         },
-        Stranded::Forward => kmer,
-        Stranded::Reverse => kmer.rc(),
+        Strandedness::Forward => kmer,
+        Strandedness::Reverse => kmer.rc(),
     };
 
     // calculate which bucket this kmer belongs to
@@ -57,18 +57,18 @@ fn bucket_flip<K: Kmer>(kmer: K, stranded: Stranded) -> usize {
     //let bucket = bucket(min_kmer);
 }
 
-fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Stranded, bucket_range: Range<usize>) ->Option<(K, Exts, usize)> {
+fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_range: Range<usize>) ->Option<(K, Exts, usize)> {
     // if not stranded choose lexiographically lesser of kmer and rc of kmer
     // if forward, use original kmer
     // if reverse, use rc of kmer
     let (min_kmer, flip_exts) = match stranded {
-        Stranded::Unstranded => {
+        Strandedness::Unstranded => {
             let (min_kmer, flip) = kmer.min_rc_flip();
             let flip_exts = if flip { exts.rc() } else { exts };
             (min_kmer, flip_exts)
         },
-        Stranded::Forward => (kmer, exts),
-        Stranded::Reverse => (kmer.rc(), exts.rc()),
+        Strandedness::Forward => (kmer, exts),
+        Strandedness::Reverse => (kmer.rc(), exts.rc()),
     };
 
     // calculate which bucket this kmer belongs to
@@ -860,7 +860,7 @@ mod tests {
             (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
         ];
 
-        let mut reads = Reads::new(crate::reads::Stranded::Unstranded);
+        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
 
         for (read, exts, data) in fastq {
             reads.add_read(read, exts, data);
@@ -898,7 +898,7 @@ mod tests {
 
         } */
 
-        let mut reads = Reads::new(crate::reads::Stranded::Unstranded);
+        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
 
         for _i in 0..10000 {
             let dna = random_dna(150);
