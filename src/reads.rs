@@ -325,13 +325,6 @@ impl<D: Clone + Copy> Reads<D> {
         }
     }
 
-    pub fn print_bin(&self) {
-        for element in self.storage.iter() {
-            print!("{:#066b} - ", element)
-        }
-        println!()
-    }
-
     pub fn info(&self) -> String {
         format!("Reads {{ n reads: {}, stranded: {:?} }}", self.n_reads(), self.stranded)
     }
@@ -589,7 +582,7 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 
 #[cfg(test)]
 mod tests {
-    use std::time;
+    use std::{collections::HashMap, time};
 
     use itertools::enumerate;
     use rand::random;
@@ -772,6 +765,39 @@ mod tests {
     }
 
     #[test]
+    fn test_reads_data_kmers() {
+        let mut reads = Reads::new(Strandedness::Unstranded);
+        let seqs = [
+            ("ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA", 0),
+            ("CGATGCTATCAGCGAGCGATCGTACGTAGCTACG", 1),
+            ("CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA", 2),
+            ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
+        ];
+
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+        let data_kmers = reads.data_kmers(16);
+       
+        let comp_hm: HashMap<u8, usize> = [(0, 30), (1, 19), (2, 26), (3, 21)].into_iter().collect();
+
+        assert_eq!(comp_hm, data_kmers);
+    }
+
+    #[test]
+    fn test_reads_info() {
+        let mut reads = Reads::new(Strandedness::Unstranded);
+        let seqs = [
+            ("ACGATCGTACGTACGTAGCTAGCTGCTAGCTAGCTGACTGACTGA", 0),
+            ("CGATGCTATCAGCGAGCGATCGTACGTAGCTACG", 1),
+            ("CGATCGACGAGCAGCGTATGCTACGAGCTGACGATCTACGA", 2),
+            ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
+        ];
+
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+
+        assert_eq!(reads.info(), "Reads { n reads: 4, stranded: Unstranded }".to_string());
+    }
+
+    #[test]
     fn test_reads_paired() {
         let mut r1 = Reads::new(Strandedness::Unstranded);
         let mut r2 = Reads::new(Strandedness::Unstranded);
@@ -796,9 +822,11 @@ mod tests {
             "CGATGCTAGCTAGCTAGCGATCG",
         ];
 
-        reads_r1.iter().for_each(|read| r1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
-        reads_r2.iter().for_each(|read| r2.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
-        reads_up.iter().for_each(|read| up.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        let tags = (0..4).collect::<Vec<u8>>();
+
+        reads_r1.iter().enumerate().for_each(|(i, read)| r1.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_r2.iter().enumerate().for_each(|(i, read)| r2.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
 
         let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
         assert_eq!(empty, ReadsPaired::Empty);
@@ -846,6 +874,30 @@ mod tests {
         assert_eq!(combined.iter_partial(6..9).collect::<Vec<_>>(), r2.partial_iter(2..4).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
         assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), r1.partial_iter(1..4).chain(r2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
 
+        // test tag kmers (and data_kmers)
+        assert_eq!(unpaired.tag_kmers(16), vec![2, 8]);
+        assert_eq!(paired.tag_kmers(16), vec![50, 26, 40, 50]);
+        assert_eq!(combined.tag_kmers(16), vec![52, 34, 40, 50]);
+
+        // test decombine
+        let mut paired_dc = paired.clone();
+        paired_dc.decombine();
+        let mut combined_dc = combined.clone();
+        combined_dc.decombine();
+        assert_eq!(paired_dc, paired);
+        assert_eq!(combined_dc, paired);
+
+        // display
+        assert_eq!(format!("{}", empty), "empty ReadsPaired".to_string());
+        assert_eq!(format!("{}", unpaired), "unpaired ReadsPaired: 
+Reads { n reads: 2, stranded: Unstranded }".to_string());
+        assert_eq!(format!("{}", paired), "paired ReadsPaired: 
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 4, stranded: Unstranded }".to_string());
+        assert_eq!(format!("{}", combined), "combined ReadsPaired: 
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 4, stranded: Unstranded }
+Reads { n reads: 2, stranded: Unstranded }".to_string());
 
     }
 
