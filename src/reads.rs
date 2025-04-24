@@ -502,8 +502,8 @@ impl<D: Clone + Copy> ReadsPaired<D> {
 
     /// if the `ReadsPaired` is of `Combined` type, remove the unpaired reads
     pub fn decombine(&mut self) {
-        if let Self::Combined { r1, r2, unpaired: _ } = self {
-            *self = ReadsPaired::Paired { r1: take(r1), r2: take(r2) }
+        if let Self::Combined { paired1, paired2, unpaired: _ } = self {
+            *self = ReadsPaired::Paired { paired1: take(paired1), paired2: take(paired2) }
         }
     }
 }
@@ -513,42 +513,42 @@ impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
         match self {
             Self::Empty => HashMap::new(),
             Self::Unpaired { reads } => reads.data_kmers(k),
-            Self::Paired { r1, r2 } => {
-                let mut hm_r1 = r1.data_kmers(k);
-                let hm_r2 = r2.data_kmers(k);
+            Self::Paired { paired1, paired2 } => {
+                let mut hm_p1 = paired1.data_kmers(k);
+                let hm_p2 = paired2.data_kmers(k);
 
-                hm_r2.into_iter().for_each(|(data, kmers)| {
-                   if let Some(count) = hm_r1.get_mut(&data) {
+                hm_p2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_p1.get_mut(&data) {
                     *count += kmers;
                    } else {
-                    hm_r1.insert(data, kmers);
+                    hm_p1.insert(data, kmers);
                    }
                 });
 
-                hm_r1
+                hm_p1
             },
-            Self::Combined { r1, r2, unpaired } => {
-                let mut hm_r1 = r1.data_kmers(k);
-                let hm_r2 = r2.data_kmers(k);
+            Self::Combined { paired1, paired2, unpaired } => {
+                let mut hm_p1 = paired1.data_kmers(k);
+                let hm_p2 = paired2.data_kmers(k);
                 let hm_up = unpaired.data_kmers(k);
 
-                hm_r2.into_iter().for_each(|(data, kmers)| {
-                   if let Some(count) = hm_r1.get_mut(&data) {
+                hm_p2.into_iter().for_each(|(data, kmers)| {
+                   if let Some(count) = hm_p1.get_mut(&data) {
                     *count += kmers;
                    } else {
-                    hm_r1.insert(data, kmers);
+                    hm_p1.insert(data, kmers);
                    }
                 });
 
                 hm_up.into_iter().for_each(|(data, kmers)| {
-                    if let Some(count) = hm_r1.get_mut(&data) {
+                    if let Some(count) = hm_p1.get_mut(&data) {
                      *count += kmers;
                     } else {
-                     hm_r1.insert(data, kmers);
+                     hm_p1.insert(data, kmers);
                     }
                  });
 
-                hm_r1
+                hm_p1
             }
         }
     }
@@ -574,8 +574,8 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
         match self {
             Self::Empty => write!(f, "empty ReadsPaired"),
             Self::Unpaired { reads } => write!(f, "unpaired ReadsPaired: \n{}", reads.info()),
-            Self::Paired { r1, r2 } => write!(f, "paired ReadsPaired: \n{}\n{}", r1.info(), r2.info()),
-            Self::Combined { r1, r2, unpaired } => write!(f, "combined ReadsPaired: \n{}\n{}\n{}", r1.info(), r2.info(), unpaired.info()),
+            Self::Paired { paired1, paired2 } => write!(f, "paired ReadsPaired: \n{}\n{}", paired1.info(), paired2.info()),
+            Self::Combined { paired1, paired2, unpaired } => write!(f, "combined ReadsPaired: \n{}\n{}\n{}", paired1.info(), paired2.info(), unpaired.info()),
         }
     }
 }
