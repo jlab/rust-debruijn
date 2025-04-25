@@ -188,10 +188,6 @@ impl<K: Kmer, D> BaseGraph<K, D> {
             right_order,
         }
     }
-
-    pub fn remove_duplicate_kmers(self) {
-        
-    }
 }
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.

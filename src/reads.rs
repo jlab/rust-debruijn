@@ -500,10 +500,15 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
-    /// if the `ReadsPaired` is of `Combined` type, remove the unpaired reads
-    pub fn decombine(&mut self) {
-        if let Self::Combined { paired1, paired2, unpaired: _ } = self {
-            *self = ReadsPaired::Paired { paired1: take(paired1), paired2: take(paired2) }
+    /// if the `ReadsPaired` is of `Combined` type, remove the unpaired reads,
+    /// returns the number of reads that were removed
+    pub fn decombine(&mut self) -> usize {
+        if let Self::Combined { paired1, paired2, unpaired } = self {
+            let rm_reads = unpaired.n_reads();
+            *self = ReadsPaired::Paired { paired1: take(paired1), paired2: take(paired2) };
+            rm_reads
+        } else {
+            0
         }
     }
 }
@@ -881,11 +886,13 @@ mod tests {
 
         // test decombine
         let mut paired_dc = paired.clone();
-        paired_dc.decombine();
+        let rm_reads_p = paired_dc.decombine();
         let mut combined_dc = combined.clone();
-        combined_dc.decombine();
+        let rm_reads_up = combined_dc.decombine();
         assert_eq!(paired_dc, paired);
+        assert_eq!(rm_reads_p, 0);
         assert_eq!(combined_dc, paired);
+        assert_eq!(rm_reads_up, 2);
 
         // display
         assert_eq!(format!("{}", empty), "empty ReadsPaired".to_string());
