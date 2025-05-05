@@ -61,8 +61,14 @@ impl<D: Clone + Copy> Reads<D> {
         self.ends.len()
     }
 
+    /// get the memory required for the reads
     pub fn mem(&self) -> usize {
         mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + size_of_val(&*self.exts)
+    }
+
+    /// set the strandedness and the direction of the reads
+    pub fn set_stranded(&mut self, stranded: Strandedness) {
+        self.stranded = stranded
     }
 
     /// Adds a new read to the `Reads`
@@ -770,8 +776,11 @@ mod tests {
 
     #[test]
     fn test_reads_stranded() {
-        let reads: Reads<u8> = Reads::new(Strandedness::Forward);
+        let mut reads: Reads<u8> = Reads::new(Strandedness::Forward);
         assert_eq!(reads.stranded(), Strandedness::Forward);
+        reads.set_stranded(Strandedness::Reverse);
+        assert_eq!(reads.stranded(), Strandedness::Reverse);
+
     }
 
     #[test]
