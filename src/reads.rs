@@ -888,6 +888,7 @@ mod tests {
         assert_eq!(unpaired.tag_kmers(16), vec![2, 8]);
         assert_eq!(paired.tag_kmers(16), vec![50, 26, 40, 50]);
         assert_eq!(combined.tag_kmers(16), vec![52, 34, 40, 50]);
+        assert_eq!(empty.tag_kmers(16), Vec::<u64>::new());
 
         // test decombine
         let mut paired_dc = paired.clone();

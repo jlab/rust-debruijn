@@ -300,8 +300,10 @@ where
                 .min_by(|a, b| a.partial_cmp(b).unwrap())
                 .expect("error: empty iterator");
             
-            let outlier_max = if (max.to_f64() / snd_max.to_f64()) > 3. { Some(snd_max) } else { None };
-            let outlier_min = if (min.to_f64() / snd_min.to_f64()) > 3. { Some(snd_min) } else { None };
+            // if max is OUTL times bigger than snd_max, it is an outlier
+            const OUTL: f64 = 3.;
+            let outlier_max = if (max.to_f64() / snd_max.to_f64()) > OUTL && snd_max > snd_min { Some(snd_max) } else { None };
+            let outlier_min = if (min.to_f64() / snd_min.to_f64()) > OUTL && snd_max > snd_min { Some(snd_min) } else { None };
 
             return (Some((min, max)), outlier_min, outlier_max)
         }
