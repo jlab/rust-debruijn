@@ -533,10 +533,15 @@ pub trait SummaryData<DI> {
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32>;
     /// get the number of samples the sequence was observed in, returns `None` if data is insufficient
     fn sample_count(&self) -> Option<usize>;
-    /// get edge multiplicities
+    /// get the coverage of the node edges
     fn edge_mults(&self) -> Option<&EdgeMult>;
     /// fix the [`EdgeMult`] by removing hanging edges
     fn fix_edge_mults(&mut self, exts: Exts);
+    /// set the edge mults
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>);
+    fn reduce(self, other: &Self) -> Self;
+    /// check if the data can be joined into one
+    fn join_test(&self, other: &Self) -> bool;
     /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, config: &SummaryConfig) -> bool;
     /// summarize k-mers
@@ -577,6 +582,17 @@ impl<DI> SummaryData<DI> for u32 {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         *self >= config.min_kmer_obs as u32
@@ -641,6 +657,17 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
     
     fn fix_edge_mults(&mut self, _: Exts) { }
+
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, _: &SummaryConfig) -> bool {
         true
@@ -713,6 +740,17 @@ impl SummaryData<u8> for TagsSumData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum, config)
@@ -803,6 +841,17 @@ impl SummaryData<u8> for TagsCountsSumData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -919,6 +968,17 @@ impl SummaryData<u8> for TagsCountsData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
@@ -1024,6 +1084,17 @@ impl SummaryData<u8> for TagsCountsPData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum(), config) 
@@ -1132,6 +1203,25 @@ impl SummaryData<u8> for TagsCountsEMData {
         self.edge_mults.clean_edges(exts);
     }
 
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.counts == other.counts
+            && self.tags == other.tags
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self.counts != other.counts { panic!("Error: Compression tried to combine incompatible data") }
+        if self.tags != other.tags { panic!("Error: Compression tried to combine incompatible data") }
+
+        Self {
+            tags: self.tags,
+            counts: self.counts,
+            edge_mults: EdgeMult::combine(&self.edge_mults, &other.edge_mults)
+        }
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         let valid_p = match config.max_p {
@@ -1243,6 +1333,29 @@ impl SummaryData<u8> for TagsCountsPEMData{
         self.edge_mults.clean_edges(exts);
     }
 
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.counts == other.counts
+            && self.tags == other.tags
+            && self.p_value == other.p_value
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self.counts != other.counts { panic!("Error: Compression tried to combine incompatible data") }
+        if self.tags != other.tags { panic!("Error: Compression tried to combine incompatible data") }
+        if self.p_value != other.p_value { panic!("Error: Compression tried to combine incompatible data") }
+
+        Self {
+            tags: self.tags,
+            counts: self.counts,
+            p_value: self.p_value,
+            edge_mults: EdgeMult::combine(&self.edge_mults, &other.edge_mults)
+        }
+    }
+
     fn valid(&self, config: &SummaryConfig) -> bool {
         valid_counts(self.tags, self.sum(), config) 
             && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
@@ -1312,6 +1425,17 @@ impl SummaryData<u8> for GroupCountData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.sum() >= config.min_kmer_obs as u32
@@ -1393,6 +1517,17 @@ impl SummaryData<u8> for RelCountData {
     fn edge_mults(&self) -> Option<&EdgeMult> { None }
 
     fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn reduce(self, other: &Self) -> Self {
+        if self != *other { panic!("Error: Compression tried to combine incompatible data") }
+        self
+    }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
         self.count >= config.min_kmer_obs as u32

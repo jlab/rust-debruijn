@@ -1173,11 +1173,63 @@ impl EdgeMult {
         }
         
     }
+
+    pub fn rc(&mut self) {
+        self.edge_mults.reverse();
+    }
+
+    pub fn combine(left: &EdgeMult, right: &EdgeMult) -> EdgeMult {
+        let mut combined = [0u32; 8];
+        (0..ALPHABET_SIZE).for_each(|i| combined[i] = right.edge_mults[i]);
+        (ALPHABET_SIZE..(2*ALPHABET_SIZE)).for_each(|i| combined[i] = left.edge_mults[i]);
+
+        EdgeMult::new_from(combined)
+    }
+
+    pub fn from_single_dirs(left: &Option<SingleDirEdgeMult>, right: &Option<SingleDirEdgeMult>) -> Option<EdgeMult> {
+        if let Some(l_em) = left {
+            if let Some(r_em) = right {
+                let mut combined = [0u32; 8];
+                (0..ALPHABET_SIZE).for_each(|i| combined[i] = r_em.edge_mults[i]);
+                (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_mults[i]);
+        
+                return Some(EdgeMult::new_from(combined))
+            } 
+        }
+
+        None
+    }
+
+    pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMult {
+        match dir {
+            Dir::Left => SingleDirEdgeMult::new(self.edge_mults[ALPHABET_SIZE..(2*ALPHABET_SIZE)]
+                .try_into().expect("Error: slice has incorrect length")),
+            Dir::Right => SingleDirEdgeMult::new(self.edge_mults[0..ALPHABET_SIZE]
+                .try_into().expect("Error: slice has incorrect length")),
+        }
+    }
 }
 
 impl Default for EdgeMult {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingleDirEdgeMult {
+    edge_mults: [u32; ALPHABET_SIZE]
+}
+
+impl SingleDirEdgeMult {
+    pub fn new(edge_mults: [u32; ALPHABET_SIZE]) -> Self {
+        SingleDirEdgeMult { edge_mults }
+    }
+
+    pub fn complement(&self) -> Self {
+        let mut reverse = self.edge_mults;
+        reverse.reverse();
+        SingleDirEdgeMult::new(reverse)
     }
 }
 
