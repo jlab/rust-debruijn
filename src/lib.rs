@@ -1216,7 +1216,7 @@ impl Default for EdgeMult {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SingleDirEdgeMult {
     edge_mults: [u32; ALPHABET_SIZE]
 }
@@ -1299,6 +1299,19 @@ mod tests {
 
         assert_eq!(em.left(), &[1, 1, 0, 1]);
         assert_eq!(em.right(), &[0, 0, 0, 1]);
+
+        // single dir em
+        let sdir_em = em.single_dir(Dir::Left);
+        assert_eq!(sdir_em.edge_mults, [1, 1, 0, 1]);
+        let sdir_em = em.single_dir(Dir::Right);
+        assert_eq!(sdir_em.edge_mults, [0, 0, 0, 1]);
+        let em_2 = EdgeMult::from_single_dirs(&Some(em.single_dir(Dir::Left)), &Some(em.single_dir(Dir::Right)));
+        assert_eq!(em_2.unwrap(), em);
+        assert_eq!(sdir_em.complement().edge_mults, [1, 0, 0, 0]);
+
+        // reverse complement
+        em.rc();
+        assert_eq!(em.edge_mults, [1, 0, 1, 1, 1, 0, 0, 0]);
     }
 
     #[test]
