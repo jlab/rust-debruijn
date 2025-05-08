@@ -28,7 +28,7 @@ enum ExtMode<K: Kmer> {
 #[derive(Copy, Clone)]
 enum ExtModeNode {
     Unique(usize, Dir, Exts),
-    Terminal(Exts),
+    Terminal(Exts, Option<SingleDirEdgeMult>),
 }
 
 /// Customize the path-compression process. Implementing this trait lets the user
@@ -104,7 +104,7 @@ where
     }
 }
 
-/// CompressionSpec with check and function
+/// CompressionSpec with custom check and function
 pub struct CheckCompress<D, F1, F2> {
     reduce_func: F1,
     join_func: F2,
@@ -116,6 +116,11 @@ where
     for<'r> F1: Fn(D, &'r D) -> D,
     for<'r> F2: Fn(&'r D, &'r D) -> bool
 {
+    /// make a new [`CheckCompress`]
+    /// 
+    /// ### Arguments
+    /// * `reduce_func`: closure taking graph data of two nodes and combining them into one
+    /// * `join_func`: closure taking graph data of two nodes and returning true if they can be combined
     pub fn new(reduce_func: F1, join_func: F2) -> Self {
         CheckCompress {
             reduce_func,
@@ -140,15 +145,16 @@ where
 }
 
 
-struct CompressFromGraph<'a, 'b, K: 'a + Kmer, D: 'a + PartialEq, S: CompressionSpec<D>> {
+struct CompressFromGraph<'a, 'b, K: 'a + Kmer, D: 'a + PartialEq + SummaryData<DI>, DI, S: CompressionSpec<D>> {
     stranded: bool,
     d: PhantomData<D>,
+    di: PhantomData<DI>,
     spec: &'b S,
     available_nodes: BitSet,
     graph: &'a DebruijnGraph<K, D>,
 }
 
-impl<K, D, S> CompressFromGraph<'_, '_, K, D, S>
+impl<K, D: SummaryData<DI>, DI, S> CompressFromGraph<'_, '_, K, D, DI, S>
 where
     K: Kmer + Send + Sync,
     D: Debug + Clone + PartialEq,
@@ -159,11 +165,12 @@ where
         let node = self.graph.get_node(node);
         let bases = node.sequence();
         let exts = node.exts();
+        let data = node.data();
 
         if exts.num_ext_dir(dir) != 1
             || (!self.stranded && node.len() == K::k() && bases.get_kmer::<K>(0).is_palindrome())
         {
-            ExtModeNode::Terminal(exts.single_dir(dir))
+            ExtModeNode::Terminal(exts.single_dir(dir), data.edge_mults().map(|em| em.single_dir(dir)))
         } else {
             // Get the next kmer
             let ext_base = exts.get_unique_extension(dir).expect("should be unique");
@@ -221,7 +228,7 @@ where
                 // or we've already used it,
                 // or it's palindrom and we are not stranded
                 // or the colors were not same
-                return ExtModeNode::Terminal(exts.single_dir(dir));
+                return ExtModeNode::Terminal(exts.single_dir(dir), data.edge_mults().map(|em| em.single_dir(dir)));
             }
 
             // orientation of next edge
@@ -242,17 +249,18 @@ where
             } else {
                 // there's more than one path
                 // into the target kmer - don't include it
-                ExtModeNode::Terminal(exts.single_dir(dir))
+                ExtModeNode::Terminal(exts.single_dir(dir),data.edge_mults().map(|em| em.single_dir(dir)))
             }
         }
     }
 
     /// Generate complete unbranched edges
-    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, Exts) {
+    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, Exts, Option<SingleDirEdgeMult>) {
         let mut current_dir = start_dir;
         let mut current_node = start_node;
         let mut path = Vec::new();
         let final_exts: Exts; // must get set below
+        let final_em: Option<SingleDirEdgeMult>; // must get set below
 
         self.available_nodes.remove(start_node);
 
@@ -267,22 +275,23 @@ where
                     current_node = next_node;
                     current_dir = next_dir_outgoing;
                 }
-                ExtModeNode::Terminal(ext) => {
+                ExtModeNode::Terminal(ext, em) => {
                     final_exts = ext;
+                    final_em = em;
                     break;
                 }
             }
         }
 
-        (path, final_exts)
+        (path, final_exts, final_em)
     }
 
     // Determine the sequence and extensions of the maximal unbranched
     // edge, centered around the given edge number
     #[inline(never)]
     fn build_node(&mut self, seed_node: usize) -> (DnaString, Exts, VecDeque<(usize, Dir)>, D) {
-        let (l_path, l_ext) = self.extend_node(seed_node, Dir::Left);
-        let (r_path, r_ext) = self.extend_node(seed_node, Dir::Right);
+        let (l_path, l_ext, l_em) = self.extend_node(seed_node, Dir::Left);
+        let (r_path, r_ext, r_em) = self.extend_node(seed_node, Dir::Right);
 
         // Stick together edge chunks to get full edge sequence
         let mut node_path = VecDeque::new();
@@ -306,24 +315,27 @@ where
                 .reduce(node_data, self.graph.get_node(next_node).data());
         }
 
-        let left_extend = match l_path.last() {
-            None => l_ext,
-            Some(&(_, Dir::Left)) => l_ext.complement(),
-            Some(&(_, Dir::Right)) => l_ext,
+        let (left_extend_exts, left_extend_em) = match l_path.last() {
+            None => (l_ext, l_em),
+            Some(&(_, Dir::Left)) => (l_ext.complement(), l_em.map(|em| em.complement())),
+            Some(&(_, Dir::Right)) => (l_ext, l_em),
         };
 
-        let right_extend = match r_path.last() {
-            None => r_ext,
-            Some(&(_, Dir::Left)) => r_ext,
-            Some(&(_, Dir::Right)) => r_ext.complement(),
+        let (right_extend_exts, right_extend_em) = match r_path.last() {
+            None => (r_ext, r_em),
+            Some(&(_, Dir::Left)) => (r_ext, r_em),
+            Some(&(_, Dir::Right)) => (r_ext.complement(), r_em.map(|em| em.complement()))
         };
 
         let path_seq = self.graph.sequence_of_path(node_path.iter());
 
+        let new_em = EdgeMult::from_single_dirs(&left_extend_em, &right_extend_em);
+        node_data.set_edge_mults(new_em);
+
         // return sequence and extensions
         (
             path_seq,
-            Exts::from_single_dirs(left_extend, right_extend),
+            Exts::from_single_dirs(left_extend_exts, right_extend_exts),
             node_path,
             node_data,
         )
@@ -357,6 +369,7 @@ where
             graph: &old_graph,
             available_nodes,
             d: PhantomData,
+            di: PhantomData
         };
 
         // FIXME -- clarify requirements around state of extensions
@@ -380,7 +393,8 @@ where
 /// Perform path-compression on a (possibly partially compressed) DeBruijn graph
 pub fn compress_graph<
     K: Kmer + Send + Sync,
-    D: Clone + Debug + PartialEq,
+    D: Clone + Debug + PartialEq + SummaryData<DI>,
+    DI,
     S: CompressionSpec<D>,
 >(
     stranded: bool,
@@ -388,7 +402,7 @@ pub fn compress_graph<
     old_graph: DebruijnGraph<K, D>,
     censor_nodes: Option<Vec<usize>>,
 ) -> DebruijnGraph<K, D> {
-    CompressFromGraph::<K, D, S>::compress_graph(stranded, spec, old_graph, censor_nodes)
+    CompressFromGraph::<K, D, DI, S>::compress_graph(stranded, spec, old_graph, censor_nodes)
 }
 
 //////////////////////////////

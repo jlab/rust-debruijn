@@ -264,7 +264,7 @@ mod tests {
         assert!(from_kmers.is_compressed(&spec).is_none());
 
         // Create a DBG with one node per input kmer
-        let mut base_graph: BaseGraph<K, u16> = BaseGraph::new(stranded);
+        let mut base_graph: BaseGraph<K, u32> = BaseGraph::new(stranded);
 
         for (kmer, exts, _) in valid_kmers.iter() {
             base_graph.add(kmer.iter(), *exts, 1);
@@ -272,8 +272,8 @@ mod tests {
         let uncompressed_dbg = base_graph.finish();
 
         // Canonicalize the graph with
-        let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        let simp_dbg = compress_graph(stranded, &spec, uncompressed_dbg, None);
+        let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);
+        let simp_dbg = compress_graph::<K, u32, u8, _>(stranded, &spec, uncompressed_dbg, None);
 
         let is_cmp = simp_dbg.is_compressed(&spec);
         if is_cmp.is_some() {
@@ -488,7 +488,7 @@ mod tests {
         // Shove the subassemblies into a partially compress base graph
         let combined_graph = BaseGraph::combine(shard_asms.into_iter()).finish();
         let cmp = SimpleCompress::new(|a: u32, b: &u32| max(a, *b));
-        let dbg_graph = compress_graph(false, &cmp, combined_graph, None);
+        let dbg_graph = compress_graph::<K, u32, u8, _>(false, &cmp, combined_graph, None);
 
         // Switch on for debugging
         //dbg_graph.print();
