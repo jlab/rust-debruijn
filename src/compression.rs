@@ -111,7 +111,11 @@ pub struct CheckCompress<D, F1, F2> {
     d: PhantomData<D>
 } 
 
-impl<D, F1, F2> CheckCompress<D, F1, F2> {
+impl<D, F1, F2> CheckCompress<D, F1, F2>
+where
+    for<'r> F1: Fn(D, &'r D) -> D,
+    for<'r> F2: Fn(&'r D, &'r D) -> bool
+{
     pub fn new(reduce_func: F1, join_func: F2) -> Self {
         CheckCompress {
             reduce_func,
