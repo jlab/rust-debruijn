@@ -133,7 +133,7 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
 
-    use crate::compression::{compress_graph, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers, compress_kmers_no_exts, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
     use crate::reads::{Reads, Strandedness};
     use crate::{DnaBytes, Tags};
@@ -263,6 +263,14 @@ mod tests {
         }
         assert!(from_kmers.is_compressed(&spec).is_none());
 
+        let k_mer_vec = valid_kmers.clone().into_iter().map(|(k, e, d)| (*k, (*e, *d))).collect::<Vec<_>>();
+        let compress_kmers = compress_kmers::<K, u32, u8, _>(false, &spec, &k_mer_vec).finish();
+        assert!(compress_kmers.is_compressed(&spec).is_none());
+
+        let k_mer_vec = valid_kmers.clone().into_iter().map(|(k, _, d)| (*k, *d)).collect::<Vec<_>>();
+        let compress_kmers_ne =  compress_kmers_no_exts::<K, u32, u8, _>(false, &spec, &k_mer_vec).finish();
+        assert!(compress_kmers_ne.is_compressed(&spec).is_none());
+
         // Create a DBG with one node per input kmer
         let mut base_graph: BaseGraph<K, u32> = BaseGraph::new(stranded);
 
@@ -272,7 +280,7 @@ mod tests {
         let uncompressed_dbg = base_graph.finish();
 
         // comparison uncompressed graph
-        let uc_graph = uncompressed_graph(&valid_kmers).finish();
+        let uc_graph = uncompressed_graph(&valid_kmers).finish_serial();
         assert_eq!(uc_graph.base.sequences.sequence, uncompressed_dbg.base.sequences.sequence);
 
         // Canonicalize the graph with
