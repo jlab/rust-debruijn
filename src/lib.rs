@@ -1173,11 +1173,63 @@ impl EdgeMult {
         }
         
     }
+
+    pub fn rc(&mut self) {
+        self.edge_mults.reverse();
+    }
+
+    pub fn combine(left: &EdgeMult, right: &EdgeMult) -> EdgeMult {
+        let mut combined = [0u32; 8];
+        (0..ALPHABET_SIZE).for_each(|i| combined[i] = right.edge_mults[i]);
+        (ALPHABET_SIZE..(2*ALPHABET_SIZE)).for_each(|i| combined[i] = left.edge_mults[i]);
+
+        EdgeMult::new_from(combined)
+    }
+
+    pub fn from_single_dirs(left: &Option<SingleDirEdgeMult>, right: &Option<SingleDirEdgeMult>) -> Option<EdgeMult> {
+        if let Some(l_em) = left {
+            if let Some(r_em) = right {
+                let mut combined = [0u32; 8];
+                (0..ALPHABET_SIZE).for_each(|i| combined[i] = r_em.edge_mults[i]);
+                (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_mults[i]);
+        
+                return Some(EdgeMult::new_from(combined))
+            } 
+        }
+
+        None
+    }
+
+    pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMult {
+        match dir {
+            Dir::Left => SingleDirEdgeMult::new(self.edge_mults[ALPHABET_SIZE..(2*ALPHABET_SIZE)]
+                .try_into().expect("Error: slice has incorrect length")),
+            Dir::Right => SingleDirEdgeMult::new(self.edge_mults[0..ALPHABET_SIZE]
+                .try_into().expect("Error: slice has incorrect length")),
+        }
+    }
 }
 
 impl Default for EdgeMult {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SingleDirEdgeMult {
+    edge_mults: [u32; ALPHABET_SIZE]
+}
+
+impl SingleDirEdgeMult {
+    pub fn new(edge_mults: [u32; ALPHABET_SIZE]) -> Self {
+        SingleDirEdgeMult { edge_mults }
+    }
+
+    pub fn complement(&self) -> Self {
+        let mut reverse = self.edge_mults;
+        reverse.reverse();
+        SingleDirEdgeMult::new(reverse)
     }
 }
 
@@ -1247,6 +1299,19 @@ mod tests {
 
         assert_eq!(em.left(), &[1, 1, 0, 1]);
         assert_eq!(em.right(), &[0, 0, 0, 1]);
+
+        // single dir em
+        let sdir_em = em.single_dir(Dir::Left);
+        assert_eq!(sdir_em.edge_mults, [1, 1, 0, 1]);
+        let sdir_em = em.single_dir(Dir::Right);
+        assert_eq!(sdir_em.edge_mults, [0, 0, 0, 1]);
+        let em_2 = EdgeMult::from_single_dirs(&Some(em.single_dir(Dir::Left)), &Some(em.single_dir(Dir::Right)));
+        assert_eq!(em_2.unwrap(), em);
+        assert_eq!(sdir_em.complement().edge_mults, [1, 0, 0, 0]);
+
+        // reverse complement
+        em.rc();
+        assert_eq!(em.edge_mults, [1, 0, 1, 1, 1, 0, 0, 0]);
     }
 
     #[test]
