@@ -1066,7 +1066,7 @@ impl fmt::Display for TagsCountsFormatter<'_> {
 /// 7: A left
 #[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
 pub struct EdgeMult {
-    edge_mults: [u32; 8],
+    edge_mults: [u32; 2*ALPHABET_SIZE],
 }
 
 impl Debug for EdgeMult {
@@ -1101,7 +1101,7 @@ impl EdgeMult {
     }
 
     /// a new `EdgeMult` with values
-    pub fn new_from(edge_mults: [u32; 8]) -> Self {
+    pub fn new_from(edge_mults: [u32; 2*ALPHABET_SIZE]) -> Self {
         EdgeMult { edge_mults }
     }
 
@@ -1127,7 +1127,7 @@ impl EdgeMult {
     }
 
     /// get the edge multiplicities as an array 
-    pub fn edge_mults(&self) -> [u32; 8] {
+    pub fn edge_mults(&self) -> [u32; 2*ALPHABET_SIZE] {
         self.edge_mults
     }
 
@@ -1179,7 +1179,7 @@ impl EdgeMult {
     }
 
     pub fn combine(left: &EdgeMult, right: &EdgeMult) -> EdgeMult {
-        let mut combined = [0u32; 8];
+        let mut combined = [0u32; 2*ALPHABET_SIZE];
         (0..ALPHABET_SIZE).for_each(|i| combined[i] = right.edge_mults[i]);
         (ALPHABET_SIZE..(2*ALPHABET_SIZE)).for_each(|i| combined[i] = left.edge_mults[i]);
 
@@ -1189,7 +1189,7 @@ impl EdgeMult {
     pub fn from_single_dirs(left: &Option<SingleDirEdgeMult>, right: &Option<SingleDirEdgeMult>) -> Option<EdgeMult> {
         if let Some(l_em) = left {
             if let Some(r_em) = right {
-                let mut combined = [0u32; 8];
+                let mut combined = [0u32; 2*ALPHABET_SIZE];
                 (0..ALPHABET_SIZE).for_each(|i| combined[i] = r_em.edge_mults[i]);
                 (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_mults[i]);
         
@@ -1244,7 +1244,7 @@ pub struct Label {
 mod tests {
     use bimap::BiMap;
 
-    use crate::{summarizer::M, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
+    use crate::{summarizer::M, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
 
     #[test]
     fn test_dir_index() {
@@ -1261,7 +1261,7 @@ mod tests {
     #[test]
     fn test_edge_mult() {
         let mut edge_mult = EdgeMult::new();
-        assert_eq!(edge_mult.edge_mults, [0; 8]);
+        assert_eq!(edge_mult.edge_mults, [0; 2*ALPHABET_SIZE]);
 
         let exts = Exts::new(0b11111111);
         edge_mult.add_exts(exts);
