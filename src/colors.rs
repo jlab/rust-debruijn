@@ -10,7 +10,7 @@ use std::fmt::Debug;
 /// contains the hues, the markers signifying which tag belongs to which group, 
 /// the maximun kmer count and the average kmer count
 #[derive(Clone, Debug, PartialEq)]
-pub struct Colors<SD: SummaryData<u8>> {
+pub struct Colors<SD: SummaryData<DI>, DI> {
     // 2-bit encoded group associations of labels
     marker0: M,
     marker1: M,
@@ -24,10 +24,11 @@ pub struct Colors<SD: SummaryData<u8>> {
     log10_em_mb: Option<(f32, f32)>,
     // phantom data who 
     phantom_data_sd: PhantomData<SD>,
+    phantom_data_di: PhantomData<DI>,
 }
 
 // add `'b, 'a: 'b` in case of lifetime error
-impl<SD: SummaryData<u8> + Debug> Colors<SD> {
+impl<SD: SummaryData<DI> + Debug, DI> Colors<SD, DI> {
     const HUE_RED: f32 = 0.;
     const HUE_YELLOW: f32 = 60. / 360.;
     const HUE_GREEN: f32 = 120. / 360.;
@@ -193,6 +194,7 @@ impl<SD: SummaryData<u8> + Debug> Colors<SD> {
             log10_p_mb,
             log10_em_mb,
             phantom_data_sd: PhantomData,
+            phantom_data_di: PhantomData
         }
     }
 

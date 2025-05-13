@@ -1400,13 +1400,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 }
 
-impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
-    pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
+impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
+    pub fn create_colors<DI>(&self, config: &SummaryConfig) -> Colors<SD, DI> 
+    where 
+    SD: SummaryData<DI>,
+    {
         Colors::new(self, config)
     }
     
     /// edge mults will contain hanging edges if the nodes were filtered
-    pub fn fix_edge_mults(&mut self) {
+    pub fn fix_edge_mults<DI>(&mut self) 
+    where 
+        SD: SummaryData<DI>
+    {
         if self.get_node(0).data().edge_mults().is_some() {
             for i in 0..self.len() {
                 self.base.data[i].fix_edge_mults(self.base.exts[i]);
@@ -1667,9 +1673,11 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
 }
 
 // TODO make generic instead of u8 (u8 is sufficient for dbg)
-impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
+impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     /// get default format for dot edges based on node data
-    pub fn edge_dot_default(&self, colors: &Colors<SD>, base: u8, incoming_dir: Dir, flipped: bool) -> String {
+    pub fn edge_dot_default<DI>(&self, colors: &Colors<SD, DI>, base: u8, incoming_dir: Dir, flipped: bool) -> String 
+    where SD: SummaryData<DI>
+    {
         // set color based on dir
         let color = match incoming_dir {
             Dir::Left => "blue",
@@ -1695,7 +1703,9 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String
+    where SD: SummaryData<DI>
+    {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
 
