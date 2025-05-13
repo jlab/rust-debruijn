@@ -754,7 +754,7 @@ impl SummaryData<ID> for IDSumData {
         ids.dedup();
         ids.shrink_to_fit();
 
-        let ids: Box<[u32]> = ids.into(); 
+        let ids: Box<[ID]> = ids.into(); 
         
         (sum >= config.min_kmer_obs as u32, all_exts, IDSumData { ids, sum })
     }
