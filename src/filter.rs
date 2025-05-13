@@ -3,6 +3,7 @@
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
@@ -528,7 +529,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// );
 /// ```
 #[inline(never)]
-pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug>(
+pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug + Hash + Eq>(
     seqs: &ReadsPaired<D1>,
     summary_config: &SummaryConfig,
     report_all_kmers: bool,
