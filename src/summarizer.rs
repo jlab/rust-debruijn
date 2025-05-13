@@ -683,7 +683,7 @@ impl SummaryData<u8> for Vec<u8> {
 
 } 
 
-type ID = u32;
+pub type ID = u16;
 /// the u8-labels the k-mer was observed with and its number of observations, and an ID
 /// -> could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
