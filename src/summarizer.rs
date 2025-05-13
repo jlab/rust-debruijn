@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
-use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, mem};
+use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, mem, process::id};
 
 #[cfg(not(feature = "sample128"))]
 pub type M = u64;
@@ -679,6 +679,84 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
         out_data.shrink_to_fit();
         
         (nobs as usize >= config.min_kmer_obs, all_exts, out_data)
+    }
+
+} 
+
+type ID = u32;
+/// the u8-labels the k-mer was observed with and its number of observations, and an ID
+/// -> could be gene-, read-, or orthogroup-ID
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// aligned would be 16 Bytes, packed would be 12 Bytes
+pub struct IDSumData {
+    ids: Box<[ID]>,
+    sum: u32,
+}
+
+impl SummaryData<ID> for IDSumData {
+    fn print(&self, _: &BiMap<String, ID>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        format!("IDs: {:?}, sum: {}", self.ids, self.sum).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, _: &BiMap<String, ID>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        format!("IDs: {:?}, sum: {}", self.ids, self.sum).replace("\"", "\'")
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
+
+    fn score(&self) -> f32 {
+        self.sum as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.sum as usize)
+    }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        self.sum >= config.min_kmer_obs as u32
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, ID)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut ids = Vec::new();
+
+        let mut sum = 0u32;
+        for (_, exts, id) in items {
+            ids.push(id); 
+            all_exts = all_exts.add(exts);
+            sum += 1;
+        }
+
+        ids.sort();
+        ids.dedup();
+        ids.shrink_to_fit();
+
+        let ids: Box<[u32]> = ids.into(); 
+        
+        (sum >= config.min_kmer_obs as u32, all_exts, IDSumData { ids, sum })
     }
 
 }
