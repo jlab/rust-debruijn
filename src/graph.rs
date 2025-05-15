@@ -1703,7 +1703,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, DI> , outline: bool) -> String
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value

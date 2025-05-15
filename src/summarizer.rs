@@ -516,9 +516,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI> {
     /// format the noda data 
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String;
+    fn print_ol(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
@@ -527,6 +527,8 @@ pub trait SummaryData<DI> {
     fn mem(&self) -> usize;
     /// get the number of observations, returns `None` if data is insufficient
     fn count(&self) -> Option<usize>;
+    /// get the IDs, returns `None` if data is insufficient
+    fn ids(&self) -> Option<&[ID]>;
     /// get the p-value, returns `None` if data is insufficient
     fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
     /// get the log2(fold change), returns `None` if data is insufficient
@@ -550,11 +552,11 @@ pub trait SummaryData<DI> {
 
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
         format!("count: {}", self).replace("\"", "\'")
     }
 
@@ -571,6 +573,8 @@ impl<DI> SummaryData<DI> for u32 {
     fn count(&self) -> Option<usize> {
         Some(*self as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
@@ -640,6 +644,8 @@ impl SummaryData<u8> for Vec<u8> {
 
     fn count(&self) -> Option<usize> { None }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
@@ -694,14 +700,22 @@ pub struct IDSumData {
 }
 
 impl SummaryData<ID> for IDSumData {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        format!("IDs: {:?}, sum: {}", self.ids, self.sum).replace("\"", "\'")
+        let samples = self.ids
+            .iter()
+            .map(|sample_id| id_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
+        format!("IDs: {:?}, sum: {}", samples, self.sum).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        format!("IDs: {:?}, sum: {}", self.ids, self.sum).replace("\"", "\'")
+        let samples = self.ids
+            .iter()
+            .map(|sample_id| id_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .collect::<Vec<_>>();
+        format!("IDs: {:?}, sum: {}", samples, self.sum).replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -716,6 +730,10 @@ impl SummaryData<ID> for IDSumData {
 
     fn count(&self) -> Option<usize> {
         Some(self.sum as usize)
+    }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids[..])
     }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
@@ -795,6 +813,8 @@ impl SummaryData<u8> for TagsSumData {
     fn count(&self) -> Option<usize> {
         Some(self.sum as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
@@ -895,6 +915,8 @@ impl SummaryData<u8> for TagsCountsSumData {
     fn count(&self) -> Option<usize> {
         Some(self.sum as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
@@ -1005,6 +1027,8 @@ impl SummaryData<u8> for TagsCountsData {
     fn count(&self) -> Option<usize> {
         Some(self.counts.iter().sum::<u32>() as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -1117,6 +1141,8 @@ impl SummaryData<u8> for TagsCountsPData {
         Some(self.sum() as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
             Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
@@ -1226,6 +1252,8 @@ impl SummaryData<u8> for TagsCountsEMData {
     fn count(&self) -> Option<usize> {
         Some(self.counts.iter().sum::<u32>() as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -1345,6 +1373,8 @@ impl SummaryData<u8> for TagsCountsPEMData{
         Some(self.counts.iter().sum::<u32>() as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
             Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
@@ -1439,6 +1469,8 @@ impl SummaryData<u8> for GroupCountData {
         Some((self.group1 + self.group2) as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
@@ -1525,6 +1557,8 @@ impl SummaryData<u8> for RelCountData {
     fn count(&self) -> Option<usize> {
         Some(self.count as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
