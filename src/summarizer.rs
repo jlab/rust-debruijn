@@ -702,20 +702,20 @@ pub struct IDSumData {
 impl SummaryData<ID> for IDSumData {
     fn print(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        let samples = self.ids
+        let t_ids = self.ids
             .iter()
-            .map(|sample_id| id_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
             .collect::<Vec<_>>();
-        format!("IDs: {:?}, sum: {}", samples, self.sum).replace("\"", "\'")
+        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
     }
 
     fn print_ol(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        let samples = self.ids
+        let t_ids = self.ids
             .iter()
-            .map(|sample_id| id_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
             .collect::<Vec<_>>();
-        format!("IDs: {:?}, sum: {}", samples, self.sum).replace("\"", "\'")
+        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
