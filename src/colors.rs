@@ -201,7 +201,7 @@ impl<SD: SummaryData<DI> + Debug, DI> Colors<SD, DI> {
 
 
     /// get the color for a node in a HSV format
-    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool, id_groups: &Option<HashMap<ID, ID>>, n_groups: Option<usize>) -> String {
+    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool, id_n_groups: &Option<(HashMap<ID, ID>, usize)>) -> String {
 
         // get hue
         let hue = match self.log2_fc_factor {
@@ -215,11 +215,12 @@ impl<SD: SummaryData<DI> + Debug, DI> Colors<SD, DI> {
             }, 
             // if not, try to use discrete colors based on tags
             None => {
-                let id_colors = data.ids().is_some() && id_groups.is_some() && n_groups.is_some();
+                let id_colors = data.ids().is_some() && id_n_groups.is_some();
 
                 if id_colors {
                     let ids = data.ids().unwrap();
-                    ids.iter().map(|id| *(id_groups.as_ref().unwrap().get(id).expect("id was not in HM")) as f32 / (n_groups.unwrap() * ids.len()) as f32).sum::<f32>()
+                    let n_groups = id_n_groups.as_ref().unwrap().1;
+                    ids.iter().map(|id| *(id_n_groups.as_ref().unwrap().0.get(id).expect("id was not in HM")) as f32 / (n_groups * ids.len()) as f32).sum::<f32>()
 
                 } else {
                     match data.tags_sum() {
