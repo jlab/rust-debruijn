@@ -1,11 +1,22 @@
 use std::{collections::HashMap, fmt::Display, iter::Sum, marker::PhantomData};
 
-use bimap::BiMap;
 use log::debug;
 
 use crate::{graph::DebruijnGraph, summarizer::{SummaryConfig, SummaryData, ID, M}, Kmer};
 use std::fmt::Debug;
 
+/// mode for coloring nodes in dot files - check compatibility with node data
+#[derive(Debug)]
+pub enum ColorMode<'a> {
+    /// only compatible with [`IDSumData`]
+    IDGroups {id_group_ids: &'a HashMap<ID, ID>, n_id_groups: usize},
+    /// only compatible with [`IDSumData`]
+    IDS {n_ids: usize},
+    /// compatible with all [`SummaryData`] containing `Tags`
+    SampleGroups,
+    /// compatible with all [`SummaryData`] containing `TagsCounts`
+    FoldChange
+}
 
 
 /// contains the hues, the markers signifying which tag belongs to which group, 
@@ -201,51 +212,60 @@ impl<SD: SummaryData<DI> + Debug, DI> Colors<SD, DI> {
 
 
     /// get the color for a node in a HSV format
-    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool, id_n_groups: &Option<(HashMap<ID, ID>, usize)>) -> String {
+    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool, color_mode: ColorMode) -> String {
 
         // get hue
-        let hue = match self.log2_fc_factor {
-            // if fold change available calculate hue based on log2(fc)
-            Some(fc_factor) => {
-                match data.fold_change(summary_config).unwrap() {
-                    Self::FC_MAX..=f32::INFINITY => Self::HUE_GREEN,
-                    f32::NEG_INFINITY..=Self::FC_MIN => Self::HUE_RED,
-                    fc => fc * fc_factor + Self::HUE_YELLOW
+        let hue = match color_mode {
+            ColorMode::FoldChange => {
+                match self.log2_fc_factor {
+                    // if fold change available calculate hue based on log2(fc)
+                    Some(fc_factor) => {
+                        match data.fold_change(summary_config).unwrap() {
+                            Self::FC_MAX..=f32::INFINITY => Self::HUE_GREEN,
+                            f32::NEG_INFINITY..=Self::FC_MIN => Self::HUE_RED,
+                            fc => fc * fc_factor + Self::HUE_YELLOW
+                        }
+                    }, 
+                    None => Self::HUE_PURPLE
                 }
-            }, 
-            // if not, try to use discrete colors based on tags
-            None => {
-                let id_colors = data.ids().is_some() && id_n_groups.is_some();
-
-                if id_colors {
-                    let ids = data.ids().unwrap();
-                    let n_groups = id_n_groups.as_ref().unwrap().1;
-                    ids.iter().map(|id| *(id_n_groups.as_ref().unwrap().0.get(id).expect("id was not in HM")) as f32 / (n_groups * ids.len()) as f32).sum::<f32>()
-
-                } else {
-                    match data.tags_sum() {
-                        Some((tag, _)) => {
-                            if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
-                                // tags are only in marker0 group
-                                Self::HUE_GREEN
-                            } else if !tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
-                                // tag is only in marker1 group
-                                Self::HUE_RED
-                            } else if tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
-                                // tag is in both groups
-                                Self::HUE_YELLOW
-                            } else {
-                                // tag is in neither group
-                                // should only happen if the tags started with more than three distinct characters
-                                // (overflow purple)
-                                Self::HUE_PURPLE
-                            }
-                        },
-                        None => Self::HUE_PURPLE
+            },
+            ColorMode::SampleGroups  => {
+                match data.tags_sum() {
+                    Some((tag, _)) => {
+                        if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
+                            // tags are only in marker0 group
+                            Self::HUE_GREEN
+                        } else if !tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
+                            // tag is only in marker1 group
+                            Self::HUE_RED
+                        } else if tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
+                            // tag is in both groups
+                            Self::HUE_YELLOW
+                        } else {
+                            // tag is in neither group
+                            // should only happen if the tags started with more than three distinct characters
+                            // (overflow purple)
+                            Self::HUE_PURPLE
+                        }
+                    },
+                    None => Self::HUE_PURPLE
+                }
+            },
+            ColorMode::IDGroups { id_group_ids, n_id_groups } => {
+                match data.ids() {
+                    Some(ids) => {
+                        ids.iter().map(|id| *(id_group_ids.get(id).expect("id was not in HM")) as f32 / (n_id_groups * ids.len()) as f32).sum::<f32>()
+                    },
+                    None => Self::HUE_PURPLE
+                }
+            }
+            ColorMode::IDS { n_ids } => {
+                match data.ids() {
+                    Some(ids) => {
+                        ids.iter().map(|id| *id as f32 / (n_ids * ids.len()) as f32).sum::<f32>()
                     }
+                    None => Self::HUE_PURPLE
                 }
-
-                
             }
         };
 
