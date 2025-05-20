@@ -1404,11 +1404,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 }
 
 impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
-    pub fn create_colors<DI>(&self, config: &SummaryConfig) -> Colors<SD, DI> 
+    pub fn create_colors<'a, 'b: 'a, DI>(&'a self, config: &SummaryConfig, color_mode: ColorMode<'b>) -> Colors<'b, SD, DI> 
     where 
     SD: SummaryData<DI>,
     {
-        Colors::new(self, config)
+        Colors::new(self, config, color_mode)
     }
     
     /// edge mults will contain hanging edges if the nodes were filtered
@@ -1706,11 +1706,11 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, DI> , outline: bool, color_mode: ColorMode) -> String
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, DI> , outline: bool) -> String
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
-        let color = colors.node_color(self.data(), config, outline, color_mode);
+        let color = colors.node_color(self.data(), config, outline);
 
         let data_info = self.data().print(tag_translator, config);
         const MIN_TEXT_WIDTH: usize = 40;
