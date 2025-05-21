@@ -69,7 +69,7 @@ impl<DI: Serialize + DeserializeOwned> SerReads<DI> {
 
 
 /// serialize a [`SerKmers`] together with its hashed tags and IDs and a config
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SerKmers<K: Hash, SD> {
     kmers: BoomHashMap2<K, Exts, SD>,
     hashed_tags: BiMap<String, u8>,
@@ -207,13 +207,13 @@ where
 mod test {
     use std::fs::remove_file;
 
-    use crate::summarizer::ID;
+    use crate::{kmer::Kmer16, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, ID}};
 
     use super::SerReads;
 
     #[test]
     fn test_ser_reads() {
-        let ser_reads: SerReads<ID> = SerReads::deserialize_from("test_data/dlfksdkl");
+        let ser_reads: SerReads<ID> = SerReads::deserialize_from("test_data/test_graph_ids.reads.dbg");
 
         let cloned_ser_reads = ser_reads.clone();
 
@@ -223,11 +223,55 @@ mod test {
         assert_eq!(cloned_ser_reads.hashed_ids(), &all.2);
 
         let ser_reads = SerReads::new(all.0, all.1, all.2);
-        let ser_path = "test_data/new_ser_reads.reads.dbg";
+        let ser_path = "test_data/new_ser_reads";
         ser_reads.serialize(ser_path);
 
         let new_ser_reads: SerReads<ID> = SerReads::deserialize_from(ser_path);
         assert_eq!(ser_reads, new_ser_reads);
+        remove_file(ser_path).unwrap();
+    }
+
+    #[test]
+    fn test_ser_kmers() {
+        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from("test_data/test_graph_ids.kmers.dbg");
+
+        let cloned_ser_kmers = ser_kmers.clone();
+
+        let all = ser_kmers.dissolve();
+        assert_eq!(cloned_ser_kmers.kmers().len(), all.0.len());
+        assert_eq!(cloned_ser_kmers.hashed_tags(), &all.1);
+        assert_eq!(cloned_ser_kmers.hashed_ids(), &all.2);
+        assert_eq!(cloned_ser_kmers.config(), &all.3);
+
+        let ser_kmers = SerKmers::new(all.0, all.1, all.2, all.3);
+        let ser_path = "test_data/new_ser_kmers";
+        ser_kmers.serialize(ser_path);
+
+        let new_ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from(ser_path);
+        assert_eq!(ser_kmers.kmers().len(), new_ser_kmers.kmers().len());
+        assert_eq!(ser_kmers.hashed_tags(), new_ser_kmers.hashed_tags());
+        assert_eq!(ser_kmers.hashed_ids(), new_ser_kmers.hashed_ids());
+        assert_eq!(ser_kmers.config(), new_ser_kmers.config());
+
+        remove_file(ser_path).unwrap();
+    }
+
+    #[test]
+    fn test_ser_graph() {
+        let ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from("test_data/test_graph_ids.graph.dbg");
+
+        let all = ser_kmers.dissolve();
+
+        let ser_kmers = SerGraph::new(all.0, all.1, all.2, all.3);
+        let ser_path = "test_data/new_ser_graph";
+        ser_kmers.serialize(ser_path);
+
+        let new_ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(ser_path);
+        assert_eq!(ser_kmers.graph().len(), new_ser_kmers.graph().len());
+        assert_eq!(ser_kmers.hashed_tags(), new_ser_kmers.hashed_tags());
+        assert_eq!(ser_kmers.hashed_ids(), new_ser_kmers.hashed_ids());
+        assert_eq!(ser_kmers.config(), new_ser_kmers.config());
+
         remove_file(ser_path).unwrap();
     }
 }
