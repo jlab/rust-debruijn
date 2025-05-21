@@ -1,6 +1,6 @@
 use bimap::BiMap;
 use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
 use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, mem};
@@ -514,7 +514,7 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 }
 
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
-pub trait SummaryData<DI> {
+pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
     /// format the noda data 
     fn print(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
