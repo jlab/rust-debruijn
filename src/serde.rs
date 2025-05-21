@@ -8,6 +8,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::graph::DebruijnGraph;
 use crate::summarizer::SummaryConfig;
+use crate::Kmer;
 use crate::{reads::ReadsPaired, summarizer::ID, Exts};
 
 /// serialize a [`ReadsPaired`] together with its hashed tags and IDs
@@ -18,7 +19,7 @@ pub struct SerReads<DI> {
     hashed_ids: BiMap<String, ID>
 }
 
-impl<DI: Serialize + DeserializeOwned> SerReads<DI> {
+impl<DI> SerReads<DI> {
     /// make a new [`SerReads`]
     pub fn new(reads: ReadsPaired<DI>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>) -> SerReads<DI> {
         SerReads {
@@ -29,14 +30,18 @@ impl<DI: Serialize + DeserializeOwned> SerReads<DI> {
     }
 
     /// serialize a [`SerReads`]
-    pub fn serialize<P: AsRef<Path>>(&self, path: P) {
+    pub fn serialize<P: AsRef<Path>>(&self, path: P) 
+    where DI: Serialize
+    {
         let file = File::create(path).expect("error creating file for serialized reads");
         let writer = BufWriter::new(file);
         bincode::serialize_into(writer, &self).expect("error serializing reads");
     }
 
     /// deserialize a [`SerReads`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerReads<DI> {
+    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerReads<DI> 
+    where DI: DeserializeOwned
+    {
         let file = File::open(path).expect("error opening file with serialized reads");
         let reader = BufReader::new(file);
 
@@ -77,11 +82,7 @@ pub struct SerKmers<K: Hash, SD> {
     config: SummaryConfig
 }
 
-impl<K, SD> SerKmers<K, SD> 
-where 
-    K: Serialize + DeserializeOwned + Hash,
-    SD: Serialize + DeserializeOwned
-{
+impl<K: Kmer, SD> SerKmers<K, SD> {
     /// make a new [`SerKmers`]
     pub fn new(kmers: BoomHashMap2<K, Exts, SD>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>, config: SummaryConfig) -> SerKmers<K, SD> {
         SerKmers {
@@ -93,14 +94,22 @@ where
     }
 
     /// serialize a [`SerKmers`]
-    pub fn serialize<P: AsRef<Path>>(&self, path: P) {
+    pub fn serialize<P: AsRef<Path>>(&self, path: P) 
+    where 
+        K: Serialize,
+        SD: Serialize
+    {
         let file = File::create(path).expect("error creating file for serialized k-mers");
         let writer = BufWriter::new(file);
         bincode::serialize_into(writer, &self).expect("error serializing k-mers");
     }
 
     /// deserialize a [`SerKmers`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerKmers<K, SD>  {
+    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerKmers<K, SD> 
+    where
+        K: DeserializeOwned,
+        SD: DeserializeOwned
+    {
         let file = File::open(path).expect("error opening file with serialized k-mers");
         let reader = BufReader::new(file);
 
@@ -144,11 +153,7 @@ pub struct SerGraph<K: Hash, SD> {
     config: SummaryConfig
 }
 
-impl<K, SD> SerGraph<K, SD> 
-where 
-    K: Serialize + DeserializeOwned + Hash,
-    SD: Serialize + DeserializeOwned
-{
+impl<K: Kmer, SD> SerGraph<K, SD> {
     /// make a new [`SerGraph`]
     pub fn new(graph: DebruijnGraph<K, SD>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>, config: SummaryConfig) -> SerGraph<K, SD> {
         SerGraph {
@@ -160,14 +165,22 @@ where
     }
 
     /// serialize a [`SerGraph`]
-    pub fn serialize<P: AsRef<Path>>(&self, path: P) {
+    pub fn serialize<P: AsRef<Path>>(&self, path: P) 
+    where 
+        K: Serialize,
+        SD: Serialize
+    {
         let file = File::create(path).expect("error creating file for a serialized graph");
         let writer = BufWriter::new(file);
         bincode::serialize_into(writer, &self).expect("error serializing graph");
     }
 
     /// deserialize a [`SerGraph`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerGraph<K, SD>  {
+    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerGraph<K, SD>  
+    where 
+        K: DeserializeOwned,
+        SD: DeserializeOwned
+    {
         let file = File::open(path).expect("error opening file with a serialized graph");
         let reader = BufReader::new(file);
 
