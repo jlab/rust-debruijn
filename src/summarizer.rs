@@ -516,9 +516,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI> {
     /// format the noda data 
-    fn print(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
+    fn print(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, tag_translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
+    fn print_ol(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
@@ -527,6 +527,8 @@ pub trait SummaryData<DI> {
     fn mem(&self) -> usize;
     /// get the number of observations, returns `None` if data is insufficient
     fn count(&self) -> Option<usize>;
+    /// get the IDs, returns `None` if data is insufficient
+    fn ids(&self) -> Option<&[ID]>;
     /// get the p-value, returns `None` if data is insufficient
     fn p_value(&self, config: &SummaryConfig) -> Option<f32>;
     /// get the log2(fold change), returns `None` if data is insufficient
@@ -572,6 +574,8 @@ impl<DI> SummaryData<DI> for u32 {
         Some(*self as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
@@ -611,8 +615,8 @@ impl<DI> SummaryData<DI> for u32 {
 }
 
 /// data the k-mer was observed with
-impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
-    fn print(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+impl SummaryData<u8> for Vec<u8> {
+    fn print(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         let samples = self
             .iter()
             .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
@@ -620,7 +624,7 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
         format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
         let samples = self
             .iter()
             .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
@@ -639,6 +643,8 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
     }
 
     fn count(&self) -> Option<usize> { None }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
@@ -662,10 +668,10 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
         true
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, DI)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
 
-        let mut out_data: Vec<DI> = Vec::with_capacity(items.size_hint().0);
+        let mut out_data = Vec::with_capacity(items.size_hint().0);
 
         let mut nobs = 0i32;
         for (_, exts, d) in items {
@@ -679,6 +685,96 @@ impl<DI: Debug + Ord + std::hash::Hash> SummaryData<DI> for Vec<DI> {
         out_data.shrink_to_fit();
         
         (nobs as usize >= config.min_kmer_obs, all_exts, out_data)
+    }
+
+} 
+
+pub type ID = u16;
+/// the u8-labels the k-mer was observed with and its number of observations, and an ID
+/// -> could be gene-, read-, or orthogroup-ID
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// aligned would be 16 Bytes, packed would be 12 Bytes
+pub struct IDSumData {
+    ids: Box<[ID]>,
+    sum: u32,
+}
+
+impl SummaryData<ID> for IDSumData {
+    fn print(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        let t_ids = self.ids
+            .iter()
+            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+            .collect::<Vec<_>>();
+        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        let t_ids = self.ids
+            .iter()
+            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+            .collect::<Vec<_>>();
+        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
+
+    fn score(&self) -> f32 {
+        self.sum as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.sum as usize)
+    }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids[..])
+    }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        self.sum >= config.min_kmer_obs as u32
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, ID)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut ids = Vec::new();
+
+        let mut sum = 0u32;
+        for (_, exts, id) in items {
+            ids.push(id); 
+            all_exts = all_exts.add(exts);
+            sum += 1;
+        }
+
+        ids.sort();
+        ids.dedup();
+        ids.shrink_to_fit();
+
+        let ids: Box<[ID]> = ids.into(); 
+        
+        (sum >= config.min_kmer_obs as u32, all_exts, IDSumData { ids, sum })
     }
 
 }
@@ -717,6 +813,8 @@ impl SummaryData<u8> for TagsSumData {
     fn count(&self) -> Option<usize> {
         Some(self.sum as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
@@ -817,6 +915,8 @@ impl SummaryData<u8> for TagsCountsSumData {
     fn count(&self) -> Option<usize> {
         Some(self.sum as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
@@ -927,6 +1027,8 @@ impl SummaryData<u8> for TagsCountsData {
     fn count(&self) -> Option<usize> {
         Some(self.counts.iter().sum::<u32>() as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -1039,6 +1141,8 @@ impl SummaryData<u8> for TagsCountsPData {
         Some(self.sum() as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
             Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
@@ -1148,6 +1252,8 @@ impl SummaryData<u8> for TagsCountsEMData {
     fn count(&self) -> Option<usize> {
         Some(self.counts.iter().sum::<u32>() as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
@@ -1267,6 +1373,8 @@ impl SummaryData<u8> for TagsCountsPEMData{
         Some(self.counts.iter().sum::<u32>() as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
             Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
@@ -1361,6 +1469,8 @@ impl SummaryData<u8> for GroupCountData {
         Some((self.group1 + self.group2) as usize)
     }
 
+    fn ids(&self) -> Option<&[ID]> { None }
+
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
     fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
@@ -1447,6 +1557,8 @@ impl SummaryData<u8> for RelCountData {
     fn count(&self) -> Option<usize> {
         Some(self.count as usize)
     }
+
+    fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
 
