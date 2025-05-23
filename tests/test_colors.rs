@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::{remove_file, File}, io::BufReader};
 
 use bimap::BiMap;
-use debruijn::{colors::{ColorMode, Colors}, graph::DebruijnGraph, kmer::Kmer16, summarizer::{IDSumData, SummaryConfig, TagsCountsPEMData, ID}};
+use debruijn::{colors::{ColorMode, Colors}, graph::DebruijnGraph, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, TagsCountsPEMData, ID}};
 
 #[cfg(not(feature = "sample128"))]
 const TEST_FILE_T: &str = "test_data/sided.graph.dbg";
@@ -23,18 +23,7 @@ fn test_colors() {
         hashed_labels_tcpem.insert(label.clone(), i as u8);
     }
 
-    let file_ids = BufReader::new(File::open(TEST_FILE_IDS).unwrap());
-
-    let (graph_ids, vec_labels, vec_genes, config_ids): (DebruijnGraph<Kmer16, IDSumData>, Vec<String>, Vec<String>, SummaryConfig) = 
-        bincode::deserialize_from(file_ids).expect("error deserializing graph");
-    let mut hashed_labels_ids = BiMap::new();
-    for (i, label) in vec_labels.iter().enumerate() {
-        hashed_labels_ids.insert(label.clone(), i as u8);
-    }
-    let mut hashed_genes= BiMap::new();
-    for (id, gene) in vec_genes.iter().enumerate() {
-        hashed_genes.insert(gene.clone(), id as ID);
-    }
+    let (graph_ids, _, hashed_genes, config_ids) = SerGraph::<Kmer16, IDSumData>::deserialize_from(TEST_FILE_IDS).dissolve();
 
     // test with color mode FoldChange
 

@@ -20,7 +20,7 @@ bit-set = "0.5.1"
 itertools = ">=0.7"
 log = "0.4"
 rayon = "1.10.0"
-bimap = "0.6.3"
+bimap = { version = "0.6.3", features = ["serde"]}
 statrs = "0.18.0"
 indicatif = {version = "0.17.11", features = ["rayon"]}
 clap = { version = "4.5.0", features = ["derive"] }
