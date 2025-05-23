@@ -357,7 +357,7 @@ where
 }
 
 /// trait for filtering the values in [`get_min_max`]
-pub trait CFilter {
+pub trait CFilter: Sum + PartialOrd + Copy + Display {
     fn filter(self) -> bool;
     fn to_f64(self) -> f64;
 }

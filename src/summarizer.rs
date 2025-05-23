@@ -89,6 +89,7 @@ impl SummaryConfig {
 /// In how many of the two sample groups does a specified percentage of the samples 
 /// have to be present
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum GroupFrac {
     None, 
     One, 
@@ -107,6 +108,7 @@ impl std::fmt::Display for GroupFrac {
 
 /// Statistical test for calculation of p-values
 #[derive(Copy, Clone, PartialEq, PartialOrd, ValueEnum, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum StatTest {
     StudentsTTest,
     WelchsTTest,
