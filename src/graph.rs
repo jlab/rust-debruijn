@@ -14,6 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -36,11 +37,13 @@ type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::bits_to_base;
+use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
+use crate::summarizer::ID;
 use crate::BUF;
 use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
@@ -1400,13 +1403,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 }
 
-impl<K: Kmer, SD: SummaryData<u8> + Debug> DebruijnGraph<K, SD> {
-    pub fn create_colors(&self, config: &SummaryConfig) -> Colors<SD> {
-        Colors::new(self, config)
+impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
+    pub fn create_colors<'a, 'b: 'a, DI>(&'a self, config: &SummaryConfig, color_mode: ColorMode<'b>) -> Colors<'b, SD, DI> 
+    where 
+    SD: SummaryData<DI>,
+    {
+        Colors::new(self, config, color_mode)
     }
     
     /// edge mults will contain hanging edges if the nodes were filtered
-    pub fn fix_edge_mults(&mut self) {
+    pub fn fix_edge_mults<DI>(&mut self) 
+    where 
+        SD: SummaryData<DI>
+    {
         if self.get_node(0).data().edge_mults().is_some() {
             for i in 0..self.len() {
                 self.base.data[i].fix_edge_mults(self.base.exts[i]);
@@ -1667,9 +1676,11 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
 }
 
 // TODO make generic instead of u8 (u8 is sufficient for dbg)
-impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
+impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     /// get default format for dot edges based on node data
-    pub fn edge_dot_default(&self, colors: &Colors<SD>, base: u8, incoming_dir: Dir, flipped: bool) -> String {
+    pub fn edge_dot_default<DI>(&self, colors: &Colors<SD, DI>, base: u8, incoming_dir: Dir, flipped: bool) -> String 
+    where SD: SummaryData<DI>
+    {
         // set color based on dir
         let color = match incoming_dir {
             Dir::Left => "blue",
@@ -1695,7 +1706,9 @@ impl<K: Kmer, SD: SummaryData<u8> + Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default(&self, colors: &Colors<SD>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, u8> , outline: bool) -> String {
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, DI> , outline: bool) -> String
+    where SD: SummaryData<DI>
+    {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
 

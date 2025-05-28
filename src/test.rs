@@ -659,35 +659,6 @@ mod tests {
             println!("path seq: {:?}", path);
             println!("path seq: {:?}", graph.sequence_of_path(path.1.iter()));
         }
-
-        graph.to_gfa_with_tags("gfa_out_seq.gfa", |node| format!("{:?}", node.data())).unwrap();
-        graph.to_gfa_otags_parallel("gfa_out_par.gfa", Some(&|node: &graph::Node<K, TagsCountsSumData>| format!("{:?}", node.data()))).unwrap();
-
-        //let graph2 = graph.finish();
-        //graph2.print();
-        //graph.print();
-        //println!("components: {:?}", graph.components_r());
-        //let max_path = graph2.max_path(|d| *d as f32, |_| true);
-        //println!("one graph: {:?}", max_path); 
-        //let max_path_c = graph2.max_path_comp(|d| *d as f32, |_| true);
-        //println!("all graphs: {:?}", max_path_c); 
-        /* for i in 0..graph2.len() {
-            println!("node {}: {}", i,  graph2.get_node(i).sequence());
-            println!("rc   {}: {}", i,  graph2.get_node(i).sequence().rc());
-        } */
-        //let u_graph: BaseGraph<K, (Vec<()>, i32)> = uncompressed_graph(&valid_kmers_errs);
-        //let u_graph2 = u_graph.finish();
-        //println!("uncompressed graph: {:?}", u_graph2);
-        //u_graph2.print();
-
-        // Now try to clean the tips.
-        //let cleaner = CleanGraph::new(|node| node.len() < K::k() * 2);
-        //let nodes_to_censor = cleaner.find_bad_nodes(&graph2);
-
-        //println!("censor: {:?}", nodes_to_censor);
-        //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
-        //let fixed = compress_graph(stranded, &spec, graph2, Some(nodes_to_censor));
-        //fixed.print();
     }
 
     #[test]

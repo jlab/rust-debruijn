@@ -161,13 +161,17 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 /// ```
 #[inline(never)]
 //pub fn filter_kmers_parallel<K: Kmer + Sync + Send, V: Vmer + Sync, D1: Clone + Debug + Sync, DS: Clone + Sync + Send, S: KmerSummarizer<D1, DS, (usize, usize)> +  Send>(
-pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug + Send + SummaryData<u8>>(
-    seqs: &ReadsPaired<u8>,
+pub fn filter_kmers_parallel<K, SD, DI>(
+    seqs: &ReadsPaired<DI>,
     summariy_config: &SummaryConfig,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
+where 
+K: Kmer + Sync + Send,
+SD: Clone + std::fmt::Debug + Send + SummaryData<DI>,
+DI: Clone + Copy + Send + Sync
 {
     // take timestamp before all processes
     let before_all = Instant::now();
@@ -473,7 +477,7 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 ///
 /// # Arguments
 ///
-/// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
+/// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<DI>`]
 /// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
 ///   information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
@@ -529,15 +533,17 @@ pub fn filter_kmers_parallel<K: Kmer + Sync + Send, SD: Clone + std::fmt::Debug 
 /// );
 /// ```
 #[inline(never)]
-pub fn filter_kmers<SD, K: Kmer, D1: Copy + Clone + Debug + Hash + Eq>(
-    seqs: &ReadsPaired<D1>,
+pub fn filter_kmers<SD, K, DI>(
+    seqs: &ReadsPaired<DI>,
     summary_config: &SummaryConfig,
     report_all_kmers: bool,
     memory_size: usize,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
-    SD: Debug + SummaryData<D1>,
+    SD: Debug + SummaryData<DI>, 
+    K: Kmer, 
+    DI: Copy + Clone + Debug + Hash + Eq
 {
     let before_all = Instant::now();
 
@@ -562,17 +568,17 @@ where
         }
     }
 
-    debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, D1)>());
+    debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
 
     let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    let mem_per_kmer = mem::size_of::<(K, D1)>();
+    let mem_per_kmer = mem::size_of::<(K, DI)>();
     debug!("size used for calculation: {} B", mem_per_kmer);
-    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, D1)>());
-    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<D1>());
-    debug!("type D1: {}", std::any::type_name::<D1>());
+    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, DI)>());
+    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
+    debug!("type D1: {}", std::any::type_name::<DI>());
 
     let max_mem: usize = memory_size * 10_usize.pow(9);
     let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
@@ -674,7 +680,7 @@ where
         debug!("overall elements in this bucket: {slice_elements}");
         debug!("slice size guess (advanced version):
             {} (len) * 24B (ref vec) + {} B (elements size) * {} (elements)
-            = {} B", kmer_buckets.len(), mem::size_of::<(K, Exts, D1)>(), slice_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, D1)>() * slice_elements));
+            = {} B", kmer_buckets.len(), mem::size_of::<(K, Exts, DI)>(), slice_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, DI)>() * slice_elements));
         
         debug!("no of kmer buckets: {}", kmer_buckets.len());
 
@@ -713,7 +719,7 @@ where
 
 
             // group the tuples by the k-mers and iterate over the groups
-            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt: &(K, Exts, D1)| elt.0).into_iter() {
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt: &(K, Exts, DI)| elt.0).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
                 let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, summary_config);
                 if report_all_kmers {
