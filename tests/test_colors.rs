@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::{remove_file, File}, io::BufReader};
 
 use bimap::BiMap;
-use debruijn::{colors::{ColorMode, Colors}, graph::DebruijnGraph, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, TagsCountsPEMData, ID}};
+use debruijn::{colors::{ColorMode, Colors}, graph::{self, DebruijnGraph}, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, SummaryData, TagsCountsPEMData, ID}};
 
 #[cfg(not(feature = "sample128"))]
 const TEST_FILE_T: &str = "test_data/sided.graph.dbg";
@@ -129,4 +129,19 @@ fn test_colors() {
     remove_file("test_dot.dot").unwrap();
     remove_file("test_dot_parallel.dot").unwrap();
     remove_file("test_dot_partial.dot").unwrap();
+
+    // write node to gfa
+
+    graph_tcpem.to_gfa("test_gfa.gfa").unwrap();
+    graph_tcpem.to_gfa_with_tags("test_gfa_tags.gfa", |node| node.data().print_ol(&hashed_labels_tcpem, &config_tcpem)).unwrap();
+    graph_tcpem.to_gfa_otags_parallel("test_gfa_parallel", Some(&|node: &graph::Node<_, TagsCountsPEMData>| node.data().print_ol(&hashed_labels_tcpem, &config_tcpem))).unwrap();
+    graph_tcpem.to_gfa_partial("test_gfa_partial.gfa", Some(&|node: &graph::Node<'_, debruijn::kmer::IntKmer<u32>, TagsCountsPEMData>| node.data().print_ol(&hashed_labels_tcpem, &config_tcpem)), vec![0, 1, 2, 3]).unwrap();
+
+    remove_file("test_gfa.gfa").unwrap();
+    remove_file("test_gfa_tags.gfa").unwrap();
+    remove_file("test_gfa_parallel.gfa").unwrap();
+    remove_file("test_gfa_partial.gfa").unwrap();
+
+
+
 }
