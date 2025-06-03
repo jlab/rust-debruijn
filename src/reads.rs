@@ -565,17 +565,19 @@ impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
     }
 }
 
-impl ReadsPaired<u8> {
+impl<DI> ReadsPaired<DI> 
+where DI: Hash + Clone + Copy + Eq + Ord + Into<usize>
+{
     /// return the number of k-mers occuring with each u8-encoded tag, 
     /// with the tag as the index
-    pub fn tag_kmers(&self, k: usize) -> Vec<u64>{
+    pub fn tag_kmers(&self, k: usize) -> Vec<u64> {
         let hashed_kmer_counts = self.data_kmers(k);
 
         match hashed_kmer_counts.keys().max(){
             Some(n_samples) => {
-                let mut kmer_counts = vec![0; *n_samples as usize + 1];
+                let mut kmer_counts = vec![0; (*n_samples).into() + 1];
                 for (tag, kmer_count) in hashed_kmer_counts {
-                    kmer_counts[tag as usize] += kmer_count as u64;
+                    kmer_counts[tag.into()] += kmer_count as u64;
                 }
 
                 kmer_counts
