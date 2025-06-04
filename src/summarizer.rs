@@ -54,6 +54,11 @@ impl Translator {
     pub fn id_translator(&self) -> &Option<BiMap<String, ID>> {
         &self.hashed_ids
     }
+
+    /// dissolve the `Translator` into its underlying [`BiMap`]s
+    pub fn dissolve(self) -> (Option<BiMap<String, ID>>, Option<BiMap<String,Tag>>) {
+        (self.hashed_ids, self.hashed_tags)
+    }
 }
 
 #[derive(Debug, PartialEq)]
