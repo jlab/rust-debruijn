@@ -105,7 +105,7 @@ fn test_summary_data() {
     // test summarize: (Some(count), Some((tags, sum)), memory, Some(p_value), Some(fold_change), Some(sample_count), Some(edge_mults), valid, "print", "print ol")
 
     let data = test_summarize::<u32, _, _, _>(input_tags.into_iter(), &summary_config, &tag_translator);
-    assert_eq!(data, (count, None, 4, None, None, None, None, None, true, "count: 6".to_string(), "count: 6".to_string()));
+    assert_eq!(data, (count, None, 4, None, None, None, None, None, true, "sum: 6".to_string(), "sum: 6".to_string()));
 
     let data = test_summarize::<IDSumData, _, _, _>(input_ids.into_iter(), &summary_config, &id_translator);
     assert_eq!(data, (count, None, size_ids * 6 + 16 + 4 + 4, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), None, true, "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(), "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string()));
