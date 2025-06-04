@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::{remove_file, File}, io::BufReader};
 
 use bimap::BiMap;
-use debruijn::{colors::{ColorMode, Colors}, graph::{self, DebruijnGraph}, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, SummaryData, TagsCountsPEMData, Translator, ID}};
+use debruijn::{colors::{ColorMode, Colors}, graph::{self, DebruijnGraph}, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, SummaryData, TagsCountsPEMData, ID}};
 
 #[cfg(not(feature = "sample128"))]
 const TEST_FILE_T: &str = "test_data/sided.graph.dbg";
@@ -23,9 +23,7 @@ fn test_colors() {
         hashed_labels_tcpem.insert(label.clone(), i as u8);
     }
 
-    let (graph_ids, _, hashed_genes, config_ids) = SerGraph::<Kmer16, IDSumData>::deserialize_from(TEST_FILE_IDS).dissolve();
-
-    let translator = Translator::new(hashed_genes, hashed_labels_tcpem);
+    let (graph_ids, translator, config_ids) = SerGraph::<Kmer16, IDSumData>::deserialize_from(TEST_FILE_IDS).dissolve();
 
     // test with color mode FoldChange
 

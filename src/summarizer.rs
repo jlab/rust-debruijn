@@ -22,7 +22,7 @@ pub type Tag = u8;
 /// type for IDs and tags together
 pub type IDTag = (ID, Tag);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// translate tags and IDs (e.g. into sample labels and gene names)
 pub struct Translator {
     hashed_ids: Option<BiMap<String, ID>>,
@@ -41,7 +41,7 @@ impl Translator {
     }
 
     /// make a new [`Translator`] for IDs
-    pub fn new_id_translator<'a>(hashed_ids: BiMap<String, ID>) -> Translator {
+    pub fn new_id_translator(hashed_ids: BiMap<String, ID>) -> Translator {
         Translator { hashed_ids: Some(hashed_ids), hashed_tags: None }
     }
 
