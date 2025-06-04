@@ -673,18 +673,18 @@ mod tests {
         // build Tags from val
         let tag = Tags::new(83);
         assert_eq!(tag.val, 83);
-        assert_eq!(tag.to_u8_vec(), vec![0, 1, 4, 6]);
+        assert_eq!(tag.to_tag_vec(), vec![0, 1, 4, 6]);
         assert!(format!("{:064b}", tag.val).ends_with("1010011"));
         assert_eq!(tag.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
         
         // build tags from u8 vec
-        let vec = Tags::from_u8_vec(vec![0, 1, 4, 6]);
-        let vec2 = Tags::from_u8_vec(vec![1, 2, 3, 4, 6]);
+        let vec = Tags::from_tag_vec(vec![0, 1, 4, 6]);
+        let vec2 = Tags::from_tag_vec(vec![1, 2, 3, 4, 6]);
 
         assert_eq!(vec.val, 83);
         assert_eq!(vec2.val, 94);
-        assert_eq!(vec.to_u8_vec(), vec![0, 1, 4, 6]);
-        assert_eq!(vec2.to_u8_vec(), vec![1, 2, 3, 4, 6]);
+        assert_eq!(vec.to_tag_vec(), vec![0, 1, 4, 6]);
+        assert_eq!(vec2.to_tag_vec(), vec![1, 2, 3, 4, 6]);
         assert_eq!(vec.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
         assert_eq!(vec2.to_string_vec(&str_map), vec!["tag2", "tag3", "tag4", "tag5", "tag7"]);
     }
@@ -693,13 +693,13 @@ mod tests {
     #[should_panic]
     #[cfg(not(feature = "sample128"))]
     fn test_tags_overflow() {
-        let _tags = Tags::from_u8_vec(vec![5, 64]);
+        let _tags = Tags::from_tag_vec(vec![5, 64]);
     }
 
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_tags_no_overflow() {
-        let _tags = Tags::from_u8_vec(vec![5, 63]);
+        let _tags = Tags::from_tag_vec(vec![5, 63]);
     }
 
     #[test]

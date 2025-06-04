@@ -30,11 +30,13 @@
 
 use bimap::BiMap;
 use serde_derive::{Deserialize, Serialize};
-use summarizer::M;
+use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::mem;
 use std::ops::Range;
+
+use crate::summarizer::Tag;
 
 pub mod clean_graph;
 pub mod compression;
@@ -891,13 +893,13 @@ impl<K: Kmer, D: Mer> Iterator for KmerExtsIter<'_, K, D> {
 /// `u128`(16 bytes) with the feature `sample128` enabled)
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub struct Tags {
-    pub val: M,
+    pub val: Marker,
 }
 
 impl Tags {
 
     /// Make a new Tags from a `u64` (or `u128` with the feature `sample128` enabled)
-    pub fn new(val: M) -> Self {
+    pub fn new(val: Marker) -> Self {
         Tags { val }
     }
 
@@ -911,12 +913,12 @@ impl Tags {
         self.val == 0
     }
 
-    /// encodes a sorted (!) Vec<u8> and encodes it as a u64
-    pub fn from_u8_vec(vec: Vec<u8>) -> Self {
+    /// encodes a sorted (!) Vec<Tag> and encodes it as a u64
+    pub fn from_tag_vec(vec: Vec<Tag>) -> Self {
         let mut x = 0;
 
         // panic if Tags would overflow
-        if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8u8 >= mem::size_of::<Tags>() as u8 { 
+        if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8 as Tag >= mem::size_of::<Tags>() as Tag { 
             panic!("too many tags - maximum number of supported tags is 64 by default, 128 with compile flag / feature '--feature sample128'") 
         }
         
@@ -932,14 +934,14 @@ impl Tags {
         Tags { val: x }
     }
 
-    // turn Tags into Vec<u8>
-    pub fn to_u8_vec(&self) -> Vec<u8> {
+    // turn Tags into Vec<Tag>
+    pub fn to_tag_vec(&self) -> Vec<Tag> {
         let mut x = self.val;
-        let mut vec: Vec<u8> = Vec::new();
+        let mut vec: Vec<Tag> = Vec::new();
 
         // do bit-wise right shifts trough u64
         // each time first digit is 1 (is an odd number), push i to vec
-        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
+        for i in 0..(mem::size_of::<Tags>()*8) as Tag {
             if x % 2 != 0 {
                 vec.push(i)
             }
@@ -950,13 +952,13 @@ impl Tags {
     }
 
     // directly translate Tags to Vec<&str>
-    // str_map is translatror BiMap between u8 and &str 
-    pub fn to_string_vec<'a>(&'a self, str_map: &'a BiMap<String, u8>) -> Vec<&'a str> {
+    // str_map is translatror BiMap between Tag and &str 
+    pub fn to_string_vec<'a>(&'a self, str_map: &'a BiMap<String, Tag>) -> Vec<&'a str> {
         let mut x = self.val;
         let mut vec: Vec<&str> = Vec::with_capacity(x.count_ones() as usize);
 
         // iterate through bits of the u64
-        for i in 0..(mem::size_of::<Tags>()*8) as u8 {
+        for i in 0..(mem::size_of::<Tags>()*8) as Tag {
             // check if odd number: current first bit is 1
             if x % 2 != 0 {
                 match str_map.get_by_right(&{ i }) {
@@ -975,7 +977,7 @@ impl Tags {
     /// returns true if the result is greater than 0:
     /// `00101 & 01000 -> false`
     /// `00101 & 00100 -> true`
-    pub fn bit_and(&self, marker: M) -> bool {
+    pub fn bit_and(&self, marker: Marker) -> bool {
         (self.val & marker) > 0
     }
 
@@ -984,18 +986,18 @@ impl Tags {
     /// `00101 & 01000 -> 0`
     /// `00101 & 00100 -> 1`
     /// `00101 & 00101 -> 2`
-    pub fn bit_and_dist(&self, marker: M) -> usize {
+    pub fn bit_and_dist(&self, marker: Marker) -> usize {
         (self.val & marker).count_ones() as usize
     }
 }
 
 pub struct TagsFormatter<'a> {
     tags: Tags,
-    tag_translator: &'a BiMap<String, u8>
+    tag_translator: &'a BiMap<String, Tag>
 }
 
 impl<'a> TagsFormatter<'a> {
-    pub fn new(tags: Tags, tag_translator: &'a BiMap<String, u8>) -> TagsFormatter<'a> {
+    pub fn new(tags: Tags, tag_translator: &'a BiMap<String, Tag>) -> TagsFormatter<'a> {
         TagsFormatter {
             tags,
             tag_translator
@@ -1019,18 +1021,18 @@ impl fmt::Display for TagsFormatter<'_> {
 
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.to_u8_vec())
+        write!(f, "{:?}", self.to_tag_vec())
     }
 }
 
 pub struct TagsCountsFormatter<'a> {
     tags: Tags,
     counts: &'a [u32],
-    tag_translator: &'a BiMap<String, u8>
+    tag_translator: &'a BiMap<String, Tag>
 }
 
 impl<'a> TagsCountsFormatter<'a> {
-    pub fn new(tags: Tags, counts: &'a [u32], tag_translator: &'a BiMap<String, u8>) -> TagsCountsFormatter<'a> {
+    pub fn new(tags: Tags, counts: &'a [u32], tag_translator: &'a BiMap<String, Tag>) -> TagsCountsFormatter<'a> {
         TagsCountsFormatter {
             tags,
             counts,
@@ -1245,7 +1247,7 @@ pub struct Label {
 mod tests {
     use bimap::BiMap;
 
-    use crate::{summarizer::M, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
+    use crate::{summarizer::{Marker, Tag}, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
 
     #[test]
     fn test_dir_index() {
@@ -1317,34 +1319,34 @@ mod tests {
 
     #[test]
     fn test_bit_and_dist() {
-        let marker: M = 0b1111000011110000111100001111000011110000111100001111000011110000;
+        let marker: Marker = 0b1111000011110000111100001111000011110000111100001111000011110000;
         println!("marker:   {:064b}", marker);
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 3);
 
-        let tags = Tags::from_u8_vec(vec![1, 5, 19, 25, 32]);
+        let tags = Tags::from_tag_vec(vec![1, 5, 19, 25, 32]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 5);
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 9);
 
-        let tags = Tags::from_u8_vec(vec![31]);
+        let tags = Tags::from_tag_vec(vec![31]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 1);
 
-        let tags = Tags::from_u8_vec(vec![63]);
+        let tags = Tags::from_tag_vec(vec![63]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
@@ -1357,21 +1359,21 @@ mod tests {
         let samples = vec!["A", "B", "C", "D", "E", "F", "G"];
 
         for (i, label) in samples.into_iter().enumerate() {
-            tag_translator.insert(label.to_string(), i as u8);
+            tag_translator.insert(label.to_string(), i as Tag);
         }
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
         let counts = vec![1, 2, 3].into_boxed_slice();
         print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
         let counts = vec![1, 2, 3, 0].into_boxed_slice();
         print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
         print!("{}", TagsFormatter::new(tags, &tag_translator));
 
-        let tags = Tags::from_u8_vec(vec![0, 1, 4, 6]);
+        let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
         print!("{}", TagsFormatter::new(tags, &tag_translator));
 
     }

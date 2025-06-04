@@ -1,7 +1,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDSumData, RelCountData, SampleInfo, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsSumData, ID, M}, EdgeMult, Exts, Kmer, Tags};
+use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDSumData, RelCountData, SampleInfo, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsSumData, ID, Marker}, EdgeMult, Exts, Kmer, Tags};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a bimap::BiHashMap<String, DI> ) 
     -> (Option<usize>, Option<(Tags, u32)>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String)
@@ -23,7 +23,7 @@ where
 
     if let Some(ts) = tags_sum {
         assert_eq!(ts.1, count.unwrap() as u32);
-        assert_eq!(ts.0.to_u8_vec().len(), sample_count.unwrap());
+        assert_eq!(ts.0.to_tag_vec().len(), sample_count.unwrap());
     }
 
     assert_eq!(data.valid(config), valid);
@@ -92,11 +92,11 @@ fn test_summary_data() {
 
     println!("kmer: {:?}", Kmer8::from_u64(12));
 
-    let size_tags = mem::size_of::<M>();
+    let size_tags = mem::size_of::<Marker>();
     let size_ids = mem::size_of::<ID>();
 
     let count = Some(input_tags.len());
-    let tags_sum = Some((Tags::from_u8_vec(vec![0, 1, 2, 3, 7, 8]), input_tags.len() as u32));
+    let tags_sum = Some((Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8]), input_tags.len() as u32));
     let sample_count = Some(6);
     let p_value = Some(0.39023498);
     let fold_change = Some(5.4498405);

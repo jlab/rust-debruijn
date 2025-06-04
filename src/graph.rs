@@ -14,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -43,7 +42,6 @@ use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
-use crate::summarizer::ID;
 use crate::BUF;
 use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};

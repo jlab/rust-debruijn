@@ -5,11 +5,22 @@ use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
 use std::{cmp::min_by, error::Error, fmt::{Debug, Display}, mem};
 
+/// inner type for [`Tags`] and group markers
 #[cfg(not(feature = "sample128"))]
-pub type M = u64;
+pub type Marker = u64;
 
+/// inner type for [`Tags`] and group markers
 #[cfg(feature = "sample128")]
-pub type M = u128;
+pub type Marker = u128;
+
+/// type for IDs (e.g. gene IDs)
+pub type ID = u16;
+
+/// type for tags
+pub type Tag = u8;
+
+/// type for IDs and tags together
+pub type IDTag = (ID, Tag);
 
 #[derive(Debug, PartialEq)]
 struct NotEnoughSamplesError {}
@@ -76,7 +87,7 @@ impl SummaryConfig {
     }
 
     /// get the binary encoded group affiliation of tags
-    pub fn get_markers(&self) -> (M, M) {
+    pub fn get_markers(&self) -> (Marker, Marker) {
         self.sample_info.get_markers()
     }
 
@@ -135,10 +146,10 @@ impl std::fmt::Display for StatTest {
 /// - Sample IDs in group 2: 3, 4, 5, 6
 /// 
 /// ```
-/// use debruijn::summarizer::{SampleInfo, M};
+/// use debruijn::summarizer::{SampleInfo, Marker};
 /// 
-/// let marker0: M = 0b0000111; // = 7
-/// let marker1: M = 0b1111000; // = 120
+/// let marker0: Marker = 0b0000111; // = 7
+/// let marker1: Marker = 0b1111000; // = 120
 /// 
 /// let count0: u8 = 3;
 /// let count1: u8 = 4;
@@ -155,8 +166,8 @@ impl std::fmt::Display for StatTest {
 /// 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SampleInfo {
-    marker0: M,
-    marker1: M,
+    marker0: Marker,
+    marker1: Marker,
     count0: u8,
     count1: u8,
     sample_kmers: Vec<u64>,
@@ -172,7 +183,7 @@ impl SampleInfo {
     /// * `count1`: the number of samples in group 2
     /// * `sample_kmers`: a [`Vec<u64>`] containing numbers of non-unique k-mers for each sample
     ///    at the index of the sample-id
-    pub fn new(marker0: M, marker1: M, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
+    pub fn new(marker0: Marker, marker1: Marker, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
         assert_eq!(marker0.count_ones(), count0 as u32);
         assert_eq!(marker0.count_ones(), count0 as u32);
         assert_eq!(count0+count1, sample_kmers.len() as u8);
@@ -186,16 +197,16 @@ impl SampleInfo {
     }
 
     /// get the binary encoded group affiliation of tags
-    pub fn get_markers(&self) -> (M, M) {
+    pub fn get_markers(&self) -> (Marker, Marker) {
         (self.marker0, self.marker1)
     }
 }
 
 /// summarize the k-mers, exts and labels
-fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32) {
+fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+    let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
 
     let mut nobs = 0;
     for (_, exts, d) in items {
@@ -226,10 +237,10 @@ fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, 
 }
 
 /// summarize the k-mers, exts and labels, also include an [`EdgeMult`]
-fn summarize_with_em<K, F: Iterator<Item = (K, Exts, u8)>>(items: F) -> (Exts, Vec<u8>, Vec<u32>, u32, EdgeMult) {
+fn summarize_with_em<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, EdgeMult) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+    let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
     let mut edge_mults = EdgeMult::new();
 
     let mut nobs = 0;
@@ -273,20 +284,25 @@ pub fn round_digits(number: u32, digits: u32) -> u32 {
 }
 
 // check if the k-mer is valid according to the GroupFrac rule and its n obs
-fn valid_counts(tags: Tags, nobs: u32, config: &SummaryConfig) -> bool {
+fn valid_counts(tags: Tags, nobs: Option<u32>, config: &SummaryConfig) -> bool {
+    let nobs_valid = match nobs {
+        Some(n) => n as usize >= config.min_kmer_obs,
+        None => true
+    };
+
     match config.group_frac {
-        GroupFrac::None => nobs as usize >= config.min_kmer_obs,
+        GroupFrac::None => nobs_valid,
         GroupFrac::Both => {
             // get amount of labels in tags from each group
             let dist0= tags.bit_and_dist(config.sample_info.marker0);
             let dist1= tags.bit_and_dist(config.sample_info.marker1);
     
-            assert_eq!(dist0 + dist1, tags.to_u8_vec().len());
+            assert_eq!(dist0 + dist1, tags.to_tag_vec().len());
     
             // valid if:
             // - n obs >= min obs AND
             // - observed in at least one third of samples in both groups
-            (nobs as usize >= config.min_kmer_obs)
+            nobs_valid
                 && (dist0 as f32 / config.sample_info.count0 as f32 >= config.frac_cutoff) 
                 && (dist1 as f32 / config.sample_info.count1 as f32 >= config.frac_cutoff)
         },
@@ -296,12 +312,12 @@ fn valid_counts(tags: Tags, nobs: u32, config: &SummaryConfig) -> bool {
             let dist1= tags.bit_and_dist(config.sample_info.marker1);
 
     
-            assert_eq!(dist0 + dist1, tags.to_u8_vec().len());
+            assert_eq!(dist0 + dist1, tags.to_tag_vec().len());
     
             // valid if:
             // - n obs >= min obs AND
             // - observed in at least one third of samples in one group
-            (nobs as usize >= config.min_kmer_obs)
+            nobs_valid
                 && ((dist0 as f32 / config.sample_info.count0 as f32 >= config.frac_cutoff) 
                     | (dist1 as f32 / config.sample_info.count1 as f32 >= config.frac_cutoff))
         }
@@ -310,7 +326,7 @@ fn valid_counts(tags: Tags, nobs: u32, config: &SummaryConfig) -> bool {
 
 enum PInfo<'a> {
     PValue { p: f32 },
-    Calculate { out_data: &'a [u8], tag_counts: &'a Vec<u32> }
+    Calculate { out_data: &'a [Tag], tag_counts: &'a Vec<u32> }
 }
 
 fn valid_p(p_info: PInfo, config: &SummaryConfig) -> bool {
@@ -330,7 +346,7 @@ fn valid_p(p_info: PInfo, config: &SummaryConfig) -> bool {
     }
 }
 
-fn p_value(out_data: &[u8], tag_counts: &Vec<u32>, config: &SummaryConfig) -> Result<f32, NotEnoughSamplesError> {
+fn p_value(out_data: &[Tag], tag_counts: &Vec<u32>, config: &SummaryConfig) -> Result<f32, NotEnoughSamplesError> {
     match config.stat_test {
         StatTest::StudentsTTest => students_t_test(out_data, tag_counts, &config.sample_info),
         StatTest::WelchsTTest => welchs_t_test(out_data, tag_counts, &config.sample_info),
@@ -339,7 +355,7 @@ fn p_value(out_data: &[u8], tag_counts: &Vec<u32>, config: &SummaryConfig) -> Re
 }
 
 // perform a student's t-test
-fn students_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn students_t_test(out_data: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -351,7 +367,7 @@ fn students_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleI
     let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
-        let bin_rep = (2 as M).pow(*label as u32);
+        let bin_rep = (2 as Marker).pow(*label as u32);
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
         if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
@@ -377,7 +393,7 @@ fn students_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleI
 }
 
 // perform a welch's t-test
-fn welchs_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn welchs_t_test(out_data: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -389,7 +405,7 @@ fn welchs_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInf
     let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
-        let bin_rep = (2 as M).pow(*label as u32);
+        let bin_rep = (2 as Marker).pow(*label as u32);
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
         if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
@@ -421,7 +437,7 @@ fn welchs_t_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInf
 }
 
 // perform a mann-whitney-u-test
-fn u_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn u_test(out_data: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
 
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
@@ -435,7 +451,7 @@ fn u_test(out_data: &[u8], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> R
     let (m0, m1) = sample_info.get_markers();
 
     for (label, count) in out_data.iter().zip(tag_counts) {
-        let bin_rep = (2 as M).pow(*label as u32);
+        let bin_rep = (2 as Marker).pow(*label as u32);
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
         if (m0 & bin_rep) > 0 { counts_g0.push(norm); }
         if (m1 & bin_rep) > 0 { counts_g1.push(norm); }
@@ -500,8 +516,8 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 
     let (m0, m1) = sample_info.get_markers();
 
-    for (label, count) in tags.to_u8_vec().iter().zip(&counts) {
-        let bin_rep = (2 as M).pow(*label as u32);
+    for (label, count) in tags.to_tag_vec().iter().zip(&counts) {
+        let bin_rep = (2 as Marker).pow(*label as u32);
         // normalize with number of k-mers in the sample
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
         if (m0 & bin_rep) > 0 { norm_count_g0 += norm; }
@@ -555,11 +571,11 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
     fn print(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
-        format!("count: {}", self).replace("\"", "\'")
+        format!("sum: {}", self).replace("\"", "\'")
     }
 
     fn print_ol(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
-        format!("count: {}", self).replace("\"", "\'")
+        format!("sum: {}", self).replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -617,8 +633,8 @@ impl<DI> SummaryData<DI> for u32 {
 }
 
 /// data the k-mer was observed with
-impl SummaryData<u8> for Vec<u8> {
-    fn print(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+impl SummaryData<Tag> for Vec<Tag> {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         let samples = self
             .iter()
             .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
@@ -626,7 +642,7 @@ impl SummaryData<u8> for Vec<u8> {
         format!("samples: {:?}", samples).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         let samples = self
             .iter()
             .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
@@ -670,7 +686,7 @@ impl SummaryData<u8> for Vec<u8> {
         true
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
 
         let mut out_data = Vec::with_capacity(items.size_hint().0);
@@ -691,8 +707,7 @@ impl SummaryData<u8> for Vec<u8> {
 
 } 
 
-pub type ID = u16;
-/// the u8-labels the k-mer was observed with and its number of observations, and an ID
+/// the tags the k-mer was observed with and its number of observations, and an ID
 /// -> could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
@@ -781,7 +796,82 @@ impl SummaryData<ID> for IDSumData {
 
 }
 
-/// the u8-labels the k-mer was observed with and its number of observations
+/// the tags the k-mer was observed with
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagsData {
+    tags: Tags,
+}
+
+impl SummaryData<Tag> for TagsData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        format!("{}", TagsFormatter::new(self.tags, tag_translator)).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+        // replace " with ' to avoid conflicts in dot file
+        format!("samples: {:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "\'")
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, u32)> { None }
+
+    fn score(&self) -> f32 {
+        1.
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self)
+    }
+
+    fn count(&self) -> Option<usize> { None }
+
+    fn ids(&self) -> Option<&[ID]> { None }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.tags.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        valid_counts(self.tags, None, config)
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
+
+        let mut sum = 0u32;
+        for (_, exts, d) in items {
+            out_data.push(d); 
+            all_exts = all_exts.add(exts);
+            sum += 1;
+        }
+
+        out_data.sort();
+        out_data.dedup();
+
+        let tags = Tags::from_tag_vec(out_data);
+        
+        (valid_counts(tags, Some(sum), config), all_exts, TagsData { tags })
+    }
+
+}
+
+/// the tags the k-mer was observed with and its number of observations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagsSumData {
@@ -789,13 +879,13 @@ pub struct TagsSumData {
     sum: u32,
 }
 
-impl SummaryData<u8> for TagsSumData {
-    fn print(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsSumData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("{}sum: {}", TagsFormatter::new(self.tags, tag_translator), self.sum).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
     }
@@ -837,13 +927,13 @@ impl SummaryData<u8> for TagsSumData {
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
-        valid_counts(self.tags, self.sum, config)
+        valid_counts(self.tags, Some(self.sum), config)
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
 
-        let mut out_data: Vec<u8> = Vec::with_capacity(items.size_hint().0);
+        let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
 
         let mut sum = 0u32;
         for (_, exts, d) in items {
@@ -855,16 +945,16 @@ impl SummaryData<u8> for TagsSumData {
         out_data.sort();
         out_data.dedup();
 
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
         
-        (valid_counts(tags, sum, config), all_exts, TagsSumData { tags, sum })
+        (valid_counts(tags, Some(sum), config), all_exts, TagsSumData { tags, sum })
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and how many times it was observed overall
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsSumData {
@@ -873,8 +963,8 @@ pub struct TagsCountsSumData {
     counts: Box<[u32]>,
 }
 
-impl SummaryData<u8> for TagsCountsSumData {
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsCountsSumData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -888,7 +978,7 @@ impl SummaryData<u8> for TagsCountsSumData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum, p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -935,7 +1025,7 @@ impl SummaryData<u8> for TagsCountsSumData {
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
+        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
             Ok(p_value) => Some(p_value),
             Err(_) => None,
         }
@@ -952,25 +1042,25 @@ impl SummaryData<u8> for TagsCountsSumData {
             None => true,
         };
 
-        valid_counts(self.tags, self.sum, config) && valid_p
+        valid_counts(self.tags, Some(self.sum), config) && valid_p
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum) = summarize(items);
 
         let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);     
 
         let counts: Box<[u32]> = tag_counts.into();
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, sum, config) && valid_p, all_exts, TagsCountsSumData { tags, counts, sum }) 
+        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsSumData { tags, counts, sum }) 
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the `u8`-labels the k-mer was observed with and how many times it 
+/// Contains the tags the k-mer was observed with and how many times it 
 /// was observed with each label
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsData {
@@ -985,8 +1075,8 @@ impl TagsCountsData {
     }
 }
 
-impl SummaryData<u8> for TagsCountsData {
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsCountsData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1000,7 +1090,7 @@ impl SummaryData<u8> for TagsCountsData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1033,7 +1123,7 @@ impl SummaryData<u8> for TagsCountsData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
+        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
             Ok(p_value) => Some(p_value),
             Err(_) => None,
         }
@@ -1064,25 +1154,25 @@ impl SummaryData<u8> for TagsCountsData {
             None => true,
         }; 
 
-        valid_counts(self.tags, self.sum(), config) && valid_p
+        valid_counts(self.tags, Some(self.sum()), config) && valid_p
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum) = summarize(items);
 
         let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
 
         let counts: Box<[u32]> = tag_counts.into();
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, sum, config) && valid_p, all_exts, TagsCountsData { tags, counts }) 
+        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsData { tags, counts }) 
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and a p-value
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPData {
@@ -1098,8 +1188,8 @@ impl TagsCountsPData {
     }
 }
 
-impl SummaryData<u8> for TagsCountsPData {
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsCountsPData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1113,7 +1203,7 @@ impl SummaryData<u8> for TagsCountsPData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1147,7 +1237,7 @@ impl SummaryData<u8> for TagsCountsPData {
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
         } else {
             Some(self.p_value)
         } 
@@ -1172,29 +1262,29 @@ impl SummaryData<u8> for TagsCountsPData {
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
-        valid_counts(self.tags, self.sum(), config) 
+        valid_counts(self.tags, Some(self.sum()), config) 
             && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum) = summarize(items);
 
         // caluclate p-value
         let p_value = p_value(&out_data, &tag_counts, config).unwrap();
 
         let counts: Box<[u32]> = tag_counts.into();
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, sum, config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
 
         (valid, all_exts, TagsCountsPData { tags, counts, p_value }) 
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and the edge multiplicites
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsEMData {
@@ -1210,8 +1300,8 @@ impl TagsCountsEMData {
     }
 }
 
-impl SummaryData<u8> for TagsCountsEMData {
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsCountsEMData {
+    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1225,7 +1315,7 @@ impl SummaryData<u8> for TagsCountsEMData {
         format!("{}sum: {}{}{}, edge multiplicities: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1258,7 +1348,7 @@ impl SummaryData<u8> for TagsCountsEMData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config) {
+        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
             Ok(p_value) => Some(p_value),
             Err(_) => None,
         }
@@ -1295,25 +1385,25 @@ impl SummaryData<u8> for TagsCountsEMData {
             None => true,
         }; 
 
-        valid_counts(self.tags, self.sum(), config) && valid_p
+        valid_counts(self.tags, Some(self.sum()), config) && valid_p
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum, edge_mults) = summarize_with_em(items);
 
         let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
 
         let counts: Box<[u32]> = tag_counts.into();
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, sum, config) && valid_p, all_exts, TagsCountsEMData { tags, counts, edge_mults }) 
+        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsEMData { tags, counts, edge_mults }) 
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the `u8`-labels the k-mer was observed with, how many times it 
+/// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, a p-value, and the edge multiplicites
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPEMData {
@@ -1330,8 +1420,8 @@ impl TagsCountsPEMData {
     }
 }
 
-impl SummaryData<u8> for TagsCountsPEMData{
-    fn print(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+impl SummaryData<Tag> for TagsCountsPEMData{
+    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1345,7 +1435,7 @@ impl SummaryData<u8> for TagsCountsPEMData{
         format!("{}sum: {}{}{}, edge multiplicities: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, u8>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1379,7 +1469,7 @@ impl SummaryData<u8> for TagsCountsPEMData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_u8_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
         } else {
             Some(self.p_value)
         } 
@@ -1412,27 +1502,27 @@ impl SummaryData<u8> for TagsCountsPEMData{
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
-        valid_counts(self.tags, self.sum(), config) 
+        valid_counts(self.tags, Some(self.sum()), config) 
             && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum, edge_mults) = summarize_with_em(items);
 
         // caluclate p-value with chosen test
         let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
 
         let counts: Box<[u32]> = tag_counts.into();
-        let tags = Tags::from_u8_vec(out_data);
+        let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, sum, config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
 
         (valid, all_exts, TagsCountsPEMData { tags, counts, p_value, edge_mults }) 
     }
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains how many times the k-mer was observed in each group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1448,12 +1538,12 @@ impl GroupCountData {
     }
 }
 
-impl SummaryData<u8> for GroupCountData {
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+impl SummaryData<Tag> for GroupCountData {
+    fn print(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         format!("count 1: {}\ncount 2: {}", self.group1, self.group2)
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
@@ -1493,14 +1583,14 @@ impl SummaryData<u8> for GroupCountData {
         self.sum() >= config.min_kmer_obs as u32
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
         let mut count1 = 0;
         let mut count2 = 0;
 
         let mut nobs = 0u32;
         for (_, exts, d) in items {
-            let tag = (2 as M).pow(d as u32);
+            let tag = (2 as Marker).pow(d as u32);
             let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
             let group2 = ((config.sample_info.marker1 & tag) > 0) as u32;
 
@@ -1527,7 +1617,7 @@ impl SummaryData<u8> for GroupCountData {
 
 }
 
-/// Implementation of [`SummaryData<u8>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the relative number of observations for the k-mer (in percent) 
 /// in group 1 and the absolute overall count 
@@ -1537,12 +1627,12 @@ pub struct RelCountData {
     count: u32
 }
 
-impl SummaryData<u8> for RelCountData {    
-    fn print(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+impl SummaryData<Tag> for RelCountData {    
+    fn print(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         format!("relative amount group 1: {}\ncount both: {}", self.percent, self.count)
     }
 
-    fn print_ol(&self, _: &BiMap<String, u8>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
@@ -1582,14 +1672,14 @@ impl SummaryData<u8> for RelCountData {
         self.count >= config.min_kmer_obs as u32
     }
 
-    fn summarize<K, F: Iterator<Item = (K, Exts, u8)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+    fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let mut all_exts = Exts::empty();
         let mut count1 = 0;
         let mut count2 = 0;
 
         let mut nobs = 0u32;
         for (_, exts, d) in items {
-            let tag = (2 as M).pow(d as u32);
+            let tag = (2 as Marker).pow(d as u32);
             let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
             let group2 = ((config.sample_info.marker1 & tag) > 0) as u32;
 
@@ -1744,12 +1834,12 @@ mod test {
 
         let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
 
-        let tags = Tags::from_u8_vec(vec![0, 2, 6]);
+        let tags = Tags::from_tag_vec(vec![0, 2, 6]);
         let counts: Box<[u32]> = [1, 3, 5].into();
         let sum = counts.iter().sum::<u32>();
         graph.add(&DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()), Exts::empty(), TagsCountsSumData { tags, counts, sum });
 
-        let tags = Tags::from_u8_vec(vec![0]);
+        let tags = Tags::from_tag_vec(vec![0]);
         let counts: Box<[u32]> = [1].into();
         let sum = counts.iter().sum::<u32>();
         graph.add(&DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()), Exts::empty(), TagsCountsSumData { tags, counts, sum });
@@ -1803,27 +1893,27 @@ mod test {
         //let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
 
         let labels = vec![0, 1, 2, 3, 7, 8];
-        let tags = Tags::from_u8_vec(labels);
+        let tags = Tags::from_tag_vec(labels);
         let counts = vec![1, 6, 9, 3, 6, 10];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
         assert_eq!(fold_change, 5.286_453_2);
 
         let labels = vec![0, 6, 7, 8, 10, 11];
-        let tags = Tags::from_u8_vec(labels);
+        let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3, 7, 1, 22, 6];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
         assert_eq!(fold_change, -1.339_324_5);
 
         // x/0 = inf -> log(inf) = inf
         let labels = vec![0, 1];
-        let tags = Tags::from_u8_vec(labels);
+        let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
         assert_eq!(fold_change, f32::INFINITY);
 
         // 0/x = 0 -> log2(0) = -inf
         let labels = vec![7, 8];
-        let tags = Tags::from_u8_vec(labels);
+        let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3];
         let fold_change = log2_fold_change(tags, counts, &sample_info);
         assert_eq!(fold_change, f32::NEG_INFINITY);       
