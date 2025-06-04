@@ -36,7 +36,7 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::Range;
 
-use crate::summarizer::Tag;
+use crate::summarizer::{Tag, Translator};
 
 pub mod clean_graph;
 pub mod compression;
@@ -991,65 +991,78 @@ impl Tags {
     }
 }
 
-pub struct TagsFormatter<'a> {
-    tags: Tags,
-    tag_translator: &'a BiMap<String, Tag>
-}
-
-impl<'a> TagsFormatter<'a> {
-    pub fn new(tags: Tags, tag_translator: &'a BiMap<String, Tag>) -> TagsFormatter<'a> {
-        TagsFormatter {
-            tags,
-            tag_translator
-        }
-    }
-}
-
-impl fmt::Display for TagsFormatter<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let tag_vec = self.tags.to_string_vec(self.tag_translator);
-
-        writeln!(f, "samples:")?;
-
-        for label in tag_vec.into_iter() {
-            writeln!(f, "{}", label)?
-        }
-
-        Ok(())
-    }
-}
-
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_tag_vec())
     }
 }
 
+pub struct TagsFormatter<'a> {
+    tags: Tags,
+    translator: &'a Translator
+}
+
+impl<'a> TagsFormatter<'a> {
+    pub fn new(tags: Tags, translator: &'a Translator) -> TagsFormatter<'a> {
+        TagsFormatter {
+            tags,
+            translator
+        }
+    }
+}
+
+impl fmt::Display for TagsFormatter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(tag_translator) = self.translator.tag_translator() {
+            let tag_vec = self.tags.to_string_vec(tag_translator);
+
+            writeln!(f, "samples:")?;
+
+            for label in tag_vec.into_iter() {
+                writeln!(f, "{}", label)?
+            }
+        } else {
+            write!(f, "samples: {:?}", self.tags.to_tag_vec())?
+        }
+
+        Ok(())
+    }
+}
+
 pub struct TagsCountsFormatter<'a> {
     tags: Tags,
     counts: &'a [u32],
-    tag_translator: &'a BiMap<String, Tag>
+    translator: &'a Translator
 }
 
 impl<'a> TagsCountsFormatter<'a> {
-    pub fn new(tags: Tags, counts: &'a [u32], tag_translator: &'a BiMap<String, Tag>) -> TagsCountsFormatter<'a> {
+    pub fn new(tags: Tags, counts: &'a [u32], translator: &'a Translator) -> TagsCountsFormatter<'a> {
         TagsCountsFormatter {
             tags,
             counts,
-            tag_translator
+            translator
         }
     }
 }
 
 impl fmt::Display for TagsCountsFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let tag_vec = self.tags.to_string_vec(self.tag_translator);
-
         writeln!(f, "{:<20} - counts", "samples")?;
 
-        for (label, count) in tag_vec.into_iter().zip(self.counts) {
-            writeln!(f, "{:<20} - {}", label, count)?
+        if let Some(tag_translator) = self.translator.tag_translator() {
+            let label_vec = self.tags.to_string_vec(tag_translator);
+
+            for (label, count) in label_vec.into_iter().zip(self.counts) {
+                writeln!(f, "{:<20} - {}", label, count)?
+            }
+        } else {
+            let tag_vec = self.tags.to_tag_vec();
+
+            for (tag, count) in tag_vec.into_iter().zip(self.counts) {
+                writeln!(f, "{:<20} - {}", tag, count)?
+            }
         }
+
 
         Ok(())
     }
@@ -1247,7 +1260,7 @@ pub struct Label {
 mod tests {
     use bimap::BiMap;
 
-    use crate::{summarizer::{Marker, Tag}, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
+    use crate::{summarizer::{Marker, Tag, Translator}, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
 
     #[test]
     fn test_dir_index() {
@@ -1362,19 +1375,21 @@ mod tests {
             tag_translator.insert(label.to_string(), i as Tag);
         }
 
+        let translator = Translator::new_tag_translator(tag_translator);
+
         let tags = Tags::from_tag_vec(vec![0, 1, 4]);
         let counts = vec![1, 2, 3].into_boxed_slice();
-        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &translator));
 
         let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
         let counts = vec![1, 2, 3, 0].into_boxed_slice();
-        print!("{}", TagsCountsFormatter::new(tags, &counts, &tag_translator));
+        print!("{}", TagsCountsFormatter::new(tags, &counts, &translator));
 
         let tags = Tags::from_tag_vec(vec![0, 1, 4]);
-        print!("{}", TagsFormatter::new(tags, &tag_translator));
+        print!("{}", TagsFormatter::new(tags, &translator));
 
         let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
-        print!("{}", TagsFormatter::new(tags, &tag_translator));
+        print!("{}", TagsFormatter::new(tags, &translator));
 
     }
 }
