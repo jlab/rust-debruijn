@@ -706,13 +706,13 @@ mod tests {
     #[should_panic]
     #[cfg(feature = "sample128")]
     fn test_tags_overflow() {
-        let _tags = Tags::from_u8_vec(vec![5, 128]);
+        let _tags = Tags::from_tag_vec(vec![5, 128]);
     }
 
     #[test]
     #[cfg(feature = "sample128")]
     fn test_tags_no_overflow() {
-        let _tags = Tags::from_u8_vec(vec![5, 127]);
+        let _tags = Tags::from_tag_vec(vec![5, 127]);
     }
 
     #[test]
