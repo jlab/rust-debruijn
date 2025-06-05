@@ -1397,7 +1397,7 @@ impl SummaryData<Tag> for TagsCountsPData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, and the edge multiplicites
+/// was observed with each label, and the edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsEMData {
     tags: Tags,
@@ -1520,7 +1520,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, a p-value, and the edge multiplicites
+/// was observed with each label, a p-value, and the edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPEMData {
     tags: Tags,

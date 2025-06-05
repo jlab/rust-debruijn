@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::path::Path;
 use std::{fs::File, io::{BufReader, BufWriter}};
@@ -36,15 +37,15 @@ impl<DI> SerReads<DI> {
     }
 
     /// deserialize a [`SerReads`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerReads<DI> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerReads<DI> 
     where DI: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with serialized reads");
+        let file = File::open(&path).expect("error opening file with serialized reads");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached reads: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached reads: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
         }
     }
 
@@ -95,17 +96,17 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
     }
 
     /// deserialize a [`SerKmers`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerKmers<K, SD> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerKmers<K, SD> 
     where
         K: DeserializeOwned,
         SD: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with serialized k-mers");
+        let file = File::open(&path).expect("error opening file with serialized k-mers");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
         }
     }
 
@@ -160,17 +161,17 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
     }
 
     /// deserialize a [`SerGraph`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerGraph<K, SD>  
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerGraph<K, SD>  
     where 
         K: DeserializeOwned,
         SD: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with a serialized graph");
+        let file = File::open(&path).expect("error opening file with a serialized graph");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters. \n File: {:?}", err, path)
         }
     }
 

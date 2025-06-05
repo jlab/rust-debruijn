@@ -1070,7 +1070,7 @@ impl fmt::Display for TagsCountsFormatter<'_> {
 
 
 // would be more intuitive with left and right switched but Exts were built this way
-/// multiplicities for each of the 8 possible edges
+/// multiplicities or coverage for each of the 8 possible edges
 /// indices: 
 /// 0: T right
 /// 1: G right
