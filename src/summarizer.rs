@@ -19,7 +19,7 @@ pub type ID = u16;
 /// type for tags
 pub type Tag = u8;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
 /// type for IDs and tags together
 pub struct IDTag {
     id: ID,
@@ -29,6 +29,10 @@ pub struct IDTag {
 impl IDTag {
     pub fn new(id: ID, tag: Tag) -> IDTag {
         IDTag { id, tag }
+    }
+
+    pub fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
