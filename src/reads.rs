@@ -658,7 +658,8 @@ impl ReadData for ID {
 
 impl ReadData for IDTag {
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self {
-        todo!()
+        let id = ID::read_data(gene_ids, read_name, tag);
+        IDTag::new(id, tag)
     }
 
     fn get_tag(&self) -> Option<Tag> {
