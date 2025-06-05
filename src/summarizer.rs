@@ -19,8 +19,18 @@ pub type ID = u16;
 /// type for tags
 pub type Tag = u8;
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// type for IDs and tags together
-pub type IDTag = (ID, Tag);
+pub struct IDTag {
+    id: ID,
+    tag: Tag
+}
+
+impl IDTag {
+    pub fn new(id: ID, tag: Tag) -> IDTag {
+        IDTag { id, tag }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 /// translate tags and IDs (e.g. into sample labels and gene names)
@@ -321,9 +331,9 @@ fn summarize_with_ids<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Ext
     let mut ids = Vec::new();
 
     let mut nobs = 0;
-    for (_, exts, (id, tag)) in items {
-        out_data.push(tag); 
-        ids.push(id);
+    for (_, exts, id_tag) in items {
+        out_data.push(id_tag.tag); 
+        ids.push(id_tag.id);
         all_exts = all_exts.add(exts);
         nobs += 1;
     }
