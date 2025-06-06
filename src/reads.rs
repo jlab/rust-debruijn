@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::mem::take;
 use std::ops::Range;
+use bimap::BiMap;
 use itertools::Itertools;
+use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::{mem, str};
 use crate::dna_string::DnaString;
+use crate::summarizer::{IDTag, Tag, ID};
 use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
@@ -336,17 +339,21 @@ impl<D: Clone + Copy> Reads<D> {
     }
 }
 
-impl<D: Clone + Copy + Eq + Hash> Reads<D> {
-    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+impl<D: ReadData> Reads<D> {
+    /// get the number of k-mers for each unique data value
+    pub fn tag_kmers(&self, k: usize) -> HashMap<Tag, usize> {
         let mut hm = HashMap::new();
 
         self.iter().for_each(|(read, _, data, _)| {
             let kmers = read.len().saturating_sub(k - 1);
-            if let Some(count) = hm.get_mut(&data) {
-                *count += kmers;
-            } else {
-                hm.insert(data, kmers);
+            if let Some(tag) = data.get_tag() {
+                if let Some(count) = hm.get_mut(&tag) {
+                    *count += kmers;
+                } else {
+                    hm.insert(tag, kmers);
+                }
             }
+            
         });
 
         hm
@@ -519,15 +526,17 @@ impl<D: Clone + Copy> ReadsPaired<D> {
     }
 }
 
-impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
-    pub fn data_kmers(&self, k: usize) -> HashMap<D, usize> {
+impl<DI: ReadData> ReadsPaired<DI> {
+    /// get the number of k-mers for each unique data value
+    pub fn tag_kmers(&self, k: usize) -> HashMap<Tag, usize> {
         match self {
             Self::Empty => HashMap::new(),
-            Self::Unpaired { reads } => reads.data_kmers(k),
+            Self::Unpaired { reads } => reads.tag_kmers(k),
             Self::Paired { paired1, paired2 } => {
-                let mut hm_p1 = paired1.data_kmers(k);
-                let hm_p2 = paired2.data_kmers(k);
+                let mut hm_p1 = paired1.tag_kmers(k);
+                let hm_p2 = paired2.tag_kmers(k);
 
+                // combine the values for underlying Reads
                 hm_p2.into_iter().for_each(|(data, kmers)| {
                    if let Some(count) = hm_p1.get_mut(&data) {
                     *count += kmers;
@@ -539,10 +548,11 @@ impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
                 hm_p1
             },
             Self::Combined { paired1, paired2, unpaired } => {
-                let mut hm_p1 = paired1.data_kmers(k);
-                let hm_p2 = paired2.data_kmers(k);
-                let hm_up = unpaired.data_kmers(k);
+                let mut hm_p1: HashMap<u8, usize> = paired1.tag_kmers(k);
+                let hm_p2 = paired2.tag_kmers(k);
+                let hm_up = unpaired.tag_kmers(k);
 
+                // combine the values for underlying Reads
                 hm_p2.into_iter().for_each(|(data, kmers)| {
                    if let Some(count) = hm_p1.get_mut(&data) {
                     *count += kmers;
@@ -563,27 +573,21 @@ impl<D: Clone + Copy + Eq + Hash> ReadsPaired<D> {
             }
         }
     }
-}
 
-impl<DI> ReadsPaired<DI> 
-where DI: Hash + Clone + Copy + Eq + Ord + Into<usize>
-{
     /// return the number of k-mers occuring with each u8-encoded tag, 
     /// with the tag as the index
-    pub fn tag_kmers(&self, k: usize) -> Vec<u64> {
-        let hashed_kmer_counts = self.data_kmers(k);
+    /// if there are no tags saved in the Readspauired, it returns a vector of the
+    /// length `n_sampeles`, filles with zeroes
+    pub fn tag_kmers_vec(&self, k: usize, n_samples: usize) -> Vec<u64> {
+        let hashed_kmer_counts = self.tag_kmers(k);
 
-        match hashed_kmer_counts.keys().max(){
-            Some(n_samples) => {
-                let mut kmer_counts = vec![0; (*n_samples).into() + 1];
-                for (tag, kmer_count) in hashed_kmer_counts {
-                    kmer_counts[tag.into()] += kmer_count as u64;
-                }
+        let mut kmer_counts = vec![0; n_samples];
 
-                kmer_counts
-            },
-            None => Vec::new()
+        for (tag, kmer_count) in hashed_kmer_counts {
+            kmer_counts[tag as usize] += kmer_count as u64;
         }
+
+        kmer_counts
     }
 }
 
@@ -598,14 +602,81 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
     }
 }
 
+/// Trait for ReadData
+pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
+    fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
+    fn get_tag(&self) -> Option<Tag>;
+}
+
+impl ReadData for Tag {
+    fn read_data(_: &mut BiMap<String, ID>, _: &[u8], tag: Tag) -> Self {
+        tag
+    }
+
+    fn get_tag(&self) -> Option<Tag> {
+        Some(*self)
+    }
+}
+
+impl ReadData for ID {
+    fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], _: Tag) -> Self {
+
+        // read name is e.g. "B7R87_RS28825_2_0/1" -> gene: "B7R87_RS28825"
+        // split at '_' and use first two elements and reconnect with '_'
+        let read_name_sting = str::from_utf8(read_name).expect("error reading read name").to_string();
+        let mut split_iter = read_name_sting.split('_');
+        let mut gene = String::new();
+
+        let Some(gene1) = split_iter.next() else {
+            panic!("no gene names found in reads - only use id-sum summarizer with marbel data - read name: {}", read_name_sting)
+        };
+        gene.push_str(gene1);
+
+        gene.push('_');
+
+        let Some(gene2) = split_iter.next() else {
+            panic!("no gene names found in reads - only use id-sum summarizer with marbel data - read name: {}", read_name_sting)
+        };
+        gene.push_str(gene2);
+
+        // if gene not in gene_ids, then add, else get gene id
+        let new_id = gene_ids.len() as ID;
+        if new_id == ID::MAX { panic!("number of genes has surpassed 65.5k limit of u16") }
+        match gene_ids.get_by_left(&gene) {
+            Some(id) => *id,
+            None => {
+                gene_ids.insert(gene, new_id);
+                new_id
+            },
+        }
+    }
+
+    fn get_tag(&self) -> Option<Tag> {
+        None
+    }
+}
+
+impl ReadData for IDTag {
+    fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self {
+        let id = ID::read_data(gene_ids, read_name, tag);
+        IDTag::new(id, tag)
+    }
+
+    fn get_tag(&self) -> Option<Tag> {
+        Some(self.tag())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time};
 
+    use bimap::BiMap;
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, reads::Strandedness, Exts};
+    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, Translator, ID}, Exts};
+    use crate::reads::ReadData;
     use super::{Reads, ReadsPaired};
 
     #[test]
@@ -796,7 +867,7 @@ mod tests {
         ];
 
         seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
-        let data_kmers = reads.data_kmers(16);
+        let data_kmers = reads.tag_kmers(16);
        
         let comp_hm: HashMap<u8, usize> = [(0, 30), (1, 19), (2, 26), (3, 21)].into_iter().collect();
 
@@ -896,10 +967,10 @@ mod tests {
         assert_eq!(combined.iter_partial(1..9).collect::<Vec<_>>(), p1.partial_iter(1..4).chain(p2.partial_iter(0..4)).chain(up.partial_iter(0..1)).collect::<Vec<_>>());
 
         // test tag kmers (and data_kmers)
-        assert_eq!(unpaired.tag_kmers(16), vec![2, 8]);
-        assert_eq!(paired.tag_kmers(16), vec![50, 26, 40, 50]);
-        assert_eq!(combined.tag_kmers(16), vec![52, 34, 40, 50]);
-        assert_eq!(empty.tag_kmers(16), Vec::<u64>::new());
+        assert_eq!(unpaired.tag_kmers_vec(16, 2), vec![2, 8]);
+        assert_eq!(paired.tag_kmers_vec(16, 4), vec![50, 26, 40, 50]);
+        assert_eq!(combined.tag_kmers_vec(16, 4), vec![52, 34, 40, 50]);
+        assert_eq!(empty.tag_kmers_vec(16, 0), Vec::<u64>::new());
 
         // test decombine
         let mut paired_dc = paired.clone();
@@ -940,5 +1011,44 @@ Reads { n reads: 2, stranded: Unstranded }".to_string());
         reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
 
         let _ = ReadsPaired::from_reads((p1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
+    }
+
+    #[test]
+    fn test_read_data() {
+        let read_name_1 = "B7R87_RS28825_2_0/1".as_bytes(); // gene B7R87_RS28825
+        let read_name_2 = "B7R87_RS21825_2_0/1".as_bytes(); // gene B7R87_RS21825
+
+        let tag = 0 as Tag;
+        
+        let mut ids = BiMap::new();
+
+        let id = ID::read_data(&mut ids, read_name_1, tag);
+        assert_eq!(id, 0);
+
+        let id_tag = IDTag::read_data(&mut ids, read_name_1, tag);
+        assert_eq!(id_tag, IDTag::new(id, tag));
+        assert_eq!(id_tag.get_tag(), Some(tag));
+
+        let id = ID::read_data(&mut ids, read_name_2, tag);
+        assert_eq!(id, 1);
+        assert_eq!(id.get_tag(), None);
+
+        assert_eq!(Tag::read_data(&mut ids, read_name_1, tag), tag);
+        assert_eq!(tag.get_tag(), Some(tag));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_read_data_panic() {
+        let mut ids = BiMap::new();
+
+        let read_name_1 = "B7R87_RS28825_2_0/1".as_bytes(); // gene B7R87_RS28825
+        let read_name_2 = "B7R87_RS21825_2_0/1".as_bytes(); // gene B7R87_RS21825
+
+        let _ = ID::read_data(&mut ids, read_name_1, 0);
+        let _ = ID::read_data(&mut ids, read_name_2, 0);
+
+        // trying to add invalid read name -> panic
+        let _ = ID::read_data(&mut ids, "AAAAAA".as_bytes(), 0);
     }
 }

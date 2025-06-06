@@ -19,8 +19,61 @@ pub type ID = u16;
 /// type for tags
 pub type Tag = u8;
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
 /// type for IDs and tags together
-pub type IDTag = (ID, Tag);
+pub struct IDTag {
+    id: ID,
+    tag: Tag
+}
+
+impl IDTag {
+    pub fn new(id: ID, tag: Tag) -> IDTag {
+        IDTag { id, tag }
+    }
+
+    pub fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// translate tags and IDs (e.g. into sample labels and gene names)
+pub struct Translator {
+    hashed_ids: Option<BiMap<String, ID>>,
+    hashed_tags: Option<BiMap<String,Tag>>
+}
+
+impl Translator {
+    /// make a new [`Translator`] for tags and IDs
+    pub fn new(hashed_ids: BiMap<String, ID>, hashed_tags: BiMap<String,Tag>) -> Translator {
+        Translator { hashed_ids: Some(hashed_ids), hashed_tags: Some(hashed_tags) }
+    }
+
+    /// make a new [`Translator`] for tags
+    pub fn new_tag_translator(hashed_tags: BiMap<String, Tag>) -> Translator {
+        Translator { hashed_ids: None, hashed_tags: Some(hashed_tags) }
+    }
+
+    /// make a new [`Translator`] for IDs
+    pub fn new_id_translator(hashed_ids: BiMap<String, ID>) -> Translator {
+        Translator { hashed_ids: Some(hashed_ids), hashed_tags: None }
+    }
+
+    /// get the tag translator, returns None if the `Translator` does not contain a tag translator
+    pub fn tag_translator(&self) -> &Option<BiMap<String, Tag>> {
+        &self.hashed_tags
+    }
+
+    /// get the tag translator, returns None if the `Translator` does not contain a tag translator
+    pub fn id_translator(&self) -> &Option<BiMap<String, ID>> {
+        &self.hashed_ids
+    }
+
+    /// dissolve the `Translator` into its underlying [`BiMap`]s
+    pub fn dissolve(self) -> (Option<BiMap<String, ID>>, Option<BiMap<String,Tag>>) {
+        (self.hashed_ids, self.hashed_tags)
+    }
+}
 
 #[derive(Debug, PartialEq)]
 struct NotEnoughSamplesError {}
@@ -202,6 +255,26 @@ impl SampleInfo {
     }
 }
 
+/// count the ocurrences of the tags
+fn tag_counter(out_data: &[Tag]) -> Vec<u32> {
+    let mut tag_counter = 1;
+    let mut tag_counts: Vec<u32> = Vec::new();
+
+    // count the occurences of the labels
+    for i in 1..out_data.len() {
+        if out_data[i] == out_data[i-1] {
+            tag_counter += 1;
+        } else {
+            tag_counts.push(tag_counter);
+            tag_counter = 1;
+        }
+    }
+    tag_counts.push(tag_counter);
+    tag_counts.shrink_to_fit();
+
+    tag_counts
+}
+
 /// summarize the k-mers, exts and labels
 fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32) {
     let mut all_exts = Exts::empty();
@@ -217,19 +290,7 @@ fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>
 
     out_data.sort();
 
-    let mut tag_counter = 1;
-    let mut tag_counts: Vec<u32> = Vec::new();
-
-    // count the occurences of the labels
-    for i in 1..out_data.len() {
-        if out_data[i] == out_data[i-1] {
-            tag_counter += 1;
-        } else {
-            tag_counts.push(tag_counter);
-            tag_counter = 1;
-        }
-    }
-    tag_counts.push(tag_counter);
+    let tag_counts = tag_counter(&out_data);
 
     out_data.dedup();
 
@@ -255,24 +316,71 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, 
 
     out_data.sort();
 
-    let mut tag_counter = 1;
-    let mut tag_counts: Vec<u32> = Vec::new();
-
-    // count the occurences of the labels
-    for i in 1..out_data.len() {
-        if out_data[i] == out_data[i-1] {
-            tag_counter += 1;
-        } else {
-            tag_counts.push(tag_counter);
-            tag_counter = 1;
-        }
-    }
-    tag_counts.push(tag_counter);
+    let tag_counts = tag_counter(&out_data);
 
     out_data.dedup();
 
     (all_exts, out_data, tag_counts, nobs, edge_mults)
 }
+
+/// summarize the k-mers, exts and labels
+fn summarize_with_ids<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>) {
+    let mut all_exts = Exts::empty();
+
+    let mut out_data = Vec::with_capacity(items.size_hint().0);
+    let mut ids = Vec::new();
+
+    let mut nobs = 0;
+    for (_, exts, id_tag) in items {
+        out_data.push(id_tag.tag); 
+        ids.push(id_tag.id);
+        all_exts = all_exts.add(exts);
+        nobs += 1;
+    }
+
+    out_data.sort();
+    ids.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
+    ids.dedup();
+    ids.shrink_to_fit();
+
+    (all_exts, out_data, tag_counts, nobs, ids)
+}
+
+/// summarize the k-mers, exts and labels
+fn summarize_with_ids_em<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>, EdgeMult) {
+    let mut all_exts = Exts::empty();
+
+    let mut out_data = Vec::with_capacity(items.size_hint().0);
+    let mut ids = Vec::new();
+    let mut edge_mults = EdgeMult::new();
+
+    let mut nobs = 0;
+    for (_, exts, id_tag) in items {
+        out_data.push(id_tag.tag); 
+        ids.push(id_tag.id);
+        all_exts = all_exts.add(exts);
+        edge_mults.add_exts(exts);
+        nobs += 1;
+    }
+
+    out_data.sort();
+    ids.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
+    ids.dedup();
+    ids.shrink_to_fit();
+
+    (all_exts, out_data, tag_counts, nobs, ids, edge_mults)
+}
+
+
+
 
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer
@@ -534,9 +642,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
     /// format the noda data 
-    fn print(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, translator: &BiMap<String, DI>, config: &SummaryConfig) -> String;
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags_sum(&self) -> Option<(Tags, u32)>;
     /// get "score" (the sum of the kmer appearances), `Vec<D>` simply returns `1.`
@@ -570,11 +678,11 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
 
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
-    fn print(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("sum: {}", self).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &BiMap<String, DI>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("sum: {}", self).replace("\"", "\'")
     }
 
@@ -634,20 +742,21 @@ impl<DI> SummaryData<DI> for u32 {
 
 /// data the k-mer was observed with
 impl SummaryData<Tag> for Vec<Tag> {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
-        let samples = self
-            .iter()
-            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
-            .collect::<Vec<_>>();
-        format!("samples: {:?}", samples).replace("\"", "\'")
+    fn print(&self, translator: &Translator, _: &SummaryConfig) -> String {
+        if let Some(tag_translator) = translator.tag_translator() {
+            let samples = self
+                .iter()
+                .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+                .collect::<Vec<_>>();
+            format!("samples: {:?}", samples).replace("\"", "\'")
+        } else {
+            format!("samples: {:?}", self).replace("\"", "\'")
+        }         
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
-        let samples = self
-            .iter()
-            .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
-            .collect::<Vec<_>>();
-        format!("samples: {:?}", samples).replace("\"", "\'")
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
+        // print is only one line anyways
+        self.print(translator, config)
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -717,22 +826,21 @@ pub struct IDSumData {
 }
 
 impl SummaryData<ID> for IDSumData {
-    fn print(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        let t_ids = self.ids
-            .iter()
-            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
-            .collect::<Vec<_>>();
-        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
+    fn print(&self, id_translator: &Translator, _: &SummaryConfig) -> String {
+        if let Some(id_translator) = id_translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("IDs: {:?}, sum: {}", t_ids, self.sum)
+        } else {
+            format!("IDs: {:?}, sum: {}", self.ids, self.sum)
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
-    fn print_ol(&self, id_translator: &BiMap<String, ID>, _: &SummaryConfig) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        let t_ids = self.ids
-            .iter()
-            .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
-            .collect::<Vec<_>>();
-        format!("IDs: {:?}, sum: {}", t_ids, self.sum).replace("\"", "\'")
+    fn print_ol(&self, id_translator: &Translator, config: &SummaryConfig) -> String {
+        // print is only one line anyways
+        self.print(id_translator, config)
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -803,14 +911,18 @@ pub struct TagsData {
 }
 
 impl SummaryData<Tag> for TagsData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        format!("{}", TagsFormatter::new(self.tags, tag_translator)).replace("\"", "\'")
+        format!("{}", TagsFormatter::new(self.tags, translator)).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        format!("samples: {:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "\'")
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig) -> String {
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("samples: {:?}", self.tags.to_tag_vec())
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> { None }
@@ -880,14 +992,17 @@ pub struct TagsSumData {
 }
 
 impl SummaryData<Tag> for TagsSumData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, _: &SummaryConfig) -> String {
         // replace " with ' to avoid conflicts in dot file
-        format!("{}sum: {}", TagsFormatter::new(self.tags, tag_translator), self.sum).replace("\"", "\'")
+        format!("{}sum: {}", TagsFormatter::new(self.tags, translator), self.sum).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum).replace("\"", "\'")
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig) -> String {
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum)
+        } else {
+            format!("samples: {:?}, sum: {}", self.tags.to_tag_vec(), self.sum)
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
@@ -964,7 +1079,7 @@ pub struct TagsCountsSumData {
 }
 
 impl SummaryData<Tag> for TagsCountsSumData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -975,10 +1090,10 @@ impl SummaryData<Tag> for TagsCountsSumData {
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum, p, fc).replace("\"", "\'")
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum, p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -989,7 +1104,11 @@ impl SummaryData<Tag> for TagsCountsSumData {
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum, p, fc).replace("\"", "\'")
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum, p, fc)
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_tag_vec(), self.counts, self.sum, p, fc)
+        }.replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
@@ -1076,7 +1195,7 @@ impl TagsCountsData {
 }
 
 impl SummaryData<Tag> for TagsCountsData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1087,10 +1206,10 @@ impl SummaryData<Tag> for TagsCountsData {
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1101,7 +1220,11 @@ impl SummaryData<Tag> for TagsCountsData {
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc)
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc)
+        }.replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
@@ -1189,7 +1312,7 @@ impl TagsCountsPData {
 }
 
 impl SummaryData<Tag> for TagsCountsPData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1200,10 +1323,10 @@ impl SummaryData<Tag> for TagsCountsPData {
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc).replace("\"", "\'")
+        format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1214,7 +1337,11 @@ impl SummaryData<Tag> for TagsCountsPData {
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc).replace("\"", "\'")
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc)
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc)
+        }.replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
@@ -1285,7 +1412,7 @@ impl SummaryData<Tag> for TagsCountsPData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, and the edge multiplicites
+/// was observed with each label, and the edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsEMData {
     tags: Tags,
@@ -1301,7 +1428,7 @@ impl TagsCountsEMData {
 }
 
 impl SummaryData<Tag> for TagsCountsEMData {
-    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1312,10 +1439,10 @@ impl SummaryData<Tag> for TagsCountsEMData {
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}, edge multiplicities: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+        format!("{}sum: {}{}{}, edge coverage: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1326,7 +1453,11 @@ impl SummaryData<Tag> for TagsCountsEMData {
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults)
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc, self.edge_mults)
+        }.replace("\"", "\'")
     }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
@@ -1404,7 +1535,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, a p-value, and the edge multiplicites
+/// was observed with each label, a p-value, and the edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagsCountsPEMData {
     tags: Tags,
@@ -1421,7 +1552,7 @@ impl TagsCountsPEMData {
 }
 
 impl SummaryData<Tag> for TagsCountsPEMData{
-    fn print(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1432,10 +1563,10 @@ impl SummaryData<Tag> for TagsCountsPEMData{
             None => "".to_string()
         };
 
-        format!("{}sum: {}{}{}, edge multiplicities: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, tag_translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+        format!("{}sum: {}{}{}, edge coverage: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, tag_translator: &BiMap<String, Tag>, config: &SummaryConfig) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1446,8 +1577,11 @@ impl SummaryData<Tag> for TagsCountsPEMData{
             None => "".to_string()
         };
 
-        format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge multiplicities: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
-    }
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_string_vec(tag_translator), self.counts, self.sum(), p, fc, self.edge_mults)
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc, self.edge_mults)
+        }.replace("\"", "\'")    }
 
     fn tags_sum(&self) -> Option<(Tags, u32)> {
         Some((self.tags, self.sum()))
@@ -1522,6 +1656,296 @@ impl SummaryData<Tag> for TagsCountsPEMData{
 
 }
 
+/// Implementation of [`SummaryData<IDTag>`]
+/// 
+/// Contains the tags the k-mer was observed with and how many times it 
+/// was observed with each label
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IDTagsCountsData {
+    ids: Box<[ID]>,
+    tags: Tags,
+    counts: Box<[u32]>
+}
+
+impl IDTagsCountsData {
+    #[inline]
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>()
+    }
+}
+
+impl SummaryData<IDTag> for IDTagsCountsData {
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        if let Some(id_translator) = translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("IDs: {:?}, {}sum: {}{}{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
+        } else {
+            format!("IDs: {:?}, {}sum: {}{}{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let tags_format = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        };
+
+        let ids_format = if let Some(id_translator) = translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("{:?}", t_ids)
+        } else {
+            format!("{:?}", self.ids)
+        };
+
+        format!("IDs: {}, samples: {}, counts: {:?}, sum: {}{}{}", ids_format, tags_format, self.counts, self.sum(), p, fc).replace("\"", "\'")
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
+        Some((self.tags, self.sum()))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum() as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts) + mem::size_of_val(&*self.ids)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids)
+    }
+
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
+        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
+            Ok(p_value) => Some(p_value),
+            Err(_) => None,
+        }
+    }
+
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        let valid_p = match config.max_p {
+            Some(p) => self.p_value(config).expect("error calculating p-value") <= p,
+            None => true,
+        }; 
+
+        valid_counts(self.tags, Some(self.sum()), config) && valid_p
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let (all_exts, out_data, tag_counts, sum, ids) = summarize_with_ids(items);
+
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+
+        let counts: Box<[u32]> = tag_counts.into();
+        let tags = Tags::from_tag_vec(out_data);
+        let ids: Box<[ID]> = ids.into();
+
+        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, IDTagsCountsData { tags, counts, ids }) 
+    }
+}
+
+/// Implementation of [`SummaryData<Tag>`]
+/// 
+/// Contains the tags the k-mer was observed with, how many times it 
+/// was observed with each label, a p-value, and the edge multiplicites/coverage
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IDTagsCountsPEMData {
+    tags: Tags,
+    counts: Box<[u32]>,
+    ids: Box<[ID]>,
+    p_value: f32,
+    edge_mults: EdgeMult,
+}
+
+impl IDTagsCountsPEMData {
+    #[inline]
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>()
+    }
+}
+
+impl SummaryData<IDTag> for IDTagsCountsPEMData{
+    fn print(&self, translator: &Translator, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        if let Some(id_translator) = translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("IDs: {:?}, {}sum: {}{}{}, edge coverage: \n{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
+        } else {
+            format!("IDs: {:?}, {}sum: {}{}{}, edge coverage: \n{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let tags_format = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        };
+
+        let ids_format = if let Some(id_translator) = translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("{:?}", t_ids)
+        } else {
+            format!("{:?}", self.ids)
+        };
+
+        format!("IDs: {}, samples: {}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", ids_format, tags_format, self.counts, self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
+
+    }
+
+    fn tags_sum(&self) -> Option<(Tags, u32)> {
+        Some((self.tags, self.sum()))
+    }
+
+    fn score(&self) -> f32 {
+        self.sum() as f32
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
+    }
+
+    fn count(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids)
+    }
+
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        if config.stat_test_changed {
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+        } else {
+            Some(self.p_value)
+        } 
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
+    }
+
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.counts == other.counts
+            && self.tags == other.tags
+            && self.p_value == other.p_value
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        valid_counts(self.tags, Some(self.sum()), config) 
+            && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
+    }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let (all_exts, out_data, tag_counts, sum, ids, edge_mults) = summarize_with_ids_em(items);
+
+        // caluclate p-value with chosen test
+        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+
+        let counts = tag_counts.into();
+        let ids = ids.into();
+        let tags = Tags::from_tag_vec(out_data);
+
+        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+
+        (valid, all_exts, IDTagsCountsPEMData { tags, counts, p_value, ids, edge_mults }) 
+    }
+
+}
+
+
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains how many times the k-mer was observed in each group
@@ -1539,11 +1963,11 @@ impl GroupCountData {
 }
 
 impl SummaryData<Tag> for GroupCountData {
-    fn print(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("count 1: {}\ncount 2: {}", self.group1, self.group2)
     }
 
-    fn print_ol(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
@@ -1628,11 +2052,11 @@ pub struct RelCountData {
 }
 
 impl SummaryData<Tag> for RelCountData {    
-    fn print(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("relative amount group 1: {}\ncount both: {}", self.percent, self.count)
     }
 
-    fn print_ol(&self, _: &BiMap<String, Tag>, _: &SummaryConfig) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
