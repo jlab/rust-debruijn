@@ -1691,9 +1691,9 @@ impl SummaryData<IDTag> for IDTagsCountsData {
                 .iter()
                 .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
                 .collect::<Vec<_>>();
-            format!("IDs: {:?}, {}, sum: {}{}{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
+            format!("IDs: {:?}, {}sum: {}{}{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
         } else {
-            format!("IDs: {:?}, {}, sum: {}{}{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
+            format!("IDs: {:?}, {}sum: {}{}{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc)
         }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
@@ -1832,9 +1832,9 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
                 .iter()
                 .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
                 .collect::<Vec<_>>();
-            format!("IDs: {:?}, {}, sum: {}{}{}, edge coverage: \n{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
+            format!("IDs: {:?}, {}sum: {}{}{}, edge coverage: \n{}", t_ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
         } else {
-            format!("IDs: {:?}, {}, sum: {}{}{}, edge coverage: \n{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
+            format!("IDs: {:?}, {}sum: {}{}{}, edge coverage: \n{}", self.ids, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults)
         }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 

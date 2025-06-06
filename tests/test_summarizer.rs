@@ -1,7 +1,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDSumData, Marker, RelCountData, SampleInfo, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
+use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, Marker, RelCountData, SampleInfo, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a Translator ) 
     -> (Option<usize>, Option<(Tags, u32)>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String)
@@ -91,6 +91,12 @@ fn test_summary_data() {
         (Kmer8::from_u64(12), Exts::new(1), 8 as ID),           
     ];
 
+    let input_id_tags = input_tags
+        .iter()
+        .zip(&input_ids)
+        .map(|((kmer, exts, tag), (_, _, id))| (*kmer, *exts, IDTag::new(*id, *tag)))
+        .collect::<Vec<_>>();
+
     println!("kmer: {:?}", Kmer8::from_u64(12));
 
     let size_tags = mem::size_of::<Marker>();
@@ -112,7 +118,10 @@ fn test_summary_data() {
     assert_eq!(data, (count, None, size_ids * 6 + 16 + 4 + 4, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), None, true, "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(), "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string()));
 
     let data = test_summarize::<Vec<u8>, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
-    assert_eq!(data, (None, None, 30, None, None, sample_count, None, None, true, "samples: ['0', '1', '2', '3', '7', '8']".to_string(), "samples: ['0', '1', '2', '3', '7', '8']".to_string()));
+    assert_eq!(data, (None, None, 3*8 + 6, None, None, sample_count, None, None, true, "samples: ['0', '1', '2', '3', '7', '8']".to_string(), "samples: ['0', '1', '2', '3', '7', '8']".to_string()));
+
+    let data = test_summarize::<TagsData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
+    assert_eq!(data, (None, None, size_tags, None, None, sample_count, None, None, true, "samples:\n0\n1\n2\n3\n7\n8\n".to_string(), "samples: ['0', '1', '2', '3', '7', '8']".to_string()));
 
     let data = test_summarize::<TagsSumData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, tags_sum, size_tags * 2, None, None, sample_count, None, None, true, "samples:\n0\n1\n2\n3\n7\n8\nsum: 6".to_string(), "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string())); // mem: M + 4 + alignment buffer
@@ -147,6 +156,18 @@ fn test_summary_data() {
         "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
 
+    let data = test_summarize::<IDTagsCountsData, _, _, _>(input_id_tags.clone().into_iter(), &summary_config, &translator);
+    assert_eq!(data, (count, tags_sum, size_ids * 6 + 16 + size_tags + 16 + 6*4, p_value, fold_change, sample_count, Some(vec![0, 1, 2, 3, 7, 8]), None, true,
+        "IDs: ['0', '1', '2', '3', '7', '8'], samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string()
+    )); 
+
+    let data = test_summarize::<IDTagsCountsPEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
+    assert_eq!(data, (count, tags_sum, size_ids * 6 + 16 + size_tags + 4 + 16 + 6*4 + 3*8, p_value, fold_change, sample_count, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true,  
+        "IDs: ['0', '1', '2', '3', '7', '8'], samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
+    )); 
+
     let data = test_summarize::<GroupCountData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, None, 4 + 4, None, None, None, None, None, true, "count 1: 4\ncount 2: 2".to_string(), "count 1: 4, count 2: 2".to_string()));
 
@@ -173,4 +194,7 @@ fn test_summary_data() {
         "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
         "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string()
     )); 
+
+
+
 }
