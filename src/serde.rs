@@ -235,6 +235,8 @@ mod test {
 
     use super::SerReads;
 
+    // test files: cargo run -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids
+
     #[test]
     fn test_ser_reads() {
         let ser_reads: SerReads<ID> = SerReads::deserialize_from("test_data/test_graph_ids.reads.dbg");
