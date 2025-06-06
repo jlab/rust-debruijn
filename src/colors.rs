@@ -118,7 +118,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                 &graph, 
                 &|&graph| Box::new(graph
                         .iter_nodes()
-                        .map(|node| node.data().score())
+                        .map(|node| node.data().sum().unwrap_or(1) as f32)
                     )
                 );
                 debug!("nobs min max: {:?}", nobs);
@@ -241,8 +241,8 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                 }
             },
             ColorMode::SampleGroups  => {
-                match data.tags_sum() {
-                    Some((tag, _)) => {
+                match data.tags() {
+                    Some(tag) => {
                         if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
                             // tags are only in marker0 group
                             Self::HUE_GREEN

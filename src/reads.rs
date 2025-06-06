@@ -604,8 +604,12 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 
 /// Trait for ReadData
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
+    /// geneate a read data
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
+    /// if available, get a tag
     fn get_tag(&self) -> Option<Tag>;
+    /// retrun a ReadDatas enum to check which kind of ReadData is present
+    fn read_datas() -> ReadDatas;
 }
 
 impl ReadData for Tag {
@@ -615,6 +619,10 @@ impl ReadData for Tag {
 
     fn get_tag(&self) -> Option<Tag> {
         Some(*self)
+    }
+
+    fn read_datas() -> ReadDatas {
+        ReadDatas::Tag
     }
 }
 
@@ -654,6 +662,10 @@ impl ReadData for ID {
     fn get_tag(&self) -> Option<Tag> {
         None
     }
+
+    fn read_datas() -> ReadDatas {
+        ReadDatas::ID
+    }
 }
 
 impl ReadData for IDTag {
@@ -665,8 +677,18 @@ impl ReadData for IDTag {
     fn get_tag(&self) -> Option<Tag> {
         Some(self.tag())
     }
+
+    fn read_datas() -> ReadDatas {
+        ReadDatas::IDTag
+    }
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum ReadDatas {
+    ID,
+    Tag,
+    IDTag
+}
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time};
@@ -675,7 +697,7 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, Translator, ID}, Exts};
+    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, ID}, Exts};
     use crate::reads::ReadData;
     use super::{Reads, ReadsPaired};
 

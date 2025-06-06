@@ -7,7 +7,8 @@ use boomphf::hashmap::BoomHashMap2;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::graph::DebruijnGraph;
-use crate::summarizer::{SummaryConfig, Translator};
+use crate::reads::{ReadData, ReadDatas};
+use crate::summarizer::{Summarizers, SummaryConfig, SummaryData, Translator};
 use crate::Kmer;
 use crate::{reads::ReadsPaired, Exts};
 
@@ -15,14 +16,18 @@ use crate::{reads::ReadsPaired, Exts};
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SerReads<DI> {
     reads: ReadsPaired<DI>,
+    read_datas: ReadDatas,
     translator: Translator
 }
 
 impl<DI> SerReads<DI> {
     /// make a new [`SerReads`]
-    pub fn new(reads: ReadsPaired<DI>, translator: Translator) -> SerReads<DI> {
+    pub fn new(reads: ReadsPaired<DI>, translator: Translator) -> SerReads<DI> 
+    where DI: ReadData
+    {
         SerReads {
             reads,
+            read_datas: DI::read_datas(),
             translator
         }
     }
@@ -59,6 +64,11 @@ impl<DI> SerReads<DI> {
         &self.translator
     }
 
+    /// get the parameters (read data kind)
+    pub fn parameters(&self) -> ReadDatas {
+        self.read_datas
+    }
+
     /// get the underlying read, hashed tags and hashed labels
     pub fn dissolve(self) -> (ReadsPaired<DI>, Translator) {
         (self.reads, self.translator)
@@ -70,15 +80,21 @@ impl<DI> SerReads<DI> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SerKmers<K: Hash, SD> {
     kmers: BoomHashMap2<K, Exts, SD>,
+    k: usize,
+    summarizer: Summarizers,
     translator: Translator,
     config: SummaryConfig
 }
 
 impl<K: Kmer, SD> SerKmers<K, SD> {
     /// make a new [`SerKmers`]
-    pub fn new(kmers: BoomHashMap2<K, Exts, SD>, translator: Translator, config: SummaryConfig) -> SerKmers<K, SD> {
+    pub fn new<DI>(kmers: BoomHashMap2<K, Exts, SD>, translator: Translator, config: SummaryConfig) -> SerKmers<K, SD> 
+    where SD: SummaryData<DI>
+    {
         SerKmers {
             kmers,
+            summarizer: SD::summarizer(),
+            k: K::k(),
             translator,
             config
         }
@@ -125,6 +141,11 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
         &self.config
     }
 
+    /// get the set parameters (k, summarizer) of the `SerKmers`
+    pub fn parameters(&self) -> (usize, Summarizers) {
+        (self.k, self.summarizer)
+    }
+
     /// get the underlying read, hashed tags, hashed labels and config
     pub fn dissolve(self) -> (BoomHashMap2<K, Exts, SD>, Translator, SummaryConfig) {
         (self.kmers, self.translator, self.config)
@@ -135,15 +156,21 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SerGraph<K: Hash, SD> {
     graph: DebruijnGraph<K, SD>,
+    summarizer: Summarizers,
+    k: usize,
     translator: Translator,
     config: SummaryConfig
 }
 
 impl<K: Kmer, SD> SerGraph<K, SD> {
     /// make a new [`SerGraph`]
-    pub fn new(graph: DebruijnGraph<K, SD>, translator: Translator, config: SummaryConfig) -> SerGraph<K, SD> {
+    pub fn new<DI>(graph: DebruijnGraph<K, SD>, translator: Translator, config: SummaryConfig) -> SerGraph<K, SD> 
+    where SD: SummaryData<DI>
+    {
         SerGraph {
             graph,
+            summarizer: SD::summarizer(),
+            k: K::k(),
             translator,
             config
         }
@@ -189,6 +216,11 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
         &self.config
     }
 
+    /// get the set parameters (k, summarizer) of the `SerGraph`
+    pub fn parameters(&self) -> (usize, Summarizers) {
+        (self.k, self.summarizer)
+    }
+
     /// get the underlying graph, hashed tags, hashed labels and config
     pub fn dissolve(self) -> (DebruijnGraph<K, SD>, Translator, SummaryConfig) {
         (self.graph, self.translator, self.config)
@@ -199,7 +231,7 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{kmer::Kmer16, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, ID}};
+    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, Summarizers, ID}};
 
     use super::SerReads;
 
@@ -212,6 +244,7 @@ mod test {
         let all = ser_reads.dissolve();
         assert_eq!(cloned_ser_reads.reads(), &all.0);
         assert_eq!(cloned_ser_reads.translator(), &all.1);
+        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::ID);
 
         let ser_reads = SerReads::new(all.0, all.1);
         let ser_path = "test_data/new_ser_reads";
@@ -232,6 +265,7 @@ mod test {
         assert_eq!(cloned_ser_kmers.kmers().len(), all.0.len());
         assert_eq!(cloned_ser_kmers.translator(), &all.1);
         assert_eq!(cloned_ser_kmers.config(), &all.2);
+        assert_eq!(cloned_ser_kmers.parameters(), (16, Summarizers::IDSum));
 
         let ser_kmers = SerKmers::new(all.0, all.1, all.2);
         let ser_path = "test_data/new_ser_kmers";
@@ -247,18 +281,19 @@ mod test {
 
     #[test]
     fn test_ser_graph() {
-        let ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from("test_data/test_graph_ids.graph.dbg");
+        let ser_graph: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from("test_data/test_graph_ids.graph.dbg");
 
-        let all = ser_kmers.dissolve();
+        let all = ser_graph.dissolve();
 
-        let ser_kmers = SerGraph::new(all.0, all.1, all.2);
+        let ser_graph = SerGraph::new(all.0, all.1, all.2);
         let ser_path = "test_data/new_ser_graph";
-        ser_kmers.serialize(ser_path);
+        ser_graph.serialize(ser_path);
 
         let new_ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(ser_path);
-        assert_eq!(ser_kmers.graph().len(), new_ser_kmers.graph().len());
-        assert_eq!(ser_kmers.translator(), new_ser_kmers.translator());
-        assert_eq!(ser_kmers.config(), new_ser_kmers.config());
+        assert_eq!(ser_graph.graph().len(), new_ser_kmers.graph().len());
+        assert_eq!(ser_graph.translator(), new_ser_kmers.translator());
+        assert_eq!(ser_graph.config(), new_ser_kmers.config());
+        assert_eq!(ser_graph.parameters(), (16, Summarizers::IDSum));
 
         remove_file(ser_path).unwrap();
     }

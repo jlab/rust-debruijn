@@ -1924,7 +1924,7 @@ mod test {
                 counter += 1;
             }
         }
-        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.score(), |_| true));
+        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true));
     }
 }
 
