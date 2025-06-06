@@ -671,10 +671,12 @@ impl ReadData for IDTag {
 mod tests {
     use std::{collections::HashMap, time};
 
+    use bimap::BiMap;
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, reads::Strandedness, Exts};
+    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, Translator, ID}, Exts};
+    use crate::reads::ReadData;
     use super::{Reads, ReadsPaired};
 
     #[test]
@@ -1009,5 +1011,44 @@ Reads { n reads: 2, stranded: Unstranded }".to_string());
         reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
 
         let _ = ReadsPaired::from_reads((p1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
+    }
+
+    #[test]
+    fn test_read_data() {
+        let read_name_1 = "B7R87_RS28825_2_0/1".as_bytes(); // gene B7R87_RS28825
+        let read_name_2 = "B7R87_RS21825_2_0/1".as_bytes(); // gene B7R87_RS21825
+
+        let tag = 0 as Tag;
+        
+        let mut ids = BiMap::new();
+
+        let id = ID::read_data(&mut ids, read_name_1, tag);
+        assert_eq!(id, 0);
+
+        let id_tag = IDTag::read_data(&mut ids, read_name_1, tag);
+        assert_eq!(id_tag, IDTag::new(id, tag));
+        assert_eq!(id_tag.get_tag(), Some(tag));
+
+        let id = ID::read_data(&mut ids, read_name_2, tag);
+        assert_eq!(id, 1);
+        assert_eq!(id.get_tag(), None);
+
+        assert_eq!(Tag::read_data(&mut ids, read_name_1, tag), tag);
+        assert_eq!(tag.get_tag(), Some(tag));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_read_data_panic() {
+        let mut ids = BiMap::new();
+
+        let read_name_1 = "B7R87_RS28825_2_0/1".as_bytes(); // gene B7R87_RS28825
+        let read_name_2 = "B7R87_RS21825_2_0/1".as_bytes(); // gene B7R87_RS21825
+
+        let _ = ID::read_data(&mut ids, read_name_1, 0);
+        let _ = ID::read_data(&mut ids, read_name_2, 0);
+
+        // trying to add invalid read name -> panic
+        let _ = ID::read_data(&mut ids, "AAAAAA".as_bytes(), 0);
     }
 }
