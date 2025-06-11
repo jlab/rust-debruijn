@@ -1,7 +1,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, Marker, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
+use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, Marker, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a Translator ) 
     -> (Option<usize>, Option<Tags>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String, Summarizers)
@@ -109,6 +109,10 @@ fn test_summary_data() {
     let data = test_summarize::<u32, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, None, 4, None, None, None, None, None, true, 
         "sum: 6".to_string(), "sum: 6".to_string(), Summarizers::Sum));
+
+    let data = test_summarize::<IDData, _, _, _>(input_ids.into_iter(), &summary_config, &translator);
+    assert_eq!(data, (None, None, size_ids * 6 + 16, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), None, true, 
+        "IDs: ['0', '1', '2', '3', '7', '8']".to_string(), "IDs: ['0', '1', '2', '3', '7', '8']".to_string(), Summarizers::ID));
 
     let data = test_summarize::<IDSumData, _, _, _>(input_ids.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, None, size_ids * 6 + 16 + 4 + 4, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), None, true, 

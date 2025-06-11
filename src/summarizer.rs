@@ -814,8 +814,90 @@ impl SummaryData<Tag> for Vec<Tag> {
     }
 } 
 
-/// the tags the k-mer was observed with and its number of observations, and an ID
-/// -> could be gene-, read-, or orthogroup-ID
+/// the IDs the k-mer was observed with and its number of observations
+/// ID could be gene-, read-, or orthogroup-ID
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// aligned would be 16 Bytes, packed would be 12 Bytes
+pub struct IDData {
+    ids: Box<[ID]>,
+}
+
+impl SummaryData<ID> for IDData {
+    fn print(&self, id_translator: &Translator, _: &SummaryConfig) -> String {
+        if let Some(id_translator) = id_translator.id_translator() {
+            let t_ids = self.ids
+                .iter()
+                .map(|id| id_translator.get_by_right(id).unwrap_or_else(|| panic!("ID does not exist - ids {:?}, translator {:?}", self.ids, id_translator)))
+                .collect::<Vec<_>>();
+            format!("IDs: {:?}", t_ids)
+        } else {
+            format!("IDs: {:?}", self.ids)
+        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_ol(&self, id_translator: &Translator, config: &SummaryConfig) -> String {
+        // print is only one line anyways
+        self.print(id_translator, config)
+    }
+
+    fn tags(&self) -> Option<Tags> { None }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+    }
+
+    fn sum(&self) -> Option<usize> { None }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids[..])
+    }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> { None }
+
+    fn fix_edge_mults(&mut self, _: Exts) { }
+    
+    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn valid(&self, _: &SummaryConfig) -> bool { true }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, ID)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let mut all_exts = Exts::empty();
+
+        let mut ids = Vec::new();
+
+        let mut sum = 0u32;
+        for (_, exts, id) in items {
+            ids.push(id); 
+            all_exts = all_exts.add(exts);
+            sum += 1;
+        }
+
+        ids.sort();
+        ids.dedup();
+        ids.shrink_to_fit();
+
+        let ids: Box<[ID]> = ids.into(); 
+        
+        (sum >= config.min_kmer_obs as u32, all_exts, IDData { ids })
+    }
+
+    fn summarizer() -> Summarizers {
+        Summarizers::ID
+    }
+}
+
+/// the IDs the k-mer was observed with and its number of observations
+/// ID could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct IDSumData {
@@ -2127,6 +2209,7 @@ impl SummaryData<Tag> for RelCountData {
 pub enum Summarizers {
     Sum,
     VecTags,
+    ID,
     IDSum,
     Tags,
     TagsSum,
