@@ -64,15 +64,15 @@ fn test_colors() {
 
     let node_id = 0;
     let node = graph_tcpem.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 0, len: 16, exts: A|C, seq:\nCCAGCTGTCCCAGATA\nsamples              - counts\nC_H600               - 1\nsum: 1, p-value: 0.37390098, log2(fold\nchange): inf, edge coverage:\nA: 1 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
 
     let node_id = 40;
     let node = graph_tcpem.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0.16666667 1 1\", fontcolor=black, label=\"id: 40, len: 16, exts: A|AG, seq:\nGCTTTGCATCAGAAGA\nsamples              - counts\nC_H100               - 1\nC_H400               - 2\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 6, p-value: 0.86424315, log2(fold\nchange): -0.19431013, edge coverage:\nA: 6 | 3\nC: 0 | 0\nG: 0 | 3\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
 
     let node_id = 128;
     let node = graph_tcpem.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 128, len: 16, exts: A|C, seq:\nAGAGATGGGGAAGCTC\nsamples              - counts\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 3, p-value: 0.0825925, log2(fold\nchange): -inf, edge coverage:\nA: 3 | 0\nC: 0 | 3\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
 
     // test with color mode IDs
 
@@ -80,33 +80,41 @@ fn test_colors() {
 
     let node_id = 0;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     let node_id = 40;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     let node_id = 128;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0.13333334 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+
+    let node_id = 36;
+    let node = graph_ids.get_node(node_id);
+    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     // test with color mode IDGroups
 
-    let id_ids = (0..15).zip(vec![1, 3, 0, 2, 4, 4, 4, 2, 1, 1, 2, 3, 0, 1]).collect::<HashMap<ID, ID>>(); // 15 genes in test graph
+    let id_ids = (0..15).zip(vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4]).collect::<HashMap<ID, ID>>(); // 15 genes in test graph
     let colors_ids = Colors::new(&graph_ids, &config_ids, ColorMode::IDGroups { id_group_ids: &id_ids, n_id_groups: 5 });
-    println!("{:?}", translator.id_translator().as_ref().unwrap());
+    //println!("{:?}", translator.id_translator().as_ref().unwrap());
 
     let node_id = 0;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     let node_id = 40;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     let node_id = 128;
     let node = graph_ids.get_node(node_id);
-    println!("{}", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0.4 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+
+    let node_id = 36;
+    let node = graph_ids.get_node(node_id);
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
 
     // write node to dot
 
