@@ -14,7 +14,12 @@ pub type Marker = u64;
 pub type Marker = u128;
 
 /// type for IDs (e.g. gene IDs)
+#[cfg(not(feature = "id4b"))]
 pub type ID = u16;
+
+/// type for IDs (e.g. gene IDs)
+#[cfg(feature = "id4b")]
+pub type ID = u32;
 
 /// type for tags
 pub type Tag = u8;
