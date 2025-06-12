@@ -235,11 +235,19 @@ mod test {
 
     use super::SerReads;
 
+    #[cfg(not(feature = "id4b"))]
+    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids.reads.dbg", "test_data/test_graph_ids.kmers.dbg", "test_data/test_graph_ids.graph.dbg"];
+
+    #[cfg(feature = "id4b")]
+    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids-4b.reads.dbg", "test_data/test_graph_ids-4b.kmers.dbg", "test_data/test_graph_ids-4b.graph.dbg"];
+
     // test files: cargo run -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids
+    // and with --feature id4b:
+    // cargo run --features id4b -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids-4b
 
     #[test]
     fn test_ser_reads() {
-        let ser_reads: SerReads<ID> = SerReads::deserialize_from("test_data/test_graph_ids.reads.dbg");
+        let ser_reads: SerReads<ID> = SerReads::deserialize_from(TEST_CP_FILES[0]);
 
         let cloned_ser_reads = ser_reads.clone();
 
@@ -259,7 +267,7 @@ mod test {
 
     #[test]
     fn test_ser_kmers() {
-        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from("test_data/test_graph_ids.kmers.dbg");
+        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from(TEST_CP_FILES[1]);
 
         let cloned_ser_kmers = ser_kmers.clone();
 
@@ -283,7 +291,7 @@ mod test {
 
     #[test]
     fn test_ser_graph() {
-        let ser_graph: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from("test_data/test_graph_ids.graph.dbg");
+        let ser_graph: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(TEST_CP_FILES[2]);
 
         let all = ser_graph.dissolve();
 

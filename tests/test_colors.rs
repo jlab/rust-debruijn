@@ -11,7 +11,11 @@ const TEST_FILE_T: &str = "test_data/sided.graph.dbg";
 const TEST_FILE_T: &str = "test_data/sided-128.graph.dbg";
 
 // marbel dataset: marbel --n-orthogroups 5 --n-species 3 --n-samples 2 2 --library-size 200 --library-size-distribution negative_binomial 
+#[cfg(not(feature = "id4b"))]
 const TEST_FILE_IDS: &str = "test_data/test_graph_ids.graph.dbg";
+
+#[cfg(feature = "id4b")]
+const TEST_FILE_IDS: &str = "test_data/test_graph_ids-4b.graph.dbg";
 
 #[test]
 fn test_colors() {
