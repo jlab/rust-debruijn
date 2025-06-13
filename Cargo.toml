@@ -39,3 +39,4 @@ features = ["serde"]
 
 [features]
 sample128 = []
+id4b = []

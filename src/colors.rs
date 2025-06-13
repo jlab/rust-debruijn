@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display, iter::Sum, marker::PhantomData};
 
 use log::debug;
 
-use crate::{graph::DebruijnGraph, summarizer::{SummaryConfig, SummaryData, ID, M}, Kmer};
+use crate::{graph::DebruijnGraph, summarizer::{SummaryConfig, SummaryData, ID, Marker}, Kmer};
 use std::fmt::Debug;
 
 /// mode for coloring nodes in dot files - check compatibility with node data
@@ -25,8 +25,8 @@ pub enum ColorMode<'a> {
 pub struct Colors<'a, SD: SummaryData<DI>, DI> {
     color_mode: ColorMode<'a>,
     // 2-bit encoded group associations of labels
-    marker0: M,
-    marker1: M,
+    marker0: Marker,
+    marker1: Marker,
     // factor (slope) for log2(fold change) to hue transformation
     log2_fc_factor: Option<f32>,
     // slope (m) and y intercept (b) for n obs to value transformation
@@ -118,7 +118,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                 &graph, 
                 &|&graph| Box::new(graph
                         .iter_nodes()
-                        .map(|node| node.data().score())
+                        .map(|node| node.data().sum().unwrap_or(1) as f32)
                     )
                 );
                 debug!("nobs min max: {:?}", nobs);
@@ -241,8 +241,8 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                 }
             },
             ColorMode::SampleGroups  => {
-                match data.tags_sum() {
-                    Some((tag, _)) => {
+                match data.tags() {
+                    Some(tag) => {
                         if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
                             // tags are only in marker0 group
                             Self::HUE_GREEN
