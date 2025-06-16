@@ -92,7 +92,7 @@ const MEM: [usize; 15] = [4, 8+8 + 6*4, 8+8 + 6*4 + 4 + 4, 8+8+8 + 6, 8, 8 + 4 +
 // both features
 #[cfg(all(feature= "id4b", feature = "sample128"))]
 //                       sum id         id-sum             vec       tags tags-sum  
-const MEM: [usize; 15] = [4, 8+8 + 6*4, 8+8 + 6*4 + 4 + 4, 8+8+8 + 6, 16, 16 + 4 + 4, 
+const MEM: [usize; 15] = [4, 8+8 + 6*4, 8+8 + 6*4 + 4 + 4, 8+8+8 + 6, 16, 16 + 4 + 12, 
 //  tags-counts-sum       tags-counts    tags-counts-p      tags-counts-em    
     16 + 8+8 + 6*4 + 4 + 12, 16 + 8+8 + 6*4, 16 + 8+8 + 6*4 + 4 + 12, 16 + 8+8 + 6*4 + 8*4, 
 //  tags-counts-p-em             id-tags-counts             id-tags-counts-p-em
