@@ -1954,7 +1954,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
     }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts) + mem::size_of_val(&*self.ids)
     }
 
     fn sum(&self) -> Option<usize> {
