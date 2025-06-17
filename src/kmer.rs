@@ -60,10 +60,37 @@ pub type Kmer40 = VarIntKmer<u128, K40>;
 pub type Kmer32 = IntKmer<u64>;
 
 /// 30-base kmer, backed by a single u64
+pub type Kmer31 = VarIntKmer<u64, K31>;
+
+/// 30-base kmer, backed by a single u64
 pub type Kmer30 = VarIntKmer<u64, K30>;
+
+/// 29-base kmer, backed by a single u64
+pub type Kmer29 = VarIntKmer<u64, K29>;
+
+/// 28-base kmer, backed by a single u64
+pub type Kmer28 = VarIntKmer<u64, K28>;
+
+/// 27-base kmer, backed by a single u64
+pub type Kmer27 = VarIntKmer<u64, K27>;
+
+/// 26-base kmer, backed by a single u64
+pub type Kmer26 = VarIntKmer<u64, K26>;
+
+/// 25-base kmer, backed by a single u64
+pub type Kmer25 = VarIntKmer<u64, K25>;
 
 /// 24-base kmer, backed by a single u64
 pub type Kmer24 = VarIntKmer<u64, K24>;
+
+/// 23-base kmer, backed by a single u64
+pub type Kmer23 = VarIntKmer<u64, K23>;
+
+/// 22-base kmer, backed by a single u64
+pub type Kmer22 = VarIntKmer<u64, K22>;
+
+/// 21-base kmer, backed by a single u64
+pub type Kmer21 = VarIntKmer<u64, K21>;
 
 /// 20-base kmer, backed by a single u64
 pub type Kmer20 = VarIntKmer<u64, K20>;
@@ -705,6 +732,61 @@ impl KmerSize for K30 {
     }
 }
 
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K29;
+
+impl KmerSize for K29 {
+    #[inline(always)]
+    fn K() -> usize {
+        29
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K28;
+
+impl KmerSize for K28 {
+    #[inline(always)]
+    fn K() -> usize {
+        28
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K27;
+
+impl KmerSize for K27 {
+    #[inline(always)]
+    fn K() -> usize {
+        27
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K26;
+
+impl KmerSize for K26 {
+    #[inline(always)]
+    fn K() -> usize {
+        26
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K25;
+
+impl KmerSize for K25 {
+    #[inline(always)]
+    fn K() -> usize {
+        25
+    }
+}
+
 /// Marker trait for generating K=24 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct K24;
@@ -713,6 +795,40 @@ impl KmerSize for K24 {
     #[inline(always)]
     fn K() -> usize {
         24
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K23;
+
+impl KmerSize for K23 {
+    #[inline(always)]
+    fn K() -> usize {
+        23
+    }
+}
+
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K22;
+
+impl KmerSize for K22 {
+    #[inline(always)]
+    fn K() -> usize {
+        22
+    }
+}
+
+/// Marker trait for generating K=20 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct K21;
+
+impl KmerSize for K21 {
+    #[inline(always)]
+    fn K() -> usize {
+        21
     }
 }
 
@@ -1087,9 +1203,72 @@ mod tests {
     }
 
     #[test]
+    fn test_kmer_30() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K30>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_29() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K29>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_28() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K28>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_27() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K27>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_26() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K26>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_25() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K25>>();
+        }
+    }
+
+    #[test]
     fn test_kmer_24() {
         for _ in 0..10000 {
             check_kmer::<VarIntKmer<u64, K24>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_23() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K23>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_22() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K22>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_21() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K21>>();
         }
     }
 
