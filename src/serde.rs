@@ -1,31 +1,34 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::path::Path;
 use std::{fs::File, io::{BufReader, BufWriter}};
 
-use bimap::BiMap;
 use boomphf::hashmap::BoomHashMap2;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::graph::DebruijnGraph;
-use crate::summarizer::SummaryConfig;
+use crate::reads::{ReadData, ReadDatas};
+use crate::summarizer::{Summarizers, SummaryConfig, SummaryData, Translator};
 use crate::Kmer;
-use crate::{reads::ReadsPaired, summarizer::ID, Exts};
+use crate::{reads::ReadsPaired, Exts};
 
 /// serialize a [`ReadsPaired`] together with its hashed tags and IDs
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SerReads<DI> {
     reads: ReadsPaired<DI>,
-    hashed_tags: BiMap<String, u8>,
-    hashed_ids: BiMap<String, ID>
+    read_datas: ReadDatas,
+    translator: Translator
 }
 
 impl<DI> SerReads<DI> {
     /// make a new [`SerReads`]
-    pub fn new(reads: ReadsPaired<DI>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>) -> SerReads<DI> {
+    pub fn new(reads: ReadsPaired<DI>, translator: Translator) -> SerReads<DI> 
+    where DI: ReadData
+    {
         SerReads {
             reads,
-            hashed_tags,
-            hashed_ids
+            read_datas: DI::read_datas(),
+            translator
         }
     }
 
@@ -39,15 +42,15 @@ impl<DI> SerReads<DI> {
     }
 
     /// deserialize a [`SerReads`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerReads<DI> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerReads<DI> 
     where DI: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with serialized reads");
+        let file = File::open(&path).expect("error opening file with serialized reads");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached reads: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached reads: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
         }
     }
 
@@ -56,19 +59,19 @@ impl<DI> SerReads<DI> {
         &self.reads
     }
 
-    /// get a reference of the underlying hashed tags
-    pub fn hashed_tags(&self) -> &BiMap<String, u8> {
-        &self.hashed_tags
+    /// get a reference of the underlying translator (hashed tags & IDs)
+    pub fn translator(&self) -> &Translator {
+        &self.translator
     }
 
-    /// get a reference of the underlying hashed ids
-    pub fn hashed_ids(&self) -> &BiMap<String, ID> {
-        &self.hashed_ids
+    /// get the parameters (read data kind)
+    pub fn parameters(&self) -> ReadDatas {
+        self.read_datas
     }
 
     /// get the underlying read, hashed tags and hashed labels
-    pub fn dissolve(self) -> (ReadsPaired<DI>, BiMap<String, u8>, BiMap<String, ID>) {
-        (self.reads, self.hashed_tags, self.hashed_ids)
+    pub fn dissolve(self) -> (ReadsPaired<DI>, Translator) {
+        (self.reads, self.translator)
     }
 }
 
@@ -77,18 +80,22 @@ impl<DI> SerReads<DI> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SerKmers<K: Hash, SD> {
     kmers: BoomHashMap2<K, Exts, SD>,
-    hashed_tags: BiMap<String, u8>,
-    hashed_ids: BiMap<String, ID>,
+    k: usize,
+    summarizer: Summarizers,
+    translator: Translator,
     config: SummaryConfig
 }
 
 impl<K: Kmer, SD> SerKmers<K, SD> {
     /// make a new [`SerKmers`]
-    pub fn new(kmers: BoomHashMap2<K, Exts, SD>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>, config: SummaryConfig) -> SerKmers<K, SD> {
+    pub fn new<DI>(kmers: BoomHashMap2<K, Exts, SD>, translator: Translator, config: SummaryConfig) -> SerKmers<K, SD> 
+    where SD: SummaryData<DI>
+    {
         SerKmers {
             kmers,
-            hashed_tags,
-            hashed_ids,
+            summarizer: SD::summarizer(),
+            k: K::k(),
+            translator,
             config
         }
     }
@@ -105,17 +112,17 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
     }
 
     /// deserialize a [`SerKmers`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerKmers<K, SD> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerKmers<K, SD> 
     where
         K: DeserializeOwned,
         SD: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with serialized k-mers");
+        let file = File::open(&path).expect("error opening file with serialized k-mers");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
         }
     }
 
@@ -124,23 +131,24 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
         &self.kmers
     }
 
-    /// get a reference of the underlying hashed tags
-    pub fn hashed_tags(&self) -> &BiMap<String, u8> {
-        &self.hashed_tags
+    /// get a reference of the underlying translator (hashed tags & IDs)
+    pub fn translator(&self) -> &Translator {
+        &self.translator
     }
 
-    /// get a reference of the underlying hashed ids
-    pub fn hashed_ids(&self) -> &BiMap<String, ID> {
-        &self.hashed_ids
-    }
-
+    /// get a reference of the underlying config
     pub fn config(&self) -> &SummaryConfig {
         &self.config
     }
 
+    /// get the set parameters (k, summarizer) of the `SerKmers`
+    pub fn parameters(&self) -> (usize, Summarizers) {
+        (self.k, self.summarizer)
+    }
+
     /// get the underlying read, hashed tags, hashed labels and config
-    pub fn dissolve(self) -> (BoomHashMap2<K, Exts, SD>, BiMap<String, u8>, BiMap<String, ID>, SummaryConfig) {
-        (self.kmers, self.hashed_tags, self.hashed_ids, self.config)
+    pub fn dissolve(self) -> (BoomHashMap2<K, Exts, SD>, Translator, SummaryConfig) {
+        (self.kmers, self.translator, self.config)
     }
 }
 
@@ -148,18 +156,22 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SerGraph<K: Hash, SD> {
     graph: DebruijnGraph<K, SD>,
-    hashed_tags: BiMap<String, u8>,
-    hashed_ids: BiMap<String, ID>,
+    summarizer: Summarizers,
+    k: usize,
+    translator: Translator,
     config: SummaryConfig
 }
 
 impl<K: Kmer, SD> SerGraph<K, SD> {
     /// make a new [`SerGraph`]
-    pub fn new(graph: DebruijnGraph<K, SD>, hashed_tags: BiMap<String, u8>, hashed_ids: BiMap<String, ID>, config: SummaryConfig) -> SerGraph<K, SD> {
+    pub fn new<DI>(graph: DebruijnGraph<K, SD>, translator: Translator, config: SummaryConfig) -> SerGraph<K, SD> 
+    where SD: SummaryData<DI>
+    {
         SerGraph {
             graph,
-            hashed_tags,
-            hashed_ids,
+            summarizer: SD::summarizer(),
+            k: K::k(),
+            translator,
             config
         }
     }
@@ -176,17 +188,17 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
     }
 
     /// deserialize a [`SerGraph`]
-    pub fn deserialize_from<P: AsRef<Path>>(path: P) -> SerGraph<K, SD>  
+    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerGraph<K, SD>  
     where 
         K: DeserializeOwned,
         SD: DeserializeOwned
     {
-        let file = File::open(path).expect("error opening file with a serialized graph");
+        let file = File::open(&path).expect("error opening file with a serialized graph");
         let reader = BufReader::new(file);
 
         match bincode::deserialize_from(reader) {
             Ok(ser_reads) => ser_reads,
-            Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters", err)
+            Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters. \n File: {:?}", err, path)
         }
     }
 
@@ -195,24 +207,23 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
         &self.graph
     }
 
-    /// get a reference of the underlying hashed tags
-    pub fn hashed_tags(&self) -> &BiMap<String, u8> {
-        &self.hashed_tags
+    /// get a reference of the underlying translator (hashed tags and IDs)
+    pub fn translator(&self) -> &Translator {
+        &self.translator
     }
-
-    /// get a reference of the underlying hashed ids
-    pub fn hashed_ids(&self) -> &BiMap<String, ID> {
-        &self.hashed_ids
-    }
-
     /// get a reference of the underlying [`SummaryConfig`]
     pub fn config(&self) -> &SummaryConfig {
         &self.config
     }
 
+    /// get the set parameters (k, summarizer) of the `SerGraph`
+    pub fn parameters(&self) -> (usize, Summarizers) {
+        (self.k, self.summarizer)
+    }
+
     /// get the underlying graph, hashed tags, hashed labels and config
-    pub fn dissolve(self) -> (DebruijnGraph<K, SD>, BiMap<String, u8>, BiMap<String, ID>, SummaryConfig) {
-        (self.graph, self.hashed_tags, self.hashed_ids, self.config)
+    pub fn dissolve(self) -> (DebruijnGraph<K, SD>, Translator, SummaryConfig) {
+        (self.graph, self.translator, self.config)
     }
 }
 
@@ -220,22 +231,32 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{kmer::Kmer16, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, ID}};
+    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, Summarizers, ID}};
 
     use super::SerReads;
 
+    #[cfg(not(feature = "id4b"))]
+    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids.reads.dbg", "test_data/test_graph_ids.kmers.dbg", "test_data/test_graph_ids.graph.dbg"];
+
+    #[cfg(feature = "id4b")]
+    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids-4b.reads.dbg", "test_data/test_graph_ids-4b.kmers.dbg", "test_data/test_graph_ids-4b.graph.dbg"];
+
+    // test files: cargo run -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids
+    // and with --feature id4b:
+    // cargo run --features id4b -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids-4b
+
     #[test]
     fn test_ser_reads() {
-        let ser_reads: SerReads<ID> = SerReads::deserialize_from("test_data/test_graph_ids.reads.dbg");
+        let ser_reads: SerReads<ID> = SerReads::deserialize_from(TEST_CP_FILES[0]);
 
         let cloned_ser_reads = ser_reads.clone();
 
         let all = ser_reads.dissolve();
         assert_eq!(cloned_ser_reads.reads(), &all.0);
-        assert_eq!(cloned_ser_reads.hashed_tags(), &all.1);
-        assert_eq!(cloned_ser_reads.hashed_ids(), &all.2);
+        assert_eq!(cloned_ser_reads.translator(), &all.1);
+        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::ID);
 
-        let ser_reads = SerReads::new(all.0, all.1, all.2);
+        let ser_reads = SerReads::new(all.0, all.1);
         let ser_path = "test_data/new_ser_reads";
         ser_reads.serialize(ser_path);
 
@@ -246,24 +267,23 @@ mod test {
 
     #[test]
     fn test_ser_kmers() {
-        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from("test_data/test_graph_ids.kmers.dbg");
+        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from(TEST_CP_FILES[1]);
 
         let cloned_ser_kmers = ser_kmers.clone();
 
         let all = ser_kmers.dissolve();
         assert_eq!(cloned_ser_kmers.kmers().len(), all.0.len());
-        assert_eq!(cloned_ser_kmers.hashed_tags(), &all.1);
-        assert_eq!(cloned_ser_kmers.hashed_ids(), &all.2);
-        assert_eq!(cloned_ser_kmers.config(), &all.3);
+        assert_eq!(cloned_ser_kmers.translator(), &all.1);
+        assert_eq!(cloned_ser_kmers.config(), &all.2);
+        assert_eq!(cloned_ser_kmers.parameters(), (16, Summarizers::IDSum));
 
-        let ser_kmers = SerKmers::new(all.0, all.1, all.2, all.3);
+        let ser_kmers = SerKmers::new(all.0, all.1, all.2);
         let ser_path = "test_data/new_ser_kmers";
         ser_kmers.serialize(ser_path);
 
         let new_ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from(ser_path);
         assert_eq!(ser_kmers.kmers().len(), new_ser_kmers.kmers().len());
-        assert_eq!(ser_kmers.hashed_tags(), new_ser_kmers.hashed_tags());
-        assert_eq!(ser_kmers.hashed_ids(), new_ser_kmers.hashed_ids());
+        assert_eq!(ser_kmers.translator(), new_ser_kmers.translator());
         assert_eq!(ser_kmers.config(), new_ser_kmers.config());
 
         remove_file(ser_path).unwrap();
@@ -271,19 +291,19 @@ mod test {
 
     #[test]
     fn test_ser_graph() {
-        let ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from("test_data/test_graph_ids.graph.dbg");
+        let ser_graph: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(TEST_CP_FILES[2]);
 
-        let all = ser_kmers.dissolve();
+        let all = ser_graph.dissolve();
 
-        let ser_kmers = SerGraph::new(all.0, all.1, all.2, all.3);
+        let ser_graph = SerGraph::new(all.0, all.1, all.2);
         let ser_path = "test_data/new_ser_graph";
-        ser_kmers.serialize(ser_path);
+        ser_graph.serialize(ser_path);
 
         let new_ser_kmers: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(ser_path);
-        assert_eq!(ser_kmers.graph().len(), new_ser_kmers.graph().len());
-        assert_eq!(ser_kmers.hashed_tags(), new_ser_kmers.hashed_tags());
-        assert_eq!(ser_kmers.hashed_ids(), new_ser_kmers.hashed_ids());
-        assert_eq!(ser_kmers.config(), new_ser_kmers.config());
+        assert_eq!(ser_graph.graph().len(), new_ser_kmers.graph().len());
+        assert_eq!(ser_graph.translator(), new_ser_kmers.translator());
+        assert_eq!(ser_graph.config(), new_ser_kmers.config());
+        assert_eq!(ser_graph.parameters(), (16, Summarizers::IDSum));
 
         remove_file(ser_path).unwrap();
     }

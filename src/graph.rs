@@ -14,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -43,7 +42,7 @@ use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
-use crate::summarizer::ID;
+use crate::summarizer::Translator;
 use crate::BUF;
 use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
@@ -1706,13 +1705,13 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, tag_translator: &bimap::BiHashMap<String, DI> , outline: bool) -> String
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, outline: bool) -> String
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
 
-        let data_info = self.data().print(tag_translator, config);
+        let data_info = self.data().print(translator, config);
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
@@ -1925,7 +1924,7 @@ mod test {
                 counter += 1;
             }
         }
-        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.score(), |_| true));
+        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true));
     }
 }
 
