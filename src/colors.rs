@@ -321,7 +321,7 @@ pub fn get_min_max<I: Debug, F, II, N>(iter_struct: &I, iter_value: &F) -> (Opti
 where
     F: Fn(&I) -> Box<II>,
     II: Iterator<Item = N>,
-    N: CFilter + Sum + PartialOrd + Copy + Display
+    N: CFilter
 {  
     let min_o = iter_value(iter_struct)
         .filter(|value| value.filter())

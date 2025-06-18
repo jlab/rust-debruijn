@@ -602,9 +602,9 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
     }
 }
 
-/// Trait for ReadData
+/// Trait for ReadData, [`ID`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
-    /// geneate a read data
+    /// geneate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
     /// if available, get a tag
     fn get_tag(&self) -> Option<Tag>;
