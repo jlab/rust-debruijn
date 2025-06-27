@@ -1700,7 +1700,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
 
             format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\"]", bits_to_base(base))
         } else {
-            format!("[color={color}]")
+            format!("[color={color}, penwidth={}]", colors.edge_width(1)) // since there should be no edge mults, this will return default value
         }
     }
 
@@ -1848,9 +1848,9 @@ F2: Fn(&D) -> bool
                                 }
                             }
     
-                            if oscore(cand) > oscore(next) {
+                            /* if oscore(cand) > oscore(next) {
                                 next = cand;
-                            }
+                            } */
                         }
     
                         if solid_paths > 1 {

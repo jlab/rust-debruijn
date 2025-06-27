@@ -60,8 +60,9 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
     const P_MAX: f32 = -4.;
 
     const EDGE_WIDTH_MAX: f32 = 20.;
-    const EDGE_WIDTH_MIN: f32 = 1.;
-    const EDGE_WIDTH_DEF: f32 = 1.;
+    const EDGE_WIDTH_MIN: f32 = 3.;
+    const EDGE_WIDTH_DEF: f32 = 8.;
+
 
 
     /// Creates a new [`Colors<SD>`]. 
