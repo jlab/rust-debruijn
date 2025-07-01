@@ -1890,15 +1890,12 @@ F2: Fn(&D) -> bool
                                     next = cand;
                                 }
                             }
-    
-                            /* if oscore(cand) > oscore(next) {
-                                next = cand;
-                            } */
                         }
-    
-                        if solid_paths > 1 {
+                        
+                        // break if multiple solid paths are available
+                        /* if solid_paths > 1 {
                             break;
-                        }
+                        } */
     
                         match next {
                             Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
