@@ -296,7 +296,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
 
         // set outline (eg if it is in a path)
         let prefix = if outline {
-            "black, penwidth=7, fillcolor="
+            "black, penwidth=10, fillcolor="
         } else {
             ""
         };
