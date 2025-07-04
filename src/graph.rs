@@ -14,6 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -40,6 +41,7 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1391,6 +1393,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         comp
     }
 
+    pub fn iter_edges(&self) -> EdgeIter<'_, K, D> {
+        EdgeIter::new(self)
+    }
+
     pub fn find_bad_nodes<F: Fn(&Node<'_, K, D>) -> bool>(&self, valid: F) -> Vec<usize> {
         let mut bad_nodes = Vec::new();
 
@@ -1885,6 +1891,93 @@ F2: Fn(&D) -> bool
     }
 }
 
+
+pub struct EdgeIter<'a, K: Kmer, D: Debug> {
+    graph: &'a DebruijnGraph<K, D>,
+    visited_edges: HashSet<(usize, usize)>,
+    current_node: usize,
+    current_dir: Dir,
+    node_edge_iter: smallvec::IntoIter<[(u8, usize, Dir, bool); 4]>
+}
+
+impl<K: Kmer, D: Debug> EdgeIter<'_, K, D> {
+    pub fn new(graph: &DebruijnGraph<K, D>) -> EdgeIter<'_, K, D>{
+        let node_edge_iter = graph.get_node(0).l_edges().into_iter();
+
+        EdgeIter { 
+            graph, 
+            visited_edges: HashSet::new(), 
+            current_node: 0, 
+            current_dir: Dir::Left, 
+            node_edge_iter
+        }
+    }
+}
+
+impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
+    type Item = (usize, Dir, u8, usize); // node, direction leaving node, base, target node
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+/*             match self.current_dir {
+                Dir::Left => {
+                    if let Some((_, nb_node_id, _, _)) = self.node_edge_iter.next() {
+                        let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
+
+                        if self.visited_edges.insert(edge) { return Some(edge); } // else simply skip and move on
+
+                    } else {
+                        self.current_dir = Dir::Right;
+                        self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
+                    }
+                }
+                Dir::Right => {
+                    if let Some((_, nb_node_id, _, _)) = self.node_edge_iter.next() {
+                        let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
+
+                        if self.visited_edges.insert(edge) { return Some(edge); } // else simply skip and move on
+
+                    } else {
+                        self.current_node += 1;
+                        if self.current_node == self.graph.len() - 1 {
+                            return None
+                        }
+                        self.current_dir = Dir::Left;
+                        self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
+                    }
+                }
+            } */
+
+            if let Some((base, nb_node_id, _, _)) = self.node_edge_iter.next() {
+                let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
+
+                if self.visited_edges.insert(edge) { return Some((self.current_node, self.current_dir, base, nb_node_id)); } // else simply skip and move on
+
+            } else {
+                match self.current_dir {
+                Dir::Left => {
+                    // no left edges, switch to right edges
+                    self.current_dir = Dir::Right;
+                    self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
+                    
+                }
+                Dir::Right => {
+                    // no right edges, switch to next node left edges
+                    self.current_node += 1;
+
+                    // quit if end of graph is reached
+                    if self.current_node == self.graph.len() { return None }
+
+                    self.current_dir = Dir::Left;
+                    self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
+                }
+            }
+            }
+            
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{fs::File, io::BufReader};
@@ -1892,11 +1985,12 @@ mod test {
     use crate::{kmer::Kmer16, summarizer::TagsCountsSumData};
 
     use super::DebruijnGraph;
+    use crate::{summarizer::SummaryData, Dir, BUF};
+
 
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
-        use crate::{summarizer::SummaryData, Dir, BUF};
 
         let path = "test_data/400.graph.dbg";
         let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
@@ -1925,6 +2019,36 @@ mod test {
             }
         }
         assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true));
+    }
+
+    #[test]
+    fn test_iter_edges() {
+        let path = "test_data/400.graph.dbg";
+        let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
+
+        let (graph, _, _): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, crate::summarizer::SummaryConfig) = 
+            bincode::deserialize_from(file).expect("error deserializing graph");
+
+        let check_edges = vec![(3, Dir::Left, 2, 134), (3, Dir::Right, 2, 67), (14, Dir::Left, 0, 91), 
+            (14, Dir::Right, 0, 70), (26, Dir::Left, 2, 111), (29, Dir::Left, 1, 131), (29, Dir::Left, 3, 84), (29, Dir::Right, 1, 137), 
+            (30, Dir::Left, 3, 43), (30, Dir::Right, 2, 91), (38, Dir::Left, 3, 81), (38, Dir::Right, 1, 88), (41, Dir::Left, 0, 138), 
+            (43, Dir::Left, 0, 131), (53, Dir::Left, 0, 127), (53, Dir::Right, 1, 117), (59, Dir::Left, 3, 133), (59, Dir::Right, 0, 119), 
+            (62, Dir::Left, 3, 119), (62, Dir::Right, 3, 103), (63, Dir::Left, 1, 121), (63, Dir::Right, 0, 124), (67, Dir::Left, 3, 130), 
+            (68, Dir::Left, 0, 137), (68, Dir::Right, 3, 110), (69, Dir::Left, 1, 114), (69, Dir::Left, 3, 77), (69, Dir::Right, 1, 144), 
+            (70, Dir::Right, 0, 79), (75, Dir::Left, 2, 121), (75, Dir::Right, 2, 128), (77, Dir::Left, 1, 120), (78, Dir::Left, 2, 122), 
+            (78, Dir::Right, 2, 125), (79, Dir::Right, 2, 142), (81, Dir::Left, 0, 113), (81, Dir::Right, 0, 143), (81, Dir::Right, 3, 108), 
+            (83, Dir::Right, 3, 109), (86, Dir::Left, 1, 139), (88, Dir::Left, 0, 113), (88, Dir::Right, 3, 134), (91, Dir::Left, 3, 141), 
+            (92, Dir::Left, 3, 135), (92, Dir::Right, 0, 108), (93, Dir::Left, 0, 109), (93, Dir::Right, 0, 126), (96, Dir::Left, 0, 116), 
+            (96, Dir::Right, 0, 135), (97, Dir::Left, 1, 119), (97, Dir::Right, 0, 110), (100, Dir::Left, 2, 139), (100, Dir::Right, 0, 138), 
+            (101, Dir::Right, 0, 120), (103, Dir::Right, 3, 105), (104, Dir::Left, 3, 110), (104, Dir::Right, 2, 119), (105, Dir::Right, 0, 136), 
+            (106, Dir::Left, 3, 124), (106, Dir::Right, 3, 129), (107, Dir::Right, 0, 120), (111, Dir::Right, 2, 140), (112, Dir::Left, 2, 115), 
+            (112, Dir::Left, 3, 118), (112, Dir::Right, 0, 124), (114, Dir::Left, 1, 120), (115, Dir::Right, 0, 123), (116, Dir::Left, 2, 121), 
+            (118, Dir::Right, 0, 123), (121, Dir::Right, 2, 132), (123, Dir::Right, 0, 125), (126, Dir::Right, 0, 132), (128, Dir::Left, 1, 140), 
+            (129, Dir::Right, 0, 132), (130, Dir::Left, 0, 133), (136, Dir::Right, 3, 142), (138, Dir::Left, 0, 138), (139, Dir::Left, 1, 139)];
+
+        let edges = graph.iter_edges().collect::<Vec<_>>();
+
+        assert_eq!(check_edges, edges);
     }
 }
 
