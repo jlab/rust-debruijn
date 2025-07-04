@@ -144,9 +144,18 @@ fn test_colors() {
         vec![0, 1, 2, 3]
     );
 
+    graph_tcpem.to_dot_with_path(
+        "test_dot_with_paths.dot", 
+        &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped),
+        &colors,
+        &translator,
+        &config_tcpem
+    );
+
     remove_file("test_dot.dot").unwrap();
     remove_file("test_dot_parallel.dot").unwrap();
     remove_file("test_dot_partial.dot").unwrap();
+    remove_file("test_dot_with_paths.dot").unwrap();
 
     // write node to gfa
 

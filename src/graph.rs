@@ -729,8 +729,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// ### Arguments: 
     /// 
     /// * `path`: path to the output file
-    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
-    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes, e.g. [`Node::node_dot_default`]
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
     ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
@@ -748,6 +748,48 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
+        writeln!(&mut f, "}}").unwrap();
+        
+        f.flush().unwrap();
+        debug!("large to dot loop: {}", self.len());
+    }
+
+    /// Write the graph to a dot file, highlight the nodes which form the 
+    /// "best" path, according to [`PathCompIter`], with the number of occurences 
+    /// as the score and `solid_path` always `true`.
+    /// The nodes are formatted according to [`Node::node_dot_default`].
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    /// * `colors`: a [`Colors`] with the color settings for the graph
+    /// * `translator`: a [`Translator`] which translates tags or IDs to strings
+    /// * `config`: a [`SummaryConfig`] which contains settings for the graph
+    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig)
+    where 
+    P: AsRef<Path>,
+    D: SummaryData<DI>,
+    FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
+    {
+        let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
+
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+
+        // iterate over components
+        for (component, path) in self.iter_max_path_comp(|d| d.sum().unwrap_or(1) as f32, |_| true) {
+            let hashed_path = path.into_iter().map(|(id, _)| id).collect::<HashSet<usize>>();
+            for node_id in component {
+                self.node_to_dot(
+                    &self.get_node(node_id),
+                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id)), 
+                    edge_label, 
+                    &mut f
+                );
+            }
+        }
+
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
@@ -841,6 +883,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
 
     }
+
 
     /// Write part of the graph to a dot file
     /// 
@@ -1854,15 +1897,12 @@ F2: Fn(&D) -> bool
                                     next = cand;
                                 }
                             }
-    
-                            /* if oscore(cand) > oscore(next) {
-                                next = cand;
-                            } */
                         }
-    
-                        if solid_paths > 1 {
+                        
+                        // break if multiple solid paths are available
+                        /* if solid_paths > 1 {
                             break;
-                        }
+                        } */
     
                         match next {
                             Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
