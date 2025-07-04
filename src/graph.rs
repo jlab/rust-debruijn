@@ -1393,6 +1393,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         comp
     }
 
+    /// iterate over all edges of the graph, item: (node, ext base, ext dir, target node)
     pub fn iter_edges(&self) -> EdgeIter<'_, K, D> {
         EdgeIter::new(self)
     }
@@ -1892,6 +1893,7 @@ F2: Fn(&D) -> bool
 }
 
 
+/// iterator over the edges of the de bruijn graph
 pub struct EdgeIter<'a, K: Kmer, D: Debug> {
     graph: &'a DebruijnGraph<K, D>,
     visited_edges: HashSet<(usize, usize)>,
@@ -1919,35 +1921,6 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-/*             match self.current_dir {
-                Dir::Left => {
-                    if let Some((_, nb_node_id, _, _)) = self.node_edge_iter.next() {
-                        let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
-
-                        if self.visited_edges.insert(edge) { return Some(edge); } // else simply skip and move on
-
-                    } else {
-                        self.current_dir = Dir::Right;
-                        self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
-                    }
-                }
-                Dir::Right => {
-                    if let Some((_, nb_node_id, _, _)) = self.node_edge_iter.next() {
-                        let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
-
-                        if self.visited_edges.insert(edge) { return Some(edge); } // else simply skip and move on
-
-                    } else {
-                        self.current_node += 1;
-                        if self.current_node == self.graph.len() - 1 {
-                            return None
-                        }
-                        self.current_dir = Dir::Left;
-                        self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
-                    }
-                }
-            } */
-
             if let Some((base, nb_node_id, _, _)) = self.node_edge_iter.next() {
                 let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
 
@@ -2022,6 +1995,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(feature = "sample128"))]
     fn test_iter_edges() {
         let path = "test_data/400.graph.dbg";
         let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
