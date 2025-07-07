@@ -591,7 +591,7 @@ mod tests {
 
         let all_seqs_p = crate::reads::ReadsPaired::Unpaired { reads: all_seqs };
         // Assemble w/ tips
-        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers(
+        let (valid_kmers_errs, _): (BoomHashMap2<K, Exts, TagsCountsEMData>, _) = filter::filter_kmers(
             &all_seqs_p,
             &config,
             stranded,
@@ -635,6 +635,7 @@ mod tests {
         let mut graph = graph.finish();
         graph.fix_exts(None);
         graph.fix_edge_mults();
+        let _ = graph.filter_edges(2);
         graph.print();
         /* graph.to_dot("test_out", &|d| format!("{:?}", d));
         graph.to_dot_parallel("test_out_par", &|d  format!("{:?}", d)); */

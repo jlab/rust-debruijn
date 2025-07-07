@@ -1291,6 +1291,13 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_ext() {
+        let ext = Exts::new(0b11111011);
+        assert_eq!(ext.remove(Dir::Right, 0).val, 0b11101011);
+        assert_eq!(ext.remove(Dir::Left, 1).val, 0b11111001);
+    }
+
+    #[test]
     fn test_edge_mult() {
         let mut edge_mult = EdgeMult::new();
         assert_eq!(edge_mult.edge_mults, [0; 2*ALPHABET_SIZE]);

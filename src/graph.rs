@@ -1473,17 +1473,19 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// if there are edge mults in the data, prune the graph by removing edges that have a low coverage
-    pub fn filter_edges<DI>(&mut self, min: u32)
+    pub fn filter_edges<DI>(&mut self, min: u32) -> Result<(), String>
     where 
         SD: SummaryData<DI>
     {
         // return if there is no edge coverage available
-        if self.get_node(0).data().edge_mults().is_none() { return };
+        if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
 
         for i in 0..self.len() {
             let em = self.get_node(i).data().edge_mults().expect("shold have em").clone();
+            let edges = [(Dir::Left, 0), (Dir::Left, 1), (Dir::Left, 2), (Dir::Left, 3), 
+                (Dir::Right, 0), (Dir::Right, 1), (Dir::Right, 2), (Dir::Right, 3)];
             
-            for (dir, base) in [(Dir::Left, 0), (Dir::Left, 1), (Dir::Left, 2), (Dir::Left, 3), (Dir::Right, 0), (Dir::Right, 1), (Dir::Right, 2), (Dir::Right, 3)] {
+            for (dir, base) in edges {
                 if min > em.edge_mult(base, dir) {
                     // remove invalid ext from node
                     let ext = self.base.exts[i].remove(dir, base);
@@ -1494,6 +1496,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // now that exts are remove, fix hanging edge mults
         self.fix_edge_mults();
+
+        Ok(())
     }
 }
 
