@@ -653,6 +653,11 @@ impl Exts {
         }
     }
 
+    /// subtract an Exts from an Exts
+    pub fn subtract(&self, v: Exts) -> Exts {
+        Exts { val: self.val & !v.val }
+    }
+
     pub fn set(&self, dir: Dir, pos: u8) -> Exts {
         let shift = pos
             + match dir {
@@ -661,6 +666,17 @@ impl Exts {
             };
 
         let new_val = self.val | (1u8 << shift);
+        Exts { val: new_val }
+    }
+
+    pub fn remove(&self, dir: Dir, pos: u8) -> Exts {
+        let shift = pos
+            + match dir {
+                Dir::Right => 4,
+                Dir::Left => 0,
+            };
+
+        let new_val = self.val & !(1u8 << shift);
         Exts { val: new_val }
     }
 
