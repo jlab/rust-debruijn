@@ -46,23 +46,22 @@ impl IDTag {
 pub struct Translator {
     ids: Option<BiMap<String, ID>>,
     tags: Option<BiMap<String,Tag>>,
-    id_groups: Option<HashMap<ID, ID>>,
 }
 
 impl Translator {
     /// make a new [`Translator`] for tags and IDs
-    pub fn new(ids: BiMap<String, ID>, tags: BiMap<String,Tag>, id_groups: Option<HashMap<ID, ID>>) -> Translator {
-        Translator { ids: Some(ids), tags: Some(tags), id_groups }
+    pub fn new(ids: BiMap<String, ID>, tags: BiMap<String,Tag>) -> Translator {
+        Translator { ids: Some(ids), tags: Some(tags) }
     }
 
     /// make a new [`Translator`] for tags
     pub fn new_tag_translator(hashed_tags: BiMap<String, Tag>) -> Translator {
-        Translator { ids: None, tags: Some(hashed_tags), id_groups: None }
+        Translator { ids: None, tags: Some(hashed_tags) }
     }
 
     /// make a new [`Translator`] for IDs
-    pub fn new_id_translator(hashed_ids: BiMap<String, ID>, id_groups: Option<HashMap<ID, ID>>) -> Translator {
-        Translator { ids: Some(hashed_ids), tags: None, id_groups }
+    pub fn new_id_translator(hashed_ids: BiMap<String, ID>) -> Translator {
+        Translator { ids: Some(hashed_ids), tags: None }
     }
 
     /// get the tag translator, returns None if the `Translator` does not contain a tag translator
@@ -75,19 +74,14 @@ impl Translator {
         &self.ids
     }
 
-    /// get the id to id-group translator, returns None if not present
-    pub fn id_group_translator(&self) -> &Option<HashMap<ID, ID>> {
-        &self.id_groups
-    }
-
     /// dissolve the `Translator` into its underlying [`BiMap`]s
-    pub fn dissolve(self) -> (Option<BiMap<String, ID>>, Option<BiMap<String,Tag>>, Option<HashMap<ID, ID>>) {
-        (self.ids, self.tags, self.id_groups)
+    pub fn dissolve(self) -> (Option<BiMap<String, ID>>, Option<BiMap<String,Tag>>) {
+        (self.ids, self.tags)
     }
 }
 
-fn id_format(ids: &[ID], translator: &Translator, translate_id_groups: bool) -> String {
-    if let (Some(id_gr_tr), true) = (translator.id_group_translator(), translate_id_groups) {
+fn id_format(ids: &[ID], translator: &Translator, id_group_translator: Option<HashMap<ID, ID>>) -> String {
+    if let Some(id_gr_tr) = id_group_translator {
         // translate the ids (genes) into id groups (orthogroups)
         let mut t_ids = ids
             .iter()
@@ -676,9 +670,9 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
     /// format the noda data 
-    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String;
+    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String;
     /// format the noda data in one line
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String;
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags(&self) -> Option<Tags>;
     /// get the size of the structure, including contents of boxed slices
@@ -712,11 +706,11 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
 
 /// Number of observations for the k-mer
 impl<DI> SummaryData<DI> for u32 {
-    fn print(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("sum: {}", self).replace("\"", "\'")
     }
 
-    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("sum: {}", self).replace("\"", "\'")
     }
 
@@ -775,7 +769,7 @@ impl<DI> SummaryData<DI> for u32 {
 
 /// data the k-mer was observed with
 impl SummaryData<Tag> for Vec<Tag> {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         if let Some(tag_translator) = translator.tag_translator() {
             let samples = self
                 .iter()
@@ -787,9 +781,9 @@ impl SummaryData<Tag> for Vec<Tag> {
         }         
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         // print is only one line anyways
-        self.print(translator, config, false)
+        self.print(translator, config, None)
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -857,11 +851,11 @@ pub struct IDData {
 }
 
 impl SummaryData<ID> for IDData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, translate_id_groups: bool) -> String {       
+    fn print(&self, translator: &Translator, _: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {       
         format!("IDs: {}", id_format(&self.ids, translator, translate_id_groups)).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         // print is only one line anyways
         self.print(translator, config, translate_id_groups)
     }
@@ -932,11 +926,11 @@ pub struct IDSumData {
 }
 
 impl SummaryData<ID> for IDSumData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, translate_id_groups: bool) -> String {       
+    fn print(&self, translator: &Translator, _: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {       
         format!("IDs: {}, sum: {}", id_format(&self.ids, translator, translate_id_groups), self.sum).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         // print is only one line anyways
         self.print(translator, config, translate_id_groups)
     }
@@ -1008,12 +1002,12 @@ pub struct TagsData {
 }
 
 impl SummaryData<Tag> for TagsData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("{}", TagsFormatter::new(self.tags, translator)).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         if let Some(tag_translator) = translator.tag_translator() {
             format!("samples: {:?}", self.tags.to_string_vec(tag_translator))
         } else {
@@ -1090,12 +1084,12 @@ pub struct TagsSumData {
 }
 
 impl SummaryData<Tag> for TagsSumData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("{}sum: {}", TagsFormatter::new(self.tags, translator), self.sum).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         if let Some(tag_translator) = translator.tag_translator() {
             format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum)
         } else {
@@ -1176,7 +1170,7 @@ pub struct TagsCountsSumData {
 }
 
 impl SummaryData<Tag> for TagsCountsSumData {
-    fn print(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1190,7 +1184,7 @@ impl SummaryData<Tag> for TagsCountsSumData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum, p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1291,7 +1285,7 @@ impl TagsCountsData {
 }
 
 impl SummaryData<Tag> for TagsCountsData {
-    fn print(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1305,7 +1299,7 @@ impl SummaryData<Tag> for TagsCountsData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1407,7 +1401,7 @@ impl TagsCountsPData {
 }
 
 impl SummaryData<Tag> for TagsCountsPData {
-    fn print(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1421,7 +1415,7 @@ impl SummaryData<Tag> for TagsCountsPData {
         format!("{}sum: {}{}{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1522,7 +1516,7 @@ impl TagsCountsEMData {
 }
 
 impl SummaryData<Tag> for TagsCountsEMData {
-    fn print(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1536,7 +1530,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
         format!("{}sum: {}{}{}, edge coverage: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1645,7 +1639,7 @@ impl TagsCountsPEMData {
 }
 
 impl SummaryData<Tag> for TagsCountsPEMData{
-    fn print(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1659,7 +1653,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         format!("{}sum: {}{}{}, edge coverage: \n{}", TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc, self.edge_mults).replace("\"", "\'")
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1768,7 +1762,7 @@ impl IDTagsCountsData {
 }
 
 impl SummaryData<IDTag> for IDTagsCountsData {
-    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1783,7 +1777,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
         format!("IDs: {}, {}sum: {}{}{}", ids_format, TagsCountsFormatter::new(self.tags, &self.counts, translator), self.sum(), p, fc).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1893,7 +1887,7 @@ impl IDTagsCountsPEMData {
 }
 
 impl SummaryData<IDTag> for IDTagsCountsPEMData{
-    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -1916,7 +1910,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool) -> String {
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, translate_id_groups: Option<HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()
@@ -2040,11 +2034,11 @@ impl GroupCountData {
 }
 
 impl SummaryData<Tag> for GroupCountData {
-    fn print(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("count 1: {}\ncount 2: {}", self.group1, self.group2)
     }
 
-    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
@@ -2128,11 +2122,11 @@ pub struct RelCountData {
 }
 
 impl SummaryData<Tag> for RelCountData {    
-    fn print(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("relative amount group 1: {}\ncount both: {}", self.percent, self.count)
     }
 
-    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: bool) -> String {
+    fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<HashMap<ID, ID>>) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
     }
 
@@ -2233,9 +2227,6 @@ mod test {
     
 
     use bimap::BiMap;
-    use clap::builder::Str;
-    use rayon::iter::empty;
-
     use crate::{clean_graph::CleanGraph, compression::{ compress_graph, ScmapCompress}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer16, Kmer8}, summarizer::{self, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test, GroupFrac, NotEnoughSamplesError, SampleInfo, SummaryData, Translator}, Exts, Tags};
 
     use super::{log2_fold_change, round_digits, SummaryConfig, TagsCountsSumData};
@@ -2456,11 +2447,11 @@ mod test {
         let id_translator = [("A", 0u16), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("F", 5), ("G", 6)].into_iter().map(|(a, b)| (a.to_string(), b)).collect();
         let id_gr_tr = [(0u16, 0u16), (1, 0), (2, 0), (3, 0), (4, 1), (5, 1), (6, 1)].into_iter().collect();
 
-        let translator = Translator::new_id_translator(id_translator, Some(id_gr_tr));
+        let translator = Translator::new_id_translator(id_translator);
         let e_tr = Translator::new_tag_translator(BiMap::new());
 
-        assert_eq!("[\"A\", \"B\", \"C\"]", id_format(&[0, 1, 2], &translator, false));
-        assert_eq!("[0, 1]", id_format(&[0, 1, 5], &translator, true));
-        assert_eq!("[0, 1, 2]", id_format(&[0, 1, 2], &e_tr, false));
+        assert_eq!("[\"A\", \"B\", \"C\"]", id_format(&[0, 1, 2], &translator, None));
+        assert_eq!("[0, 1]", id_format(&[0, 1, 5], &translator, Some(id_gr_tr)));
+        assert_eq!("[0, 1, 2]", id_format(&[0, 1, 2], &e_tr, None));
     }
 }

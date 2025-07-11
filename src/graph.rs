@@ -14,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -41,7 +40,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1789,7 +1787,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
 
-        let data_info = self.data().print(translator, config, false);
+        let data_info = self.data().print(translator, config, None);
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 

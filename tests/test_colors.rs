@@ -29,8 +29,8 @@ fn test_colors() {
     }
 
     let (graph_ids, translator, config_ids) = SerGraph::<Kmer16, IDSumData>::deserialize_from(TEST_FILE_IDS).dissolve();
-    let (hashed_ids, _, _) = translator.dissolve();
-    let translator  = Translator::new(hashed_ids.unwrap(), hashed_labels_tcpem, None);
+    let (hashed_ids, _) = translator.dissolve();
+    let translator  = Translator::new(hashed_ids.unwrap(), hashed_labels_tcpem);
 
     // test with color mode FoldChange
 
@@ -160,9 +160,9 @@ fn test_colors() {
     // write node to gfa
 
     graph_tcpem.to_gfa("test_gfa.gfa").unwrap();
-    graph_tcpem.to_gfa_with_tags("test_gfa_tags.gfa", |node| node.data().print_ol(&translator, &config_tcpem, false)).unwrap();
-    graph_tcpem.to_gfa_otags_parallel("test_gfa_parallel", Some(&|node: &graph::Node<_, TagsCountsPEMData>| node.data().print_ol(&translator, &config_tcpem, false))).unwrap();
-    graph_tcpem.to_gfa_partial("test_gfa_partial.gfa", Some(&|node: &graph::Node<'_, debruijn::kmer::IntKmer<u32>, TagsCountsPEMData>| node.data().print_ol(&translator, &config_tcpem, false)), vec![0, 1, 2, 3]).unwrap();
+    graph_tcpem.to_gfa_with_tags("test_gfa_tags.gfa", |node| node.data().print_ol(&translator, &config_tcpem, None)).unwrap();
+    graph_tcpem.to_gfa_otags_parallel("test_gfa_parallel", Some(&|node: &graph::Node<_, TagsCountsPEMData>| node.data().print_ol(&translator, &config_tcpem, None))).unwrap();
+    graph_tcpem.to_gfa_partial("test_gfa_partial.gfa", Some(&|node: &graph::Node<'_, debruijn::kmer::IntKmer<u32>, TagsCountsPEMData>| node.data().print_ol(&translator, &config_tcpem, None)), vec![0, 1, 2, 3]).unwrap();
 
     remove_file("test_gfa.gfa").unwrap();
     remove_file("test_gfa_tags.gfa").unwrap();
