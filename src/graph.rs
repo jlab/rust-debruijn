@@ -1789,7 +1789,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
 
-        let data_info = self.data().print(translator, config);
+        let data_info = self.data().print(translator, config, false);
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 

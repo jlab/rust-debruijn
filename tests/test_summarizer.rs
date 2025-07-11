@@ -44,8 +44,8 @@ where
         ids,
         em,
         valid,
-        data.print(translator, config),
-        data.print_ol(translator, config),
+        data.print(translator, config, false),
+        data.print_ol(translator, config, false),
         SD::summarizer()
     )
 }
@@ -117,7 +117,7 @@ fn test_summary_data() {
     (0..15).for_each(|i| { tag_translator.insert(format!("{i}"), i as u8); } );
     let mut id_translator = BiHashMap::new();
     (0..15).for_each(|i| { id_translator.insert(format!("{i}"), i as ID); } );
-    let translator = Translator::new(id_translator, tag_translator);
+    let translator = Translator::new(id_translator, tag_translator, None);
 
     let input_tags = [
         (Kmer8::from_u64(12), Exts::new(1), 0u8),
