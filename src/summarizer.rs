@@ -2227,7 +2227,7 @@ mod test {
     
 
     use bimap::BiMap;
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, ScmapCompress}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer16, Kmer8}, summarizer::{self, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test, GroupFrac, NotEnoughSamplesError, SampleInfo, SummaryData, Translator}, Exts, Tags};
+    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, ScmapCompress}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer16, Kmer8}, summarizer::{self, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test, GroupFrac, NotEnoughSamplesError, SampleInfo, SummaryData, Translator, ID}, Exts, Tags};
 
     use super::{log2_fold_change, round_digits, SummaryConfig, TagsCountsSumData};
 
@@ -2444,8 +2444,8 @@ mod test {
 
     #[test]
     fn test_id_format() {
-        let id_translator = [("A", 0u16), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("F", 5), ("G", 6)].into_iter().map(|(a, b)| (a.to_string(), b)).collect();
-        let id_gr_tr = [(0u16, 0u16), (1, 0), (2, 0), (3, 0), (4, 1), (5, 1), (6, 1)].into_iter().collect();
+        let id_translator = [("A", 0), ("B", 1), ("C", 2), ("D", 3), ("E", 4), ("F", 5), ("G", 6)].into_iter().map(|(a, b)| (a.to_string(), b as ID)).collect();
+        let id_gr_tr = [(0 as ID, 0 as ID), (1, 0), (2, 0), (3, 0), (4, 1), (5, 1), (6, 1)].into_iter().collect();
 
         let translator = Translator::new_id_translator(id_translator);
         let e_tr = Translator::new_tag_translator(BiMap::new());
