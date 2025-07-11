@@ -39,30 +39,30 @@ fn test_colors() {
     
     let node_id = 0;
     let node = graph_tcpem.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.33333334 0.5 1\", fontcolor=black, label=\"id: 0, len: 16, exts: A|C, seq:\nCCAGCTGTCCCAGATA\nsamples              - counts\nC_H600               - 1\nsum: 1, p-value: 0.37390098, log2(fold\nchange): inf, edge coverage:\nA: 1 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0.33333334 0.5 1\", fontcolor=black, label=\"id: 0, len: 16, exts: A|C, seq:\nCCAGCTGTCCCAGATA\nsamples              - counts\nC_H600               - 1\nsum: 1, p-value: 0.37390098, log2(fold\nchange): inf, edge coverage:\nA: 1 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false, false));
     assert_eq!("[color=blue, penwidth=3, label=\"A: 1\"]", node.edge_dot_default(&colors, 0, debruijn::Dir::Left, true));
 
     let node_id = 3;
     let node = graph_tcpem.get_node(node_id);
-    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0.33333334 0.5 1\", fontcolor=black, label=\"id: 3, len: 16, exts: T|C, seq:\nCCGATACTTCTTCACG\nsamples              - counts\nC_H200               - 1\nC_H300               - 1\nC_H500               - 1\nC_H600               - 1\nsum: 4, p-value: 0.05366346, log2(fold\nchange): inf, edge coverage:\nA: 0 | 0\nC: 0 | 4\nG: 0 | 0\nT: 4 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true));
+    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0.33333334 0.5 1\", fontcolor=black, label=\"id: 3, len: 16, exts: T|C, seq:\nCCGATACTTCTTCACG\nsamples              - counts\nC_H200               - 1\nC_H300               - 1\nC_H500               - 1\nC_H600               - 1\nsum: 4, p-value: 0.05366346, log2(fold\nchange): inf, edge coverage:\nA: 0 | 0\nC: 0 | 4\nG: 0 | 0\nT: 4 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true, false));
     assert_eq!("[color=red, penwidth=9.683096, label=\"C: 4\"]", node.edge_dot_default(&colors, 1, debruijn::Dir::Right, true));
 
     let node_id = 27;
     let node = graph_tcpem.get_node(node_id);
     println!("{:?}", node.data());
-    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0 0.5 1\", fontcolor=black, label=\"id: 27, len: 16, exts: C|G, seq:\nCAGGTCCGTGGCCAGG\nsamples              - counts\nP_T400               - 1\nsum: 1, p-value: 0.3910022, log2(fold\nchange): -inf, edge coverage:\nA: 0 | 0\nC: 1 | 0\nG: 0 | 1\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true));
+    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0 0.5 1\", fontcolor=black, label=\"id: 27, len: 16, exts: C|G, seq:\nCAGGTCCGTGGCCAGG\nsamples              - counts\nP_T400               - 1\nsum: 1, p-value: 0.3910022, log2(fold\nchange): -inf, edge coverage:\nA: 0 | 0\nC: 1 | 0\nG: 0 | 1\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true, false));
     assert_eq!("[color=red, penwidth=3, label=\"G: 1\"]", node.edge_dot_default(&colors, 2, debruijn::Dir::Right, true));
 
     let node_id = 40;
     let node = graph_tcpem.get_node(node_id);
     println!("{:?}", node.data());
-    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0.15937972 0.5 1\", fontcolor=black, label=\"id: 40, len: 16, exts: A|AG, seq:\nGCTTTGCATCAGAAGA\nsamples              - counts\nC_H100               - 1\nC_H400               - 2\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 6, p-value: 0.86424315, log2(fold\nchange): -0.19431013, edge coverage:\nA: 6 | 3\nC: 0 | 0\nG: 0 | 3\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true));
+    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0.15937972 0.5 1\", fontcolor=black, label=\"id: 40, len: 16, exts: A|AG, seq:\nGCTTTGCATCAGAAGA\nsamples              - counts\nC_H100               - 1\nC_H400               - 2\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 6, p-value: 0.86424315, log2(fold\nchange): -0.19431013, edge coverage:\nA: 6 | 3\nC: 0 | 0\nG: 0 | 3\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true, false));
     assert_eq!("[color=red, penwidth=8.296228, label=\"A: 3\"]", node.edge_dot_default(&colors, 0, debruijn::Dir::Right, true));
     
     let node_id = 2458;
     let node = graph_tcpem.get_node(node_id);
     println!("{:?}", node.data());
-    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 2458, len: 16, exts: C|A, seq:\nTCTCGTACTAAGTTCA\nsamples              - counts\nC_H600               - 1\nP_T100               - 1\nP_T200               - 1\nP_T300               - 1\nP_T400               - 2\nsum: 6, p-value: 0.030437965, log2(fold\nchange): -4.4442472, edge coverage:\nA: 0 | 6\nC: 6 | 0\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true));
+    assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 2458, len: 16, exts: C|A, seq:\nTCTCGTACTAAGTTCA\nsamples              - counts\nC_H600               - 1\nP_T100               - 1\nP_T200               - 1\nP_T300               - 1\nP_T400               - 2\nsum: 6, p-value: 0.030437965, log2(fold\nchange): -4.4442472, edge coverage:\nA: 0 | 6\nC: 6 | 0\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true, false));
     assert_eq!("[color=red, penwidth=11.637776, label=\"A: 6\"]", node.edge_dot_default(&colors, 0, debruijn::Dir::Right, true));
 
     // test with color mode SampleGroups
@@ -71,15 +71,15 @@ fn test_colors() {
 
     let node_id = 0;
     let node = graph_tcpem.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 0, len: 16, exts: A|C, seq:\nCCAGCTGTCCCAGATA\nsamples              - counts\nC_H600               - 1\nsum: 1, p-value: 0.37390098, log2(fold\nchange): inf, edge coverage:\nA: 1 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 0, len: 16, exts: A|C, seq:\nCCAGCTGTCCCAGATA\nsamples              - counts\nC_H600               - 1\nsum: 1, p-value: 0.37390098, log2(fold\nchange): inf, edge coverage:\nA: 1 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false, false));
 
     let node_id = 40;
     let node = graph_tcpem.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.16666667 1 1\", fontcolor=black, label=\"id: 40, len: 16, exts: A|AG, seq:\nGCTTTGCATCAGAAGA\nsamples              - counts\nC_H100               - 1\nC_H400               - 2\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 6, p-value: 0.86424315, log2(fold\nchange): -0.19431013, edge coverage:\nA: 6 | 3\nC: 0 | 0\nG: 0 | 3\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0.16666667 1 1\", fontcolor=black, label=\"id: 40, len: 16, exts: A|AG, seq:\nGCTTTGCATCAGAAGA\nsamples              - counts\nC_H100               - 1\nC_H400               - 2\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 6, p-value: 0.86424315, log2(fold\nchange): -0.19431013, edge coverage:\nA: 6 | 3\nC: 0 | 0\nG: 0 | 3\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false, false));
 
     let node_id = 128;
     let node = graph_tcpem.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 128, len: 16, exts: A|C, seq:\nAGAGATGGGGAAGCTC\nsamples              - counts\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 3, p-value: 0.0825925, log2(fold\nchange): -inf, edge coverage:\nA: 3 | 0\nC: 0 | 3\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 128, len: 16, exts: A|C, seq:\nAGAGATGGGGAAGCTC\nsamples              - counts\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 3, p-value: 0.0825925, log2(fold\nchange): -inf, edge coverage:\nA: 3 | 0\nC: 0 | 3\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, false, false));
 
     // test with color mode IDs
 
@@ -87,19 +87,19 @@ fn test_colors() {
 
     let node_id = 0;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 40;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 128;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.13333334 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0.13333334 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 36;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0.33333334 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     // test with color mode IDGroups
 
@@ -109,37 +109,37 @@ fn test_colors() {
 
     let node_id = 0;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 66, exts: C|A, seq:\nGCCGCCGCGACCCGCCGCGCGTGCCGCGCCTCCTCCAGCGCGCCGCGCAGCCCCTCCGCCGAGTGC\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 40;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 40, len: 68, exts: C|G, seq:\nTGGGTGCTCTCGCCGACCGGGCGGCCGGTCGCGGGCCCCAAGGACGCGGGTCCCGTGCTGCCGTCCGA\nIDs: ['SAM40697_RS27425'], sum: 5\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 128;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0.4 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0.4 1 1\", fontcolor=black, label=\"id: 128, len: 31, exts: A|T, seq:\nCCGGTCCGCGGCCACAGCGTGCAGGTCGCGC\nIDs: ['SAM40697_RS13660'], sum: 1\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     let node_id = 36;
     let node = graph_ids.get_node(node_id);
-    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false));
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 36, len: 22, exts: AC|CG, seq:\nTGTCGCGCCTGGAGGACAAGCT\nIDs: ['SAM40697_RS27425',\n'IE258_RS26570', 'CP976_RS34340'], sum:\n4\"]", node.node_dot_default(&colors_ids, &config_ids, &translator, false, false));
 
     // write node to dot
 
     graph_tcpem.to_dot(
         "test_dot.dot", 
-        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false), 
+        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false, false), 
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped)
     );
 
     graph_tcpem.to_dot_parallel(
         "test_dot_parallel.dot", 
-        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false), 
+        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false, false), 
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped)
     );
 
     graph_tcpem.to_dot_partial(
         "test_dot_partial.dot", 
-        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false), 
+        &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false, false), 
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped),
         vec![0, 1, 2, 3]
     );
@@ -149,7 +149,8 @@ fn test_colors() {
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped),
         &colors,
         &translator,
-        &config_tcpem
+        &config_tcpem,
+        false
     );
 
     remove_file("test_dot.dot").unwrap();

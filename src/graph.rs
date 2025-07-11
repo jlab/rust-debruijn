@@ -765,7 +765,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `colors`: a [`Colors`] with the color settings for the graph
     /// * `translator`: a [`Translator`] which translates tags or IDs to strings
     /// * `config`: a [`SummaryConfig`] which contains settings for the graph
-    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig)
+    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool)
     where 
     P: AsRef<Path>,
     D: SummaryData<DI>,
@@ -781,7 +781,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for node_id in component {
                 self.node_to_dot(
                     &self.get_node(node_id),
-                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id)), 
+                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id), translate_id_groups), 
                     edge_label, 
                     &mut f
                 );
@@ -1781,13 +1781,14 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, outline: bool) -> String
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, outline: bool, translate_id_groups: bool) -> String
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
+        let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
 
-        let data_info = self.data().print(translator, config, None);
+        let data_info = self.data().print(translator, config, translate_id_groups);
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 

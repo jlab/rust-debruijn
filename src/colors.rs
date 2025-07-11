@@ -18,6 +18,15 @@ pub enum ColorMode<'a> {
     FoldChange
 }
 
+impl ColorMode<'_> {
+    pub fn id_group_ids(&self) -> Option<&HashMap<ID, ID>> {
+        match self {
+            Self::IDGroups { id_group_ids, n_id_groups: _ } => Some(id_group_ids),
+            _ => None
+        }
+    }
+}
+
 
 /// contains the hues, the markers signifying which tag belongs to which group, 
 /// the maximun kmer count and the average kmer count
@@ -311,6 +320,10 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             Some((m, b)) => (edge_mult as f32).log10() * m + b,
             None => Self::EDGE_WIDTH_DEF
         }
+    }
+
+    pub fn id_group_ids(&self) -> Option<&HashMap<ID, ID>> {
+        self.color_mode.id_group_ids()
     }
     
 }
