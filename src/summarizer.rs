@@ -1989,6 +1989,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         self.counts == other.counts
             && self.tags == other.tags
             && self.p_value == other.p_value
+            && self.ids == other.ids
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -2016,6 +2017,90 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
     }
 }
 
+/// Implementation of [`SummaryData<Tag>`]
+/// 
+/// Contains the tags the k-mer was observed with, how many times it 
+/// was observed with each label, a p-value, and the edge multiplicites/coverage
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IDEMData {
+    ids: Box<[ID]>,
+    edge_mults: EdgeMult,
+}
+
+impl SummaryData<IDTag> for IDEMData{
+    fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let ids_format = id_format(&self.ids, translator, id_group_translator);
+
+        format!("IDs: {}, edge coverage: \n{}", 
+            ids_format, 
+            self.edge_mults
+        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let ids_format = id_format(&self.ids, translator, id_group_translator);
+
+        format!("IDs: {}, edge coverage: {:?}", 
+            ids_format, 
+            self.edge_mults
+        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+
+    }
+
+    fn tags(&self) -> Option<Tags> { None }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+    }
+
+    fn sum(&self) -> Option<usize> { None }
+
+    fn ids(&self) -> Option<&[ID]> {
+        Some(&self.ids)
+    }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
+    }
+
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.ids == other.ids
+    }
+
+    fn valid(&self, _: &SummaryConfig) -> bool { true }
+
+    fn summarize<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let (all_exts, out_data, tag_counts, sum, ids, edge_mults) = summarize_with_ids_em(items);
+
+        // caluclate p-value with chosen test
+        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+
+        let ids = ids.into();
+        let tags = Tags::from_tag_vec(out_data);
+
+        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+
+        (valid, all_exts, IDEMData { ids, edge_mults }) 
+    }
+
+    fn summarizer() -> Summarizers {
+        Summarizers::IDEM
+    }
+}
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
@@ -2217,6 +2302,7 @@ pub enum Summarizers {
     TagsCountsPEM,
     IDTagsCounts,
     IDTagsCountsPEM,
+    IDEM,
     GroupCount,
     RelCount
 }
