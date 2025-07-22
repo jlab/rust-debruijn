@@ -768,9 +768,10 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
 /// assumes stranded = false
 pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
     index: &BoomHashMap2<K, Exts, D>,
+    stranded: bool
 ) -> BaseGraph<K, D> {
 
-    let mut graph: BaseGraph<K, D> = BaseGraph::new(false);
+    let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
     let mut kmer_seq: VecDeque<u8> = VecDeque::with_capacity(K::k());
 
     for (kmer, exts, data) in index.into_iter() {
