@@ -425,6 +425,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         new_exts
     }
 
+    /// mutable reference to the auxiliary data of the node node_id
+    pub fn mut_data(&mut self, node_id: usize) -> &mut D {
+        &mut self.base.data[node_id]
+    }
+
     /// Find the highest-scoring, unambiguous path in the graph. Each node get a score
     /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
     /// paths will be terminated if there are multiple valid paths emanating from a node.
@@ -735,6 +740,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for kmer in sequence.iter_kmers::<K>() {
                 if let Some(node) = self.search_kmer(kmer, Dir::Right) {
                     node_transcript_ids[node].push(gene_id);
+                    //println!("node: {node}, seq: {}, kmer: {:?}, ids: {:?}, tr id: {}", self.get_node(node).sequence(), kmer, self.get_node(node).data(), gene_id);                
                 }
             }
         }
@@ -2073,7 +2079,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::File, io::BufReader};
 
-    use crate::{kmer::Kmer16, summarizer::TagsCountsSumData};
+    use crate::{compression::uncompressed_graph, graph, kmer::{Kmer16, Kmer22}, serde::{SerGraph, SerKmers}, summarizer::{IDEMData, TagsCountsSumData, ID}};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2141,6 +2147,19 @@ mod test {
         let edges = graph.iter_edges().collect::<Vec<_>>();
 
         assert_eq!(check_edges, edges);
+    }
+
+
+    #[test]
+    fn test_map_transcripts() {
+        let graph_path = "../dbg/local/tr_map/1k.kmers.dbg";
+        let t_ref_path = "../marbel_datasets/sim_reads_1k/summary/metatranscriptome_reference.fasta";
+        let (kmers, mut translator, _) = SerKmers::<Kmer22, IDEMData>::deserialize_from(graph_path).dissolve();
+
+        let unc_graph = uncompressed_graph(&kmers, true).finish();
+
+        let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
+        //println!("map: {:?}", t_map);
     }
 }
 
