@@ -698,6 +698,8 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     fn fix_edge_mults(&mut self, exts: Exts);
     /// set the edge mults
     fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>);
+    /// get a reference to the mapped ids,  returns `None` if data is insufficient
+    fn mapped_ids(&self) -> Option<&[ID]>;
     /// add mapped ids to the data
     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>);
     /// check if the data can be joined into one
@@ -744,6 +746,8 @@ impl<DI> SummaryData<DI> for u32 {
     fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -818,6 +822,8 @@ impl SummaryData<Tag> for Vec<Tag> {
     fn fix_edge_mults(&mut self, _: Exts) { }
 
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+        fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -894,6 +900,8 @@ impl SummaryData<ID> for IDData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -973,6 +981,8 @@ impl SummaryData<ID> for IDSumData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1056,6 +1066,8 @@ impl SummaryData<Tag> for TagsData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1141,6 +1153,8 @@ impl SummaryData<Tag> for TagsSumData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1244,6 +1258,8 @@ impl SummaryData<Tag> for TagsCountsSumData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1374,6 +1390,8 @@ impl SummaryData<Tag> for TagsCountsData {
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
 
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
+
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
     fn join_test(&self, other: &Self) -> bool {
@@ -1491,6 +1509,8 @@ impl SummaryData<Tag> for TagsCountsPData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1613,6 +1633,8 @@ impl SummaryData<Tag> for TagsCountsEMData {
     fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
         self.edge_mults = edge_mults.expect("Error: no edge mults")
     }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -1740,6 +1762,8 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         self.edge_mults = edge_mults.expect("Error: no edge mults")
     }
 
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
+
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
     fn join_test(&self, other: &Self) -> bool {
@@ -1864,6 +1888,8 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -2016,6 +2042,8 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         self.edge_mults = edge_mults.expect("Error: no edge mults")
     }
 
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
+
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
     fn join_test(&self, other: &Self) -> bool {
@@ -2109,6 +2137,8 @@ impl SummaryData<IDTag> for IDEMData{
         self.edge_mults = edge_mults.expect("Error: no edge mults")
     }
 
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
+
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
     fn join_test(&self, other: &Self) -> bool {
@@ -2192,6 +2222,10 @@ impl SummaryData<IDTag> for IDMapEMData{
         self.edge_mults = edge_mults.expect("Error: no edge mults")
     }
 
+    fn mapped_ids(&self) -> Option<&[ID]> {
+        Some(&self.map_ids)
+    }
+
     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>) {
         self.map_ids = mapped_ids
     }
@@ -2271,6 +2305,8 @@ impl SummaryData<Tag> for GroupCountData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
@@ -2361,6 +2397,8 @@ impl SummaryData<Tag> for RelCountData {
     fn fix_edge_mults(&mut self, _: Exts) { }
     
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 

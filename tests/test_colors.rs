@@ -34,7 +34,7 @@ fn test_colors() {
 
     // test with color mode FoldChange
 
-    let colors = Colors::new(&graph_tcpem, &config_tcpem, ColorMode::FoldChange, None);
+    let colors = Colors::new(&graph_tcpem, &config_tcpem, ColorMode::FoldChange);
     println!("colors:{:?}", colors);
     
     let node_id = 0;
@@ -67,7 +67,7 @@ fn test_colors() {
 
     // test with color mode SampleGroups
 
-    let colors = Colors::new(&graph_tcpem, &config_tcpem, ColorMode::SampleGroups, None);
+    let colors = Colors::new(&graph_tcpem, &config_tcpem, ColorMode::SampleGroups);
 
     let node_id = 0;
     let node = graph_tcpem.get_node(node_id);
@@ -83,7 +83,7 @@ fn test_colors() {
 
     // test with color mode IDs
 
-    let colors_ids = Colors::new(&graph_ids, &config_ids, ColorMode::IDS { n_ids: translator.id_translator().as_ref().unwrap().len() }, None);
+    let colors_ids = Colors::new(&graph_ids, &config_ids, ColorMode::IDS { n_ids: translator.id_translator().as_ref().unwrap().len() });
 
     let node_id = 0;
     let node = graph_ids.get_node(node_id);
@@ -104,7 +104,7 @@ fn test_colors() {
     // test with color mode IDGroups
 
     let id_ids = (0..15).zip(vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4]).collect::<HashMap<ID, ID>>(); // 15 genes in test graph
-    let colors_ids = Colors::new(&graph_ids, &config_ids, ColorMode::IDGroups { id_group_ids: &id_ids, n_id_groups: 5 }, None);
+    let colors_ids = Colors::new(&graph_ids, &config_ids, ColorMode::IDGroups { id_group_ids: &id_ids, n_id_groups: 5 });
     //println!("{:?}", translator.id_translator().as_ref().unwrap());
 
     let node_id = 0;

@@ -36,8 +36,6 @@ pub struct Colors<'a, SD: SummaryData<DI>, DI> {
     // 2-bit encoded group associations of labels
     marker0: Marker,
     marker1: Marker,
-    // ids of mapped transcripts for each node
-    transcript_ids: Option<&'a Vec<Box<[ID]>>>,
     // factor (slope) for log2(fold change) to hue transformation
     log2_fc_factor: Option<f32>,
     // slope (m) and y intercept (b) for n obs to value transformation
@@ -77,7 +75,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
 
 
     /// Creates a new [`Colors<SD>`]. 
-    pub fn new<'b: 'a, K: Kmer>(graph: &DebruijnGraph<K, SD>, summary_config: &SummaryConfig, color_mode: ColorMode<'b>, transcript_ids: Option<&'a Vec<Box<[ID]>>>) -> Self {
+    pub fn new<'b: 'a, K: Kmer>(graph: &DebruijnGraph<K, SD>, summary_config: &SummaryConfig, color_mode: ColorMode<'b>) -> Self {
         let (log2_fc_factor,
         _log2_nobs_mb,
         log10_p_mb,
@@ -224,7 +222,6 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             color_mode,
             marker0,
             marker1,
-            transcript_ids,
             log2_fc_factor,
             _log2_nobs_mb,
             log10_p_mb,
@@ -236,7 +233,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
 
 
     /// get the color for a node in a HSV format
-    pub fn node_color(&self, node_id: usize, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
+    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
 
         // get hue
         let hue = match self.color_mode {
@@ -314,13 +311,11 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             "".to_string()
         };
 
-        if let Some(t_ids) = self.transcript_ids {
-            if !t_ids[node_id].is_empty() {
+        // TODO make work with og color mode too
+        if let Some(t_ids) = data.mapped_ids() {
+            if !t_ids.is_empty() {
                 if let ColorMode::IDS { n_ids } = self.color_mode {
-                    let outline_hue = t_ids[node_id].iter().map(|id| *id as f32 / (n_ids * t_ids[node_id].len()) as f32).sum::<f32>();
-                    if outline_hue != hue {
-                        println!("t_ids node {node_id}: {:?}", t_ids[node_id]);
-                    }
+                    let outline_hue = t_ids.iter().map(|id| *id as f32 / (n_ids * t_ids.len()) as f32).sum::<f32>();
                     prefix = format!("\"{outline_hue} 1 0.7\", penwidth=20, fillcolor=");
                 }
             }
