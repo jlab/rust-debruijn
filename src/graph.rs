@@ -716,6 +716,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             &mut backup_id_tr
         };
 
+        println!("gene ids: {:?}", id_tr);
+
         // go through each transcript and map to graph
         for result in reader.records() {
             let record = result.expect("error parsing transcripts fasta");
@@ -726,6 +728,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 Err((_, id)) => id
             };
 
+            println!("gene: {}, gene_id: {gene_id}", record.id());
             // iterate over k-mers in transcript and find each one in the graph
             let sequence = DnaString::from_acgt_bytes(record.seq());
             for kmer in sequence.iter_kmers::<K>() {
