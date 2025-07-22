@@ -317,8 +317,11 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
         if let Some(t_ids) = self.transcript_ids {
             if !t_ids[node_id].is_empty() {
                 if let ColorMode::IDS { n_ids } = self.color_mode {
-                    let hue = t_ids[node_id].iter().map(|id| *id as f32 / (n_ids * t_ids[node_id].len()) as f32).sum::<f32>();
-                    prefix = format!("\"{hue} 1 0.7\", penwidth=20, fillcolor=");
+                    let outline_hue = t_ids[node_id].iter().map(|id| *id as f32 / (n_ids * t_ids[node_id].len()) as f32).sum::<f32>();
+                    if outline_hue != hue {
+                        println!("t_ids node {node_id}: {:?}", t_ids[node_id]);
+                    }
+                    prefix = format!("\"{outline_hue} 1 0.7\", penwidth=20, fillcolor=");
                 }
             }
         }
