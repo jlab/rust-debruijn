@@ -706,7 +706,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
 
         let reader = fasta::Reader::new(BufReader::new(File::create(path).unwrap()));
-        let mut node_transcript_ids: Vec<Vec<ID>> = Vec::new();
+        let mut node_transcript_ids = vec![Vec::new(); self.len()];
 
         let mut backup_id_tr = BiHashMap::new();
 
@@ -1498,11 +1498,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 }
 
 impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
-    pub fn create_colors<'a, 'b: 'a, DI>(&'a self, config: &SummaryConfig, color_mode: ColorMode<'b>) -> Colors<'b, SD, DI> 
+    pub fn create_colors<'a, 'b: 'a, DI>(&'a self, config: &SummaryConfig, color_mode: ColorMode<'b>, transcript_ids: Option<&'b Vec<Box<[u16]>>>) -> Colors<'b, SD, DI> 
     where 
     SD: SummaryData<DI>,
     {
-        Colors::new(self, config, color_mode)
+        Colors::new(self, config, color_mode, transcript_ids)
     }
     
     /// edge mults will contain hanging edges if the nodes were filtered
@@ -1832,7 +1832,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
-        let color = colors.node_color(self.data(), config, outline);
+        let color = colors.node_color(self.node_id, self.data(), config, outline);
         let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
 
         let data_info = self.data().print(translator, config, translate_id_groups);
