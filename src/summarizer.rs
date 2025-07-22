@@ -74,6 +74,11 @@ impl Translator {
         &self.ids
     }
 
+    /// get a mutable reference to the tag translator, returns None if the `Translator` does not contain a tag translator
+    pub fn mut_id_translator(&mut self) -> &mut Option<BiMap<String, ID>> {
+        &mut self.ids
+    }
+
     /// dissolve the `Translator` into its underlying [`BiMap`]s
     pub fn dissolve(self) -> (Option<BiMap<String, ID>>, Option<BiMap<String,Tag>>) {
         (self.ids, self.tags)

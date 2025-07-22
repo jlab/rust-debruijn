@@ -2,6 +2,8 @@
 
 //! Containers for path-compressed De Bruijn graphs
 
+use bimap::BiHashMap;
+use bio::io::fasta;
 use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
@@ -26,6 +28,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::process::id;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -43,6 +46,7 @@ use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
+use crate::summarizer::ID;
 use crate::BUF;
 use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
@@ -692,6 +696,49 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         seq
+    }
+
+    /// map sequences from a fasta file to an uncompressed (!!!) and stranded (!!!!!) debruijn graph
+    pub fn map_transcripts<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<Box<[ID]>>, String> 
+    where 
+        P: AsRef<Path>
+    {
+        if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
+
+        let reader = fasta::Reader::new(BufReader::new(File::create(path).unwrap()));
+        let mut node_transcript_ids: Vec<Vec<ID>> = Vec::new();
+
+        let mut backup_id_tr = BiHashMap::new();
+
+        let id_tr = if let Some(id_tr) = translator.mut_id_translator() {
+            id_tr
+        } else {
+            &mut backup_id_tr
+        };
+
+        // go through each transcript and map to graph
+        for result in reader.records() {
+            let record = result.expect("error parsing transcripts fasta");
+
+            // get gene id or make new id
+            let gene_id = match id_tr.insert_no_overwrite(record.id().to_string(), id_tr.len() as ID) {
+                Ok(_) => id_tr.len() as ID - 1,
+                Err((_, id)) => id
+            };
+
+            // iterate over k-mers in transcript and find each one in the graph
+            let sequence = DnaString::from_acgt_bytes(record.seq());
+            for kmer in sequence.iter_kmers::<K>() {
+                if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                    node_transcript_ids[node].push(gene_id);
+                }
+            }
+        }
+
+        // change to boxed slices to reduce memory
+        let boxed_transcripts = node_transcript_ids.into_iter().map(|vec| vec.into()).collect();
+
+        Ok(boxed_transcripts)
     }
 
     /// write a node to a dot file
