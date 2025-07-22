@@ -705,7 +705,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     {
         if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
 
-        let reader = fasta::Reader::new(BufReader::new(File::create(path).unwrap()));
+        let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
         let mut node_transcript_ids = vec![Vec::new(); self.len()];
 
         let mut backup_id_tr = BiHashMap::new();
