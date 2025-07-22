@@ -723,11 +723,15 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             let record = result.expect("error parsing transcripts fasta");
 
             // get gene id or make new id
-            let gene_id = match id_tr.insert_no_overwrite(record.id().to_string(), id_tr.len() as ID) {
-                Ok(_) => id_tr.len() as ID - 1,
-                Err((_, id)) => id
+            let gene_id = match id_tr.get_by_left(&record.id().to_string()) {
+                Some(id) => *id,
+                None => {
+                    let new_id = id_tr.len() as ID;
+                    id_tr.insert(record.id().to_string(), new_id);
+                    new_id
+                }
             };
-
+            
             println!("gene: {}, gene_id: {gene_id}", record.id());
             // iterate over k-mers in transcript and find each one in the graph
             let sequence = DnaString::from_acgt_bytes(record.seq());
