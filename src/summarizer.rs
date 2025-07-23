@@ -2179,7 +2179,7 @@ pub struct IDMapEMData {
 impl SummaryData<IDTag> for IDMapEMData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let ids_format = id_format(&self.ids, translator, id_group_translator);
-        let map_ids_format = id_format(&self.ids, translator, id_group_translator);
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
         format!("IDs: {}, mapped IDs: {}", 
             ids_format, 
