@@ -311,12 +311,19 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             "".to_string()
         };
 
-        // TODO make work with og color mode too
+        // overwrite generated path with mapped paths
         if let Some(t_ids) = data.mapped_ids() {
             if !t_ids.is_empty() {
-                if let ColorMode::IDS { n_ids } = self.color_mode {
-                    let outline_hue = t_ids.iter().map(|id| *id as f32 / (n_ids * t_ids.len()) as f32).sum::<f32>();
-                    prefix = format!("\"{outline_hue} 1 0.7\", penwidth=20, fillcolor=");
+                match self.color_mode {
+                    ColorMode::IDS { n_ids } => {
+                        let outline_hue = t_ids.iter().map(|id| *id as f32 / (n_ids * t_ids.len()) as f32).sum::<f32>();
+                        prefix = format!("\"{outline_hue} 1 0.6\", penwidth=30, fillcolor=");
+                    }
+                    ColorMode::IDGroups { id_group_ids, n_id_groups } => {
+                        let outline_hue = t_ids.iter().map(|id| *(id_group_ids.get(id).expect("id was not in HM")) as f32 / (n_id_groups * t_ids.len()) as f32).sum::<f32>();
+                        prefix = format!("\"{outline_hue} 1 0.6\", penwidth=30, fillcolor=");
+                    }
+                    _ => ()
                 }
             }
         }
