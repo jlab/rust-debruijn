@@ -2148,11 +2148,18 @@ mod test {
         assert_eq!(check_edges, edges);
     }
 
+    // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
+    #[cfg(not(feature = "sample128"))]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum.kmers.dbg";
+
+    // cargo run --features sample128 -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum_128 --checkpoint -k 22
+    #[cfg(feature = "sample128")]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum_128.kmers.dbg";
 
     #[test]
     fn test_map_transcripts() {
         // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
-        let graph_path = "test_data/marbel_100_sum.kmers.dbg";
+        let graph_path = TEST_GRAPH;
         let t_ref_path = "test_data/marbel_100_tr_ref.fasta";
         let (kmers, mut translator, _) = SerKmers::<Kmer22, u32>::deserialize_from(graph_path).dissolve();
 
