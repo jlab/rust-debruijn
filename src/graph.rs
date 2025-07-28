@@ -2078,7 +2078,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::File, io::BufReader};
 
-    use crate::{compression::uncompressed_graph, graph, kmer::{Kmer16, Kmer22}, serde::{SerGraph, SerKmers}, summarizer::{IDEMData, TagsCountsSumData, ID}};
+    use crate::{compression::uncompressed_graph, graph, kmer::{Kmer16, Kmer22}, serde::{SerGraph, SerKmers}, summarizer::{IDEMData, IDMapEMData, TagsCountsSumData, ID}};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2153,12 +2153,12 @@ mod test {
     fn test_map_transcripts() {
         let graph_path = "../dbg/local/tr_map/1k.kmers.dbg";
         let t_ref_path = "../marbel_datasets/sim_reads_1k/summary/metatranscriptome_reference.fasta";
-        let (kmers, mut translator, _) = SerKmers::<Kmer22, IDEMData>::deserialize_from(graph_path).dissolve();
+        let (kmers, mut translator, _) = SerKmers::<Kmer22, IDMapEMData>::deserialize_from(graph_path).dissolve();
 
         let unc_graph = uncompressed_graph(&kmers, true).finish();
 
         let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
-        //println!("map: {:?}", t_map);
+        assert_eq!(t_map.len(), unc_graph.len());
     }
 }
 
