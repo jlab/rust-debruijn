@@ -2151,14 +2151,16 @@ mod test {
 
     #[test]
     fn test_map_transcripts() {
-        let graph_path = "../dbg/local/tr_map/1k.kmers.dbg";
-        let t_ref_path = "../marbel_datasets/sim_reads_1k/summary/metatranscriptome_reference.fasta";
-        let (kmers, mut translator, _) = SerKmers::<Kmer22, IDMapEMData>::deserialize_from(graph_path).dissolve();
+        // dbg -c ../marbel_datasets/sim_reads_100.csv -s id-em --stranded -o ../rust-debruijn/test_data/marbel_100_id-em --checkpoint -k 22
+        let graph_path = "test_data/marbel_100_id-em.kmers.dbg";
+        let t_ref_path = "test_data/marbel_100_tr_ref.fasta";
+        let (kmers, mut translator, _) = SerKmers::<Kmer22, IDEMData>::deserialize_from(graph_path).dissolve();
 
         let unc_graph = uncompressed_graph(&kmers, true).finish();
 
         let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
         assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 10720);
     }
 }
 
