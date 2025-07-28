@@ -2150,13 +2150,13 @@ impl SummaryData<IDTag> for IDEMData{
     fn summarize<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, out_data, tag_counts, sum, ids, edge_mults) = summarize_with_ids_em(items);
 
-        // caluclate p-value with chosen test
-        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+        // caluclate p-value with chosen test, valid if not enough samples
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);           
 
         let ids = ids.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid = valid_counts(tags, Some(sum), config) && valid_p;
 
         (valid, all_exts, IDEMData { ids, edge_mults }) 
     }
@@ -2241,12 +2241,12 @@ impl SummaryData<IDTag> for IDMapEMData{
         let (all_exts, out_data, tag_counts, sum, ids, edge_mults) = summarize_with_ids_em(items);
 
         // caluclate p-value with chosen test
-        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
 
         let ids = ids.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid = valid_counts(tags, Some(sum), config) && valid_p;
 
         (valid, all_exts, IDMapEMData { ids, map_ids: Vec::new().into(), edge_mults }) 
     }
