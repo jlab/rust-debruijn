@@ -54,6 +54,11 @@ impl Translator {
         Translator { ids: Some(ids), tags: Some(tags) }
     }
 
+    /// make an empty [`Translator`]
+    pub fn empty() -> Translator {
+        Translator { ids: None, tags: None }
+    }
+
     /// make a new [`Translator`] for tags
     pub fn new_tag_translator(hashed_tags: BiMap<String, Tag>) -> Translator {
         Translator { ids: None, tags: Some(hashed_tags) }

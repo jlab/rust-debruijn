@@ -1239,7 +1239,7 @@ impl EdgeMult {
             Dir::Right => SingleDirEdgeMult::new(self.edge_mults[0..ALPHABET_SIZE]
                 .try_into().expect("Error: slice has incorrect length")),
         }
-    }
+    } 
 }
 
 impl Default for EdgeMult {
