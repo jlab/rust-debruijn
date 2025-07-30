@@ -1597,7 +1597,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         self.remove_path(target_path);
                     }
                     
-                    println!("corr high: {high_cc}, corr low: {low_cc}");
                     if let Some(wtr) = writer.as_mut() {
                         writeln!(wtr, "{},{},{}", avg_high_cov, avg_low_cov, (high_cc as f32/low_cc as f32).log2()).unwrap();
                     }
