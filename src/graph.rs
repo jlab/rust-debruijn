@@ -1569,21 +1569,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let outs = self.get_node(node_id).data().edge_mults().expect("should have em").right();
 
             let Some((out_max_base, out_max)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
-            println!("start node: {node_id}");
             let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max > c * min_diff_factor)).collect::<Vec<_>>();
-            println!("smaller outs: {:?}", smaller_outs);
 
             if smaller_outs.is_empty() { continue; }
 
             // follow path with highest coverage until target length is reached
             let Some(target_node) = self.follow_ladder_path_high(node_id, out_max_base as u8) else { continue; };
-            println!("target node: {target_node}");
             
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
                 let Some(target_path) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
-                println!("target path: {:?}", target_path);
                 let other_target_node = *target_path.last().expect("should have at least two/tree elements");
 
                 if target_node == other_target_node {
@@ -1691,12 +1687,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let em = current_node.data().edge_mults().expect("must have edge mults").right();
             let (max_cov_base, _) = em.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2))?;
 
-            println!("current node: {current_node_id}, max cov base: {max_cov_base}");
             // get next node id
             let sequence = self.base.sequences.get(current_node_id);
             let term_kmer: K = sequence.term_kmer(Dir::Right);
             let next_kmer = term_kmer.extend(max_cov_base as u8, Dir::Right);
-            println!("sequence: {:?}, term kmer: {:?}, next kmer: {:?}", sequence, term_kmer, next_kmer);
             let (out_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
 
             // set current node id to next node to be visited
@@ -1707,12 +1701,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     fn remove_path(&mut self, path: Vec<usize>) {
         let mut path_iter = path.into_iter();
         let Some(mut current_node_id) = path_iter.next() else { return; };
-        println!("start node: {current_node_id}");
 
         loop {
             // get next node id
             let Some(next_node_id) = path_iter.next() else { return }; // whole path has been covered
-            println!("next node: {next_node_id}");
             // remove ext to the right of current node
             let (out_base, _, _, _) = *self.get_node(current_node_id).r_edges().iter().find(|&(_, id, _, _)| *id == next_node_id).expect("incorrect path");
             self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(Dir::Right, out_base);
@@ -2346,6 +2338,7 @@ mod test {
     fn test_remove_ladders() {
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
+        let insertion = "ACGATCGATCGCGATCGTAAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
@@ -2353,13 +2346,17 @@ mod test {
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect, Exts::empty(), 1u8);
+            reads.add_from_bytes(incorrect, Exts::empty(), 1u8); // should be removed
+        }
+
+        for _i in 0..20 {
+            reads.add_from_bytes(insertion, Exts::empty(), 2u8); // should not be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 2, 1, 1, vec![1000, 10]);
+        let sample_info = SampleInfo::new(1, 6, 1, 2, vec![1000, 10, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsCountsEMData, Kmer16, Tag>(&seqs, &summary_config, false, 10, false);
+        let (kmers, _) = filter_kmers::<TagsCountsEMData, Kmer16, Tag>(&seqs, &summary_config, false, 1, false);
 
 
         // test with uncompressed graph
