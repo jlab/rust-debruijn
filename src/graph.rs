@@ -1556,35 +1556,51 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     /// remove simple ladder structure caused by 1 base sequencing errors from the graph
     /// graph must contain edge mults and be stranded
-    pub fn remove_ladders<DI>(&mut self, min_diff_factor: u32) -> Result<(), String> 
-    where SD: SummaryData<DI>
+    pub fn remove_ladders<DI, P>(&mut self, min_diff_factor: u32, out_path: Option<P>) -> Result<(), String> 
+    where 
+        SD: SummaryData<DI>,
+        P: AsRef<Path>
     {
         // interrupt if we dont have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
         if !self.base.stranded { return Err(String::from("must be stranded")) };
+
+        let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
+        if let Some(wtr) = writer.as_mut() {
+            writeln!(wtr, "avg high cov,avg low cov,log2(correct high/correct low)").unwrap();
+        }
 
         // iterate over nodes
         for node_id in 0..self.len() {
             // check if node has outgoing edge(s) with both high and low coverage
             let outs = self.get_node(node_id).data().edge_mults().expect("should have em").right();
 
-            let Some((out_max_base, out_max)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
-            let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max > c * min_diff_factor)).collect::<Vec<_>>();
+            let Some((out_max_base, out_max_cov)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
+            //let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max > c * min_diff_factor)).collect::<Vec<_>>();
+            let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max_cov > c)).collect::<Vec<_>>();
+
+            // TODO add factor back in, remove writer
 
             if smaller_outs.is_empty() { continue; }
 
             // follow path with highest coverage until target length is reached
-            let Some(target_node) = self.follow_ladder_path_high(node_id, out_max_base as u8) else { continue; };
-            
+            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, *out_max_cov) else { continue; };
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
-                let Some(target_path) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
+                let Some((target_path, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
                 let other_target_node = *target_path.last().expect("should have at least two/tree elements");
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
-                    self.remove_path(target_path);
+                    if s_cov * min_diff_factor > out_max_cov {
+                        self.remove_path(target_path);
+                    }
+                    
+                    println!("corr high: {high_cc}, corr low: {low_cc}");
+                    if let Some(wtr) = writer.as_mut() {
+                        writeln!(wtr, "{},{},{}", avg_high_cov, avg_low_cov, (high_cc as f32/low_cc as f32).log2()).unwrap();
+                    }
                 }
             }
         }
@@ -1593,7 +1609,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow the presumably erroneous ladder path with low coverage
-    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<Vec<usize>> 
+    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<usize>, f32, usize)> 
     where SD: SummaryData<DI>
     {
         const COV_MARGIN: f32 = 0.3;
@@ -1605,6 +1621,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         let target_length = 2 * K::k() - 1;
         let mut path_length = K::k() - 1;
+        let mut n_correct_nodes = 0;
+        let mut sum_path_cov = 0.;
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
@@ -1618,13 +1636,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         loop {
             // check if current node is "target node", i.e., the path has reached the desired length
             match path_length {
-                len if len == target_length => return Some(path), // path has target length
+                len if len == target_length => return Some((path, (sum_path_cov / target_length as f32), n_correct_nodes)), // path has target length
                 len if len > target_length => return None, // path has surpassed desired length => invalid
                 _ => () // path has not yet reached desired length, continue
             }
 
             // since current node is not target node, add length to path
-            path_length += self.get_node(current_node_id).len() - (K::k() - 1);
+            let len = self.get_node(current_node_id).len() - (K::k() - 1);
+            path_length += len;
+            sum_path_cov += current_cov * len as f32;
 
             // get current node
             let current_node = self.get_node(current_node_id);
@@ -1636,7 +1656,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let out_edges = current_node.r_edges();
             if out_edges.len() != 1 { return None; }
 
-             // if edge cov avalable, check for similarity
+            // try check if nodes "correct", if so, count add len to n correct nodes
+            if let (Some(ids), Some(mapped_ids)) = (current_node.data().ids(), current_node.data().mapped_ids()) {
+                let hashed_mapped_ids = mapped_ids.iter().copied().collect::<HashSet<u16>>();
+                for id in ids {
+                    if hashed_mapped_ids.contains(id) {
+                        n_correct_nodes += len;
+                        break;
+                    }
+                }
+            }
+
+            // if edge cov avalable, check for similarity
             let (out_ext, out_node_id, _, _) = out_edges[0];
             if let Some(em) = current_node.data().edge_mults() {
                 let coverage = em.edge_mult(out_ext, Dir::Right) as f32;
@@ -1657,35 +1688,52 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     /// follow a path of the length 2*k - 1 by choosing the edges with the hightest coverage
     /// requres the graph to have edge mults
-    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8) -> Option<usize> 
+    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(usize, f32, usize)> 
     where SD: SummaryData<DI>
     {
 
         let target_length = 2 * K::k() - 1;
         let mut path_length = K::k() - 1;
+        let mut sum_path_cov = 0; 
+        let mut n_correct_nodes = 0; // does not count first and last node
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
         let term_kmer: K = sequence.term_kmer(Dir::Right);
         let next_kmer = term_kmer.extend(start_ext, Dir::Right);
         let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
+        let mut current_cov = start_cov;
 
         loop {
             // check if current node is "target node", i.e., the path has reached the desired length
             match path_length {
-                len if len == target_length => return Some(current_node_id), // path has target length
+                len if len == target_length => return Some((current_node_id, (sum_path_cov as f32 / target_length as f32), n_correct_nodes)), // path has target length
                 len if len > target_length => return None, // path has surpassed desired length => invalid
                 _ => () // path has not yet reached desired length, continue
             }
 
             // since current node is not target node, add length to path
-            path_length += self.get_node(current_node_id).len() - (K::k() - 1);
+            let len = self.get_node(current_node_id).len() - (K::k() - 1);
+            path_length += len;
+            sum_path_cov += current_cov * len as u32;
 
             // get current node
             let current_node = self.get_node(current_node_id);
+
+            // try check if nodes "correct", if so, count add len to n correct nodes
+            if let (Some(ids), Some(mapped_ids)) = (current_node.data().ids(), current_node.data().mapped_ids()) {
+                let hashed_mapped_ids = mapped_ids.iter().copied().collect::<HashSet<u16>>();
+                for id in ids {
+                    if hashed_mapped_ids.contains(id) {
+                        n_correct_nodes += len;
+                        break;
+                    }
+                }
+            }
+        
             // find outgoing edge with highest coverage
             let em = current_node.data().edge_mults().expect("must have edge mults").right();
-            let (max_cov_base, _) = em.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2))?;
+            let (max_cov_base, &max_cov) = em.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2))?;
 
             // get next node id
             let sequence = self.base.sequences.get(current_node_id);
@@ -1695,6 +1743,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // set current node id to next node to be visited
             current_node_id = out_node_id;
+            current_cov = max_cov;
         }
     }
 
@@ -2242,7 +2291,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::File, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, Translator}, Exts};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, Translator, ID}, Exts};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2342,39 +2391,57 @@ mod test {
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
-            reads.add_from_bytes(correct, Exts::empty(), 0u8);
+            reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect, Exts::empty(), 1u8); // should be removed
+            reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..20 {
-            reads.add_from_bytes(insertion, Exts::empty(), 2u8); // should not be removed
+            reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 2)); // should not be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 6, 1, 2, vec![1000, 10, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsCountsEMData, Kmer16, Tag>(&seqs, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
 
 
         // test with uncompressed graph
         let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        // add ids to graph
+        for i in 0..unc_graph.len() {
+            let data = unc_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&0) {
+                    data.set_mapped_ids(vec![0].into());
+                }
+            }
+        }
         //let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
         //unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders(10).unwrap();
+        unc_graph.remove_ladders(10, Some("uc.csv")).unwrap();
         //unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         assert_eq!(n_edges - 17, unc_graph.iter_edges().count());
 
         // test with compressed graph
-        let spec = CheckCompress::new(|d: TagsCountsEMData, _| d, |d, d1| d.join_test(d1));
+        let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
         let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        // add ids to graph
+        for i in 0..c_graph.len() {
+            let data = c_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&0) {
+                    data.set_mapped_ids(vec![0].into());
+                }
+            }
+        }
         //let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
         //c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders(10).unwrap();
+        c_graph.remove_ladders(10, Some("c.csv")).unwrap();
         //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
