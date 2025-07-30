@@ -1575,16 +1575,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // check if node has outgoing edge(s) with both high and low coverage
             let outs = self.get_node(node_id).data().edge_mults().expect("should have em").right();
 
-            let Some((out_max_base, out_max_cov)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
+            let Some((out_max_base, &out_max_cov)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
             //let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max > c * min_diff_factor)).collect::<Vec<_>>();
-            let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (*out_max_cov > c)).collect::<Vec<_>>();
+            let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (out_max_cov > c)).collect::<Vec<_>>();
 
             // TODO add factor back in, remove writer
 
             if smaller_outs.is_empty() { continue; }
 
             // follow path with highest coverage until target length is reached
-            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, *out_max_cov) else { continue; };
+            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, out_max_cov) else { continue; };
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
@@ -1593,7 +1593,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
-                    if s_cov * min_diff_factor > out_max_cov {
+                    if s_cov * min_diff_factor < out_max_cov {
                         self.remove_path(target_path);
                     }
                     
