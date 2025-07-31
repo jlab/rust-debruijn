@@ -1830,9 +1830,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         let mut sum_path_cov = start_cov as f32;
         let mut coverage_counter = 1;
 
-        loop {
-            println!("path: {:?}", path);
-        
+        loop {     
             // get current node
             let current_node = self.get_node(current_node_id);
 

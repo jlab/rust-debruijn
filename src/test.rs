@@ -133,7 +133,7 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
 
-    use crate::compression::{compress_graph, compress_kmers, compress_kmers_no_exts, compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress};
+    use crate::compression::{compress_graph, compress_kmers, compress_kmers_no_exts, compress_kmers_with_hash, rebuild_uncompressed_graph, uncompressed_graph, ScmapCompress, SimpleCompress};
     use crate::graph::{self, BaseGraph};
     use crate::reads::{Reads, Strandedness};
     use crate::{DnaBytes, Tags};
@@ -282,6 +282,11 @@ mod tests {
         // comparison uncompressed graph
         let uc_graph = uncompressed_graph(&valid_kmers, false).finish_serial();
         assert_eq!(uc_graph.base.sequences.sequence, uncompressed_dbg.base.sequences.sequence);
+
+        // remove nodes from uncompressed graph
+        let uc_graph_len = uc_graph.len();
+        let uc_graph2 = rebuild_uncompressed_graph(false, uc_graph, vec![0, 1]);
+        assert_eq!(uc_graph_len, uc_graph2.len() + 2);
 
         // Canonicalize the graph with
         let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);

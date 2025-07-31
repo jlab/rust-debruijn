@@ -283,7 +283,7 @@ DI: Clone + Copy + Send + Sync
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
-        debug!("Processing bucket {} of {}", i+1, n_buckets);
+        debug!("Processing slice {} of {}", i+1, n_buckets);
 
         let before_kmer_picking = Instant::now();
         // first step: picking kmers with their exts & data from the reads
@@ -358,9 +358,7 @@ DI: Clone + Copy + Send + Sync
         
         // parallel start
         // summarize kmers in buckets      
-        new_buckets.into_par_iter().enumerate().for_each(|(j, mut kmer_vec)| {
-            //debug!("kmers in bucket #{}: {}", j, kmer_vec.len());
-            debug!("starting bucket {} with {} kmers, capacity of {}", j, kmer_vec.len(), kmer_vec.capacity());
+        new_buckets.into_par_iter().for_each(|mut kmer_vec| {
             kmer_vec.sort_by_key(|elt| elt.0);
 
             let size = kmer_vec.iter().chunk_by(|elt| elt.0).into_iter().count();
@@ -417,7 +415,7 @@ DI: Clone + Copy + Send + Sync
 
         time_summarizing += before_parallel.elapsed().as_secs_f32();
 
-        debug!("processed bucket {i}");
+        debug!("processed bucket {}", i+1);
     }
     pb_bucket_ranges.finish_and_clear();
 
@@ -688,16 +686,12 @@ where
 
         let before_summarizing = Instant::now();
 
-        let mut progress_counter = 0;
-
         // go trough all buckets and summarize the contents
         let pb = multi_pb.add(ProgressBar::new(kmer_buckets.len() as u64));
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "summarizing k-mers in buckets"));
 
         for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
-            debug!("bucket {} with {} kmers, capacity of {}", progress_counter, kmer_vec.len(), kmer_vec.capacity());
-            progress_counter += 1;
             //debug!("kmers in this bucket: {}", kmer_vec.len());
             kmer_vec.sort_by_key(|elt| elt.0);
 
@@ -731,8 +725,6 @@ where
                     valid_data.push(summary_data); 
                 }
             }
-            debug!("finished bucket {}, current mems: valid_kmers {} Bytes, valid_exts {} Bytes, valid_data {} Bytes", 
-                progress_counter, mem::size_of_val(&*valid_kmers), mem::size_of_val(&*valid_exts), mem::size_of_val(&*valid_data))
         }
 
         pb_bucket_ranges.inc(1);
