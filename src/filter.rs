@@ -415,7 +415,7 @@ DI: Clone + Copy + Send + Sync
 
         time_summarizing += before_parallel.elapsed().as_secs_f32();
 
-        debug!("processed bucket {}", i+1);
+        debug!("processed slice {}", i+1);
     }
     pb_bucket_ranges.finish_and_clear();
 

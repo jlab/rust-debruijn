@@ -1587,13 +1587,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
-                let Some((target_path, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
-                let other_target_node = *target_path.last().expect("should have at least two/three elements");
+                let Some((target_paths, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
+                let other_target_node = *target_paths.last().expect("should have at least one element").last().expect("should have at least two elements");
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if s_cov * min_diff_factor <= out_max_cov {
-                        self.remove_path(target_path, Dir::Right);
+                        for path in target_paths {
+                            self.remove_path(path, Dir::Right);
+                        } 
                     }
                     
                     if let Some(wtr) = writer.as_mut() {
@@ -1607,15 +1609,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow the presumably erroneous ladder path with low coverage
-    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<usize>, f32, f32)> 
+    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<Vec<usize>>, f32, f32)> 
     where SD: SummaryData<DI>
     {
         const COV_MARGIN: f32 = 0.3;
-        const COV_ADD_MARGIN: f32 = 4.;
+        const COV_ADD_MARGIN: f32 = 2.;
+        const COV_STATE_FACTOR: f32 = 2.;
 
         // path, including start and target node
-        let mut path = Vec::new();
-        path.push(start_node_id);
+        let mut paths = Vec::new();
+        paths.push(Vec::new());
+        paths[0].push(start_node_id);
 
         let target_length = K::k();
         let mut path_length = 0;
@@ -1626,7 +1630,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         let term_kmer: K = sequence.term_kmer(Dir::Right);
         let next_kmer = term_kmer.extend(start_ext, Dir::Right);
         let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
-        path.push(current_node_id);
+        paths[0].push(current_node_id);
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -1636,11 +1640,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         let mut sum_path_cov = start_cov as f32;
         let mut coverage_counter = 1; 
 
+        // state to track if nodes should be removed or we're suspecting there's another path here
+        // only track edges for removal while state is Singular
+        // only track one additional path, else too complicated, return None
+        // increase state if there is another incoming edge or if the coverage suddenly increases drastically
+        // decrease state if there is another outgoing edge ot if the coverage suddenly decreases drastically
+        // if state cannot be increased or decreased further, return None
+        let mut state = LadderState::Singular;
 
         loop {
             // check if current node is "target node", i.e., the path has reached the desired length
             match path_length {
-                len if len == target_length => return Some((path, (sum_path_cov / coverage_counter as f32), (n_correct_edges as f32 / (path_length + 1) as f32))), // path has target length
+                len if len == target_length => return Some((paths, (sum_path_cov / coverage_counter as f32), (n_correct_edges as f32 / (path_length + 1) as f32))), // path has target length
                 len if len > target_length => return None, // path has surpassed desired length => invalid
                 _ => () // path has not yet reached desired length, continue
             }
@@ -1651,37 +1662,107 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // get current node
             let current_node = self.get_node(current_node_id);
-
-            // low path nodes should have only one incoming and one outgoing edge
+            
+            // get edges
             let in_edges = current_node.l_edges();
-            if in_edges.len() != 1 { return None; }
-
             let out_edges = current_node.r_edges();
-            if out_edges.len() != 1 { return None; }
 
-            // if edge cov avalable, check for similarity
-            let (out_ext, out_node_id, _, _) = out_edges[0];
-            if let Some(em) = current_node.data().edge_mults() {
-                let coverage = em.edge_mult(out_ext, Dir::Right) as f32;
-                if coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN // extra two for small values
-                    || coverage > current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN {
-                    return None;
-                } else {
-                    current_cov = coverage;
+            // get coverage
+            // edge cov must be available
+            let edge_coverages = current_node.data().edge_mults().expect("must have edge mults");
+
+            // choose next edge by choosing coverage closest to current coverage
+            let mut out_ext = None;
+            let mut out_node_id = None;
+            let mut cov_diff = i32::MAX;
+            for (e, id, _, _) in out_edges.iter() {
+                let cov = edge_coverages.edge_mult(*e, Dir::Right) as i32;
+                let new_cov_diff = (current_cov as i32 - cov).abs();
+                if new_cov_diff < cov_diff {
+                    (out_ext, out_node_id, cov_diff) = (Some(*e), Some(*id), new_cov_diff);
+                }
+            }
+            let (Some(out_ext), Some(out_node_id)) = (out_ext, out_node_id) else { return None; };
+
+            // ideally, low path nodes should have one incoming and one outgoing edge
+            // if two incoming edges, increase state from singular to double if possible
+            match in_edges.len() {
+                1 => (),
+                2 => match state {
+                    LadderState::Singular => state = LadderState::Double,
+                    LadderState::Double => return None // getting too complicated
+                }
+                _ => return None
+            }
+
+            // if two outgoing edges, decrease state from double to singular if possible
+            // if already singular, 
+            match out_edges.len() {
+                1 => (),
+                2 => match state {
+                    LadderState::Singular => (), // could return None, but would kill if overlap is only one node long
+                    LadderState::Double => {
+                        state = LadderState::Singular;
+                        paths.push(vec![current_node_id]); // start new path
+                    }
+                }
+                _ => return None
+            }        
+
+            // check coverage
+            let coverage = edge_coverages.edge_mult(out_ext, Dir::Right) as f32;
+            match state {
+                LadderState::Singular => {
+                    // single state: check if next coverage is similar enough to current coverage
+                    // if waybigger, increase state
+                    if  coverage > current_cov * COV_STATE_FACTOR {
+                        // higher by too much
+                        state = LadderState::Double;
+                    } else if (coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN)
+                        | (coverage > current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN) {
+                        // lower by too much or higher by not enough
+                        return None;
+                    } else {
+                        // in acceptable frame
+                        current_cov = coverage;
+                    }
+                }
+                LadderState::Double => {
+                    // double state: if way smaller, decrease state, else dont treat as current coverage
+                    if (coverage > current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN)
+                        & (coverage < current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN) {
+                        // back in acceptable range
+                        state = LadderState::Singular;
+                        paths.push(vec![current_node_id]); // start new path
+                        current_cov = coverage;
+                    } // else continue on 
+                    // TODO check if better to also interrupt if coverage increases further
                 }
             }
 
-            // try to check if edge is "correct", add extra length of current node to it to account for compression
-            if self.check_edge_truth(current_node_id, out_node_id) {
-                n_correct_edges += len;
+            // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
+            match state {
+                LadderState::Singular => {
+                    if self.check_edge_truth(current_node_id, out_node_id) {
+                        n_correct_edges += len;
+                    }
+                }
+                LadderState::Double => ()
             }
 
             // set current node id to next node to be visited
             current_node_id = out_node_id;
-            sum_path_cov += current_cov;
-            coverage_counter += 1;
-            // add current node to path
-            path.push(current_node_id);
+
+            // add current node to path, unless state is double
+            match state {
+                LadderState::Double => (),
+                LadderState::Singular => {
+                    sum_path_cov += current_cov;
+                    coverage_counter += 1;
+                    let last_path = paths.len() - 1;
+                    paths[last_path].push(current_node_id); // add node to latest path
+                }
+            }
         }
     }
 
@@ -1940,6 +2021,12 @@ struct State {
 }
 
 impl State {}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LadderState {
+    Singular,
+    Double
+}
 
 /// Iterator over nodes in a `DeBruijnGraph`
 pub struct NodeIter<'a, K: Kmer + 'a, D: Debug + 'a> {
@@ -2544,23 +2631,40 @@ mod test {
     fn test_remove_ladders() {
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
-        let insertion = "ACGATCGATCGCGATCGTAAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
+        let incorrec2 = "TGACAGCTGACGGCTGACTACTACGTCACTGACGATGCTGACAC".as_bytes();
+        let incorrec3 = "AAAAAAAAAGCTGACTGCTGACGGCTG".as_bytes();
+        let incorrec4 = "ACGGCTGACTACTGACTGAAAAAAAAAAA".as_bytes();
+
+        let insertion = "ACGATCGATCGCGATCGATAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
             reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
         }
 
-        for _i in 0..10 {
+        for _i in 0..5 {
             reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..20 {
-            reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 2)); // should not be removed
+            reads.add_from_bytes(incorrec2, Exts::empty(), IDTag::new(2, 2)); // should be removed
+        }
+
+        for _i in 0..15 {
+            reads.add_from_bytes(incorrec3, Exts::empty(), IDTag::new(3, 3)); // should be removed
+        }
+
+        for _i in 0..25 {
+            reads.add_from_bytes(incorrec4, Exts::empty(), IDTag::new(4, 4)); // should be removed
+        }
+
+
+        for _i in 0..20 {
+            reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 3)); // should not be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 6, 1, 2, vec![1000, 10, 20]);
+        let sample_info = SampleInfo::new(1, 0b111110, 1, 5, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
         let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
 
@@ -2576,12 +2680,12 @@ mod test {
                 }
             }
         }
-        //let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
-        //unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_ladders(10, Some("uc.csv")).unwrap();
-        //unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
-        assert_eq!(n_edges - 17, unc_graph.iter_edges().count());
+        unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
@@ -2595,12 +2699,12 @@ mod test {
                 }
             }
         }
-        //let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
-        //c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_ladders(10, Some("c.csv")).unwrap();
-        //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
-        assert_eq!(n_edges - 2, c_graph.iter_edges().count());
+        c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
 
     #[test]
