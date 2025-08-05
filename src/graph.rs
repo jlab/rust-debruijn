@@ -1964,19 +1964,64 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove the edges (not the nodes) of a path in the graph
-    fn remove_path(&mut self, path: Vec<usize>, base_dir: Dir) {
+    fn remove_path(&mut self, path: Vec<usize>, base_dir: Dir) -> Result<(), String> {
         let mut path_iter = path.into_iter();
-        let Some(mut current_node_id) = path_iter.next() else { return; };
+        let Some(mut current_node_id) = path_iter.next() else { return Ok(()); };
 
         loop {
             // get next node id
-            let Some(next_node_id) = path_iter.next() else { return }; // whole path has been covered
+            let Some(next_node_id) = path_iter.next() else { return Ok(()); }; // whole path has been covered
             // remove ext to the right of current node
-            let (out_base, _, _, _) = *self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).expect("incorrect path");
+            let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
+                else { return Err(format!(
+"incorrect path (base dir)
+dir: {:?}
+node1:
+    id: {current_node_id}
+    left e: {:?}
+    right e: {:?}
+    exts: {:?}
+node2:
+    id: {next_node_id}
+    left e: {:?}
+    right e: {:?}
+    exts: {:?}",
+                base_dir,
+                self.get_node(current_node_id).l_edges(),
+                self.get_node(current_node_id).r_edges(),
+                self.get_node(current_node_id).exts(),
+                self.get_node(next_node_id).l_edges(),
+                self.get_node(next_node_id).r_edges(),
+                self.get_node(next_node_id).exts(),
+                ))
+            };
+
             self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(base_dir, out_base);
 
             // remove ext to the left of the next node
-            let (in_base, _, _, _) = *self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).expect("incorrect path");
+            let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
+                else { return Err( format!(
+"incorrect path (other dir)
+dir: {:?}
+node1:
+    id: {current_node_id}
+    left e: {:?}
+    right e: {:?}
+    exts: {:?}
+node2:
+    id: {next_node_id}
+    left e: {:?}
+    right e: {:?}
+    exts: {:?}",
+                base_dir,
+                self.get_node(current_node_id).l_edges(),
+                self.get_node(current_node_id).r_edges(),
+                self.get_node(current_node_id).exts(),
+                self.get_node(next_node_id).l_edges(),
+                self.get_node(next_node_id).r_edges(),
+                self.get_node(next_node_id).exts(),
+                ))
+            };
             self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(base_dir.flip(), in_base); 
 
             current_node_id = next_node_id;
@@ -2680,11 +2725,11 @@ mod test {
                 }
             }
         }
-        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        //let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        //unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_ladders(10, Some("uc.csv")).unwrap();
-        unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        //unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
         // test with compressed graph
@@ -2699,11 +2744,11 @@ mod test {
                 }
             }
         }
-        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        //let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        //c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_ladders(10, Some("c.csv")).unwrap();
-        c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
 
