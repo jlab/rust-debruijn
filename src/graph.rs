@@ -1594,7 +1594,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if s_cov * min_diff_factor <= out_max_cov {
                         for path in target_paths {
-                            self.remove_path(path, Dir::Right);
+                            self.remove_path(path, Dir::Right)?;
                         } 
                     }
                     
@@ -1874,7 +1874,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // remove path if coverage below threshold
                     if (s_cov * min_diff_factor <= out_max_cov) & (tip_len <= max_len ) {
-                        self.remove_path(tip_path, dir);
+                        self.remove_path(tip_path, dir)?;
                     }
                         
                     if let Some(wtr) = writer.as_mut() {
