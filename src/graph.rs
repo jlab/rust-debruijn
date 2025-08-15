@@ -43,6 +43,7 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1605,6 +1606,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
         }
 
+        // since we have removed edges, we need to fix the edge mults
+        self.fix_edge_mults();
+
         Ok(())
     }
 
@@ -1883,6 +1887,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
         }
+
+        // since we have removed edges, we need to fix the edge mults
+        self.fix_edge_mults();
 
         Ok(())
     }
@@ -2578,9 +2585,9 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::BufReader};
+    use std::{fs::{remove_file, File}, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, Translator, ID}, Exts};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::{SerGraph, SerKmers}, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, Translator, ID}, Exts};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2819,6 +2826,7 @@ mod test {
         c_graph.remove_tips(10, Some("c.csv")).unwrap();
         //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
+
     }
 }
 
