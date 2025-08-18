@@ -2063,30 +2063,29 @@ mod test {
     }
 
     #[test]
-    #[cfg(not(feature = "sample128"))]
     fn test_iter_edges() {
-        let path = "test_data/400.graph.dbg";
-        let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
+        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}, Exts};
 
-        let (graph, _, _): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, crate::summarizer::SummaryConfig) = 
-            bincode::deserialize_from(file).expect("error deserializing graph");
+        let read1 = "CAGCATCGATGCGACGAGCGCTCGCATCGA".as_bytes();
+        let read2 = "ACGATCGTACGTAGCTAGCTGACTGAGC".as_bytes();
 
-        let check_edges = vec![(3, Dir::Left, 2, 134), (3, Dir::Right, 2, 67), (14, Dir::Left, 0, 91), 
-            (14, Dir::Right, 0, 70), (26, Dir::Left, 2, 111), (29, Dir::Left, 1, 131), (29, Dir::Left, 3, 84), (29, Dir::Right, 1, 137), 
-            (30, Dir::Left, 3, 43), (30, Dir::Right, 2, 91), (38, Dir::Left, 3, 81), (38, Dir::Right, 1, 88), (41, Dir::Left, 0, 138), 
-            (43, Dir::Left, 0, 131), (53, Dir::Left, 0, 127), (53, Dir::Right, 1, 117), (59, Dir::Left, 3, 133), (59, Dir::Right, 0, 119), 
-            (62, Dir::Left, 3, 119), (62, Dir::Right, 3, 103), (63, Dir::Left, 1, 121), (63, Dir::Right, 0, 124), (67, Dir::Left, 3, 130), 
-            (68, Dir::Left, 0, 137), (68, Dir::Right, 3, 110), (69, Dir::Left, 1, 114), (69, Dir::Left, 3, 77), (69, Dir::Right, 1, 144), 
-            (70, Dir::Right, 0, 79), (75, Dir::Left, 2, 121), (75, Dir::Right, 2, 128), (77, Dir::Left, 1, 120), (78, Dir::Left, 2, 122), 
-            (78, Dir::Right, 2, 125), (79, Dir::Right, 2, 142), (81, Dir::Left, 0, 113), (81, Dir::Right, 0, 143), (81, Dir::Right, 3, 108), 
-            (83, Dir::Right, 3, 109), (86, Dir::Left, 1, 139), (88, Dir::Left, 0, 113), (88, Dir::Right, 3, 134), (91, Dir::Left, 3, 141), 
-            (92, Dir::Left, 3, 135), (92, Dir::Right, 0, 108), (93, Dir::Left, 0, 109), (93, Dir::Right, 0, 126), (96, Dir::Left, 0, 116), 
-            (96, Dir::Right, 0, 135), (97, Dir::Left, 1, 119), (97, Dir::Right, 0, 110), (100, Dir::Left, 2, 139), (100, Dir::Right, 0, 138), 
-            (101, Dir::Right, 0, 120), (103, Dir::Right, 3, 105), (104, Dir::Left, 3, 110), (104, Dir::Right, 2, 119), (105, Dir::Right, 0, 136), 
-            (106, Dir::Left, 3, 124), (106, Dir::Right, 3, 129), (107, Dir::Right, 0, 120), (111, Dir::Right, 2, 140), (112, Dir::Left, 2, 115), 
-            (112, Dir::Left, 3, 118), (112, Dir::Right, 0, 124), (114, Dir::Left, 1, 120), (115, Dir::Right, 0, 123), (116, Dir::Left, 2, 121), 
-            (118, Dir::Right, 0, 123), (121, Dir::Right, 2, 132), (123, Dir::Right, 0, 125), (126, Dir::Right, 0, 132), (128, Dir::Left, 1, 140), 
-            (129, Dir::Right, 0, 132), (130, Dir::Left, 0, 133), (136, Dir::Right, 3, 142), (138, Dir::Left, 0, 138), (139, Dir::Left, 1, 139)];
+        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        reads.add_from_bytes(read1, Exts::empty(), 0u8);
+        reads.add_from_bytes(read2, Exts::empty(), 1);
+
+        let reads_paired = ReadsPaired::Unpaired { reads };
+
+        let sample_info = SampleInfo::new(0b1, 0b10, 1, 1, vec![12, 12]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
+
+        let graph = uncompressed_graph(&kmers).finish();
+
+        let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
+        (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
+        (5, Dir::Right, 2, 19), (6, Dir::Left, 1, 24), (6, Dir::Right, 2, 12), (7, Dir::Left, 2, 23), (7, Dir::Right, 3, 11), (8, Dir::Left, 0, 12), 
+        (9, Dir::Left, 3, 17), (9, Dir::Right, 3, 24), (10, Dir::Right, 1, 21), (13, Dir::Left, 1, 18), (14, Dir::Right, 0, 26), 
+        (15, Dir::Left, 2, 20), (15, Dir::Right, 3, 22), (18, Dir::Left, 2, 19), (20, Dir::Left, 1, 26), (22, Dir::Right, 2, 25), (23, Dir::Left, 1, 25)];
 
         let edges = graph.iter_edges().collect::<Vec<_>>();
 
