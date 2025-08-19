@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::{remove_file, File}, io::BufReader};
 
 use bimap::BiMap;
-use debruijn::{colors::{ColorMode, Colors}, graph::{self, DebruijnGraph}, kmer::Kmer16, serde::SerGraph, summarizer::{IDSumData, SummaryConfig, SummaryData, TagsCountsPEMData, Translator, ID}};
+use debruijn::{colors::{ColorMode, Colors}, compression::{compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress}, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer16, Kmer8}, reads::{Reads, ReadsPaired}, serde::SerGraph, summarizer::{IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, SummaryData, TagsCountsPEMData, Translator, ID}, Exts};
 
 #[cfg(not(feature = "sample128"))]
 const TEST_FILE_T: &str = "test_data/sided.graph.dbg";
@@ -169,7 +169,49 @@ fn test_colors() {
     remove_file("test_gfa_tags.gfa").unwrap();
     remove_file("test_gfa_parallel.gfa").unwrap();
     remove_file("test_gfa_partial.gfa").unwrap();
+}
 
 
+#[test]
+fn test_colors_mapped_ids() {
+    let mut reads = Reads::new(debruijn::reads::Strandedness::Forward);
+    reads.add_from_bytes("AAAAAAAAC".as_bytes(), Exts::empty(), IDTag::new(0, 0));
+    let reads = ReadsPaired::Unpaired { reads };
+
+    let sample_info = SampleInfo::new(0b1, 0b0, 1, 0, vec![2]);
+    let summary_config = SummaryConfig::new(1, None, debruijn::summarizer::GroupFrac::None, 0.3, sample_info, None, debruijn::summarizer::StatTest::WelchsTTest);
+    let (kmers, _) = filter_kmers::<IDMapEMData, Kmer8, _>(&reads, &summary_config, false, 1, false);
+    let mut graph = uncompressed_graph(&kmers, true).finish();
+
+    graph.print();
+
+    graph.mut_data(1).set_mapped_ids(vec![0].into());
+
+    let id_group_ids = [(0, 0)].into_iter().collect();
+    let id_translator = [("ID A".to_string(), 0)].into_iter().collect();
+    let tag_translator = [("TAG B".to_string(), 0)].into_iter().collect();
+    let translator = Translator::new(id_translator, tag_translator);
+
+    // color mode id groups
+    let colors = Colors::new(&graph, &summary_config, ColorMode::IDGroups { id_group_ids: &id_group_ids, n_id_groups: 1 });
+
+    let node = graph.get_node(0);
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: []\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+
+    let node = graph.get_node(1);
+    assert_eq!("[style=filled, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A']\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+
+    // id_group_ids
+    assert_eq!(&id_group_ids, colors.id_group_ids().unwrap());
+
+    // color mode ids
+    let colors = Colors::new(&graph, &summary_config, ColorMode::IDS { n_ids: 1 });
+
+    let node = graph.get_node(0);
+    assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: []\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+
+    let node = graph.get_node(1);
+    assert_eq!("[style=filled, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A']\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+    
 
 }

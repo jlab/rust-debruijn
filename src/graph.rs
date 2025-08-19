@@ -1549,9 +1549,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
         }
 
-        // now that exts are removed, fix hanging edge mults
-        self.fix_edge_mults();
-
         Ok(())
     }
 
@@ -1605,9 +1602,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
         }
-
-        // since we have removed edges, we need to fix the edge mults
-        self.fix_edge_mults();
 
         Ok(())
     }
@@ -1971,8 +1965,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove the edges (not the nodes) of a path in the graph
-    fn remove_path(&mut self, path: Vec<usize>, base_dir: Dir) -> Result<(), String> {
-        let mut path_iter = path.into_iter();
+    fn remove_path<DI>(&mut self, path: Vec<usize>, base_dir: Dir) -> Result<(), String> 
+    where SD: SummaryData<DI>
+    {
+        let mut path_iter = path.clone().into_iter();
         let Some(mut current_node_id) = path_iter.next() else { return Ok(()); };
 
         loop {
@@ -1982,54 +1978,72 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
                 else { return Err(format!(
 "incorrect path (base dir)
+path: {:?}
 dir: {:?}
 node1:
     id: {current_node_id}
     left e: {:?}
     right e: {:?}
     exts: {:?}
+    data: {:?}
 node2:
     id: {next_node_id}
     left e: {:?}
     right e: {:?}
-    exts: {:?}",
+    exts: {:?}
+    data: {:?}",
+                path,
                 base_dir,
                 self.get_node(current_node_id).l_edges(),
                 self.get_node(current_node_id).r_edges(),
                 self.get_node(current_node_id).exts(),
+                self.get_node(current_node_id).data(),
                 self.get_node(next_node_id).l_edges(),
                 self.get_node(next_node_id).r_edges(),
                 self.get_node(next_node_id).exts(),
+                self.get_node(next_node_id).data(),
                 ))
             };
 
+            // remove ext and use new ext to fix edge mults
             self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(base_dir, out_base);
+            self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
 
             // remove ext to the left of the next node
             let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
                 else { return Err( format!(
 "incorrect path (other dir)
+path: {:?}
 dir: {:?}
 node1:
     id: {current_node_id}
     left e: {:?}
     right e: {:?}
     exts: {:?}
+    data: {:?}
 node2:
     id: {next_node_id}
     left e: {:?}
     right e: {:?}
-    exts: {:?}",
+    exts: {:?}
+    data: {:?}",
+                path,
                 base_dir,
                 self.get_node(current_node_id).l_edges(),
                 self.get_node(current_node_id).r_edges(),
                 self.get_node(current_node_id).exts(),
+                self.get_node(current_node_id).data(),
                 self.get_node(next_node_id).l_edges(),
                 self.get_node(next_node_id).r_edges(),
                 self.get_node(next_node_id).exts(),
+                self.get_node(next_node_id).data(),
                 ))
             };
+
+            // remove ext and use new ext to fix edge mults
             self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(base_dir.flip(), in_base); 
+            self.base.data[next_node_id].fix_edge_mults(self.base.exts[next_node_id]);
+
 
             current_node_id = next_node_id;
         }
@@ -2585,9 +2599,9 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::{remove_file, File}, io::BufReader};
+    use std::{fs::File, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::{SerGraph, SerKmers}, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, Translator, ID}, Exts};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsSumData, Translator}, Exts};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2681,6 +2695,8 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
+        let print = false; 
+
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrec2 = "TGACAGCTGACGGCTGACTACTACGTCACTGACGATGCTGACAC".as_bytes();
@@ -2732,11 +2748,11 @@ mod test {
                 }
             }
         }
-        //let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        //unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_ladders(10, Some("uc.csv")).unwrap();
-        //unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
         // test with compressed graph
@@ -2751,16 +2767,19 @@ mod test {
                 }
             }
         }
-        //let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        //c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_ladders(10, Some("c.csv")).unwrap();
-        //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
 
     #[test]
     fn test_remove_tips() {
+
+        let print = false;
+
         let     correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect_r = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTAACGTGAC".as_bytes();
         let incorrect_l = "ACGTTCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
@@ -2798,12 +2817,12 @@ mod test {
             }
         }
 
-        //let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
-        //unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
+        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
         unc_graph.remove_tips(10, Some("uc.csv")).unwrap();
-        //unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
         // test with compressed graph
@@ -2819,12 +2838,12 @@ mod test {
             }
         }
 
-        //let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
-        //c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
+        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
         c_graph.remove_tips(10, Some("c.csv")).unwrap();
-        //c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip));
+        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
     }
