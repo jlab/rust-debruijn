@@ -1554,7 +1554,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     /// remove simple ladder structure caused by 1 base sequencing errors from the graph
     /// graph must contain edge mults and be stranded
-    pub fn remove_ladders<DI, P>(&mut self, min_diff_factor: u32, out_path: Option<P>) -> Result<(), String> 
+    pub fn remove_ladders<DI, P>(&mut self, min_diff_factor: u32, max_avg_low_cov: f32, out_path: Option<P>) -> Result<(), String> 
     where 
         SD: SummaryData<DI>,
         P: AsRef<Path>
@@ -1590,7 +1590,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
-                    if s_cov * min_diff_factor <= out_max_cov {
+                    if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
                         for path in target_paths {
                             self.remove_path(path, Dir::Right)?;
                         } 
@@ -1612,7 +1612,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         const COV_MARGIN: f32 = 0.3;
         const COV_ADD_MARGIN: f32 = 2.;
-        const COV_STATE_FACTOR: f32 = 2.;
+        // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
+        const COV_STATE_FACTOR: f32 = 1.2; 
+        const COV_STATE_ADD: f32 = 2.;
+        // TODO maybe move values into config struct, set as defaults but make customizable
 
         // path, including start and target node
         let mut paths = Vec::new();
@@ -1712,8 +1715,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             match state {
                 LadderState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
-                    // if waybigger, increase state
-                    if  coverage > current_cov * COV_STATE_FACTOR {
+                    // if way bigger, increase state
+                    if  coverage > current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // higher by too much
                         state = LadderState::Double;
                     } else if (coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN)
@@ -1824,7 +1827,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove tips from the graph, reqires edge mults and stranded
-    pub fn remove_tips<DI, P>(&mut self, min_diff_factor: u32, out_path: Option<P>) -> Result<(), String> 
+    pub fn remove_tips<DI, P>(&mut self, min_diff_factor: u32, max_avg_tip_cov: f32, out_path: Option<P>) -> Result<(), String> 
     where 
         SD: SummaryData<DI>,
         P: AsRef<Path>
@@ -1871,7 +1874,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let Some((tip_path, avg_tip_coverage, truth_ratio, tip_len)) = self.follow_tip_path(node_id, s_base as u8, s_cov, dir) else { continue; };
 
                     // remove path if coverage below threshold
-                    if (s_cov * min_diff_factor <= out_max_cov) & (tip_len <= max_len ) {
+                    if (s_cov * min_diff_factor <= out_max_cov) & (avg_tip_coverage <= max_avg_tip_cov) & (tip_len <= max_len) {
                         self.remove_path(tip_path, dir)?;
                     }
                         
@@ -1881,10 +1884,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
         }
-
-        // since we have removed edges, we need to fix the edge mults
-        self.fix_edge_mults();
-
+        
         Ok(())
     }
 
@@ -2005,9 +2005,9 @@ node2:
                 ))
             };
 
-            // remove ext and use new ext to fix edge mults
+            // remove ext 
             self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(base_dir, out_base);
-            self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
+        
 
             // remove ext to the left of the next node
             let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
@@ -2040,8 +2040,11 @@ node2:
                 ))
             };
 
-            // remove ext and use new ext to fix edge mults
+            // remove ext
             self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(base_dir.flip(), in_base); 
+
+            // use new exts to fix edge mults
+            self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
             self.base.data[next_node_id].fix_edge_mults(self.base.exts[next_node_id]);
 
 
@@ -2710,24 +2713,24 @@ mod test {
             reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
         }
 
-        for _i in 0..5 {
+        for _i in 0..2 {
             reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
         }
 
-        for _i in 0..20 {
+        for _i in 0..8 {
             reads.add_from_bytes(incorrec2, Exts::empty(), IDTag::new(2, 2)); // should be removed
         }
 
-        for _i in 0..15 {
+        for _i in 0..6 {
             reads.add_from_bytes(incorrec3, Exts::empty(), IDTag::new(3, 3)); // should be removed
         }
 
-        for _i in 0..25 {
+        for _i in 0..7 {
             reads.add_from_bytes(incorrec4, Exts::empty(), IDTag::new(4, 4)); // should be removed
         }
 
 
-        for _i in 0..20 {
+        for _i in 0..1 {
             reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 3)); // should not be removed
         }
 
@@ -2751,7 +2754,7 @@ mod test {
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders(10, Some("uc.csv")).unwrap();
+        unc_graph.remove_ladders(10, 10., Some("uc.csv")).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
@@ -2770,7 +2773,7 @@ mod test {
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders(10, Some("c.csv")).unwrap();
+        c_graph.remove_ladders(10, 10., Some("c.csv")).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
@@ -2821,7 +2824,7 @@ mod test {
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
-        unc_graph.remove_tips(10, Some("uc.csv")).unwrap();
+        unc_graph.remove_tips(10, 10., Some("uc.csv")).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
@@ -2842,7 +2845,7 @@ mod test {
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
-        c_graph.remove_tips(10, Some("c.csv")).unwrap();
+        c_graph.remove_tips(10, 10., Some("c.csv")).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
