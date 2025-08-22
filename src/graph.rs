@@ -9,6 +9,7 @@ use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::enumerate;
+use log::warn;
 use log::{debug, trace};
 use rayon::prelude::*;
 use rayon::current_num_threads;
@@ -1591,8 +1592,21 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
-                        for path in target_paths {
-                            self.remove_path(path, Dir::Right)?;
+                        for path in target_paths.iter() {
+                            if let Err(err)  = self.remove_path(path.clone(), Dir::Right) {
+                                let print_paths = target_paths.iter()
+                                    .map(|path| (path, path.iter().map(|node_id| {
+                                        let node = self.get_node(*node_id);
+                                        (
+                                            node.sequence(),
+                                            node.l_edges(),
+                                            node.r_edges(),
+                                            node.data()
+                                        )
+                                    }).collect::<Vec<_>>()
+                                )).collect::<Vec<_>>();
+                                warn!("partial path could not be removed: \n{err} \n, path group: {:?}", print_paths)
+                            }
                         } 
                     }
                     
@@ -2717,15 +2731,15 @@ mod test {
             reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
         }
 
-        for _i in 0..8 {
+        for _i in 0..15 {
             reads.add_from_bytes(incorrec2, Exts::empty(), IDTag::new(2, 2)); // should be removed
         }
 
-        for _i in 0..6 {
+        for _i in 0..25 {
             reads.add_from_bytes(incorrec3, Exts::empty(), IDTag::new(3, 3)); // should be removed
         }
 
-        for _i in 0..7 {
+        for _i in 0..30 {
             reads.add_from_bytes(incorrec4, Exts::empty(), IDTag::new(4, 4)); // should be removed
         }
 
