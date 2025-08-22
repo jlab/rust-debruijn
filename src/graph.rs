@@ -2134,7 +2134,7 @@ mod test {
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
 
-        let graph = uncompressed_graph(&kmers).finish();
+        let graph = uncompressed_graph(&kmers, true).finish();
 
         let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
         (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
