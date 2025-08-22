@@ -271,3 +271,11 @@ fn test_summary_data() {
     )); 
 
 }
+
+/// add the alignment buffer to a structure
+/// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
+fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {
+    let buffer = align - (size_stack % align);
+
+    buffer + size_heap + size_stack
+}

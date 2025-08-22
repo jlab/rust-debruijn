@@ -653,6 +653,11 @@ impl Exts {
         }
     }
 
+    /// subtract an Exts from an Exts
+    pub fn subtract(&self, v: Exts) -> Exts {
+        Exts { val: self.val & !v.val }
+    }
+
     pub fn set(&self, dir: Dir, pos: u8) -> Exts {
         let shift = pos
             + match dir {
@@ -661,6 +666,17 @@ impl Exts {
             };
 
         let new_val = self.val | (1u8 << shift);
+        Exts { val: new_val }
+    }
+
+    pub fn remove(&self, dir: Dir, pos: u8) -> Exts {
+        let shift = pos
+            + match dir {
+                Dir::Right => 4,
+                Dir::Left => 0,
+            };
+
+        let new_val = self.val & !(1u8 << shift);
         Exts { val: new_val }
     }
 
@@ -1272,6 +1288,13 @@ mod tests {
 
         assert_eq!((Dir::Left).index_range(), 4..8);
         assert_eq!((Dir::Right).index_range(), 0..4);
+    }
+
+    #[test]
+    fn test_remove_ext() {
+        let ext = Exts::new(0b11111011);
+        assert_eq!(ext.remove(Dir::Right, 0).val, 0b11101011);
+        assert_eq!(ext.remove(Dir::Left, 1).val, 0b11111001);
     }
 
     #[test]

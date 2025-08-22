@@ -727,8 +727,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// ### Arguments: 
     /// 
     /// * `path`: path to the output file
-    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
-    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
+    /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes, e.g. [`Node::node_dot_default`]
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
     ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
@@ -746,6 +746,48 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
+        writeln!(&mut f, "}}").unwrap();
+        
+        f.flush().unwrap();
+        debug!("large to dot loop: {}", self.len());
+    }
+
+    /// Write the graph to a dot file, highlight the nodes which form the 
+    /// "best" path, according to [`PathCompIter`], with the number of occurences 
+    /// as the score and `solid_path` always `true`.
+    /// The nodes are formatted according to [`Node::node_dot_default`].
+    /// 
+    /// ### Arguments: 
+    /// 
+    /// * `path`: path to the output file
+    /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
+    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    /// * `colors`: a [`Colors`] with the color settings for the graph
+    /// * `translator`: a [`Translator`] which translates tags or IDs to strings
+    /// * `config`: a [`SummaryConfig`] which contains settings for the graph
+    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig)
+    where 
+    P: AsRef<Path>,
+    D: SummaryData<DI>,
+    FE: Fn(&Node<K, D>, u8, Dir, bool) -> String,
+    {
+        let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
+
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+
+        // iterate over components
+        for (component, path) in self.iter_max_path_comp(|d| d.sum().unwrap_or(1) as f32, |_| true) {
+            let hashed_path = path.into_iter().map(|(id, _)| id).collect::<HashSet<usize>>();
+            for node_id in component {
+                self.node_to_dot(
+                    &self.get_node(node_id),
+                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id)), 
+                    edge_label, 
+                    &mut f
+                );
+            }
+        }
+
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
@@ -839,6 +881,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
 
     }
+
 
     /// Write part of the graph to a dot file
     /// 
@@ -1391,6 +1434,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         comp
     }
 
+    /// iterate over all edges of the graph, item: (node, ext base, ext dir, target node)
+    pub fn iter_edges(&self) -> EdgeIter<'_, K, D> {
+        EdgeIter::new(self)
+    }
+
     pub fn find_bad_nodes<F: Fn(&Node<'_, K, D>) -> bool>(&self, valid: F) -> Vec<usize> {
         let mut bad_nodes = Vec::new();
 
@@ -1410,7 +1458,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Colors::new(self, config, color_mode)
     }
     
-    /// edge mults will contain hanging edges if the nodes were filtered
+    /// [`crate::EdgeMult`] will contain hanging edges if the nodes were filtered
     pub fn fix_edge_mults<DI>(&mut self) 
     where 
         SD: SummaryData<DI>
@@ -1420,6 +1468,34 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 self.base.data[i].fix_edge_mults(self.base.exts[i]);
             }
         }
+    }
+
+    /// if there are [`crate::EdgeMult`]s in the data, prune the graph by removing edges that have a low coverage
+    pub fn filter_edges<DI>(&mut self, min: u32) -> Result<(), String>
+    where 
+        SD: SummaryData<DI>
+    {
+        // return if there is no edge coverage available
+        if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
+
+        for i in 0..self.len() {
+            let em = self.get_node(i).data().edge_mults().expect("shold have em").clone();
+            let edges = [(Dir::Left, 0), (Dir::Left, 1), (Dir::Left, 2), (Dir::Left, 3), 
+                (Dir::Right, 0), (Dir::Right, 1), (Dir::Right, 2), (Dir::Right, 3)];
+            
+            for (dir, base) in edges {
+                if min > em.edge_mult(base, dir) {
+                    // remove invalid ext from node
+                    let ext = self.base.exts[i].remove(dir, base);
+                    self.base.exts[i] = ext;
+                }
+            }
+        }
+
+        // now that exts are remove, fix hanging edge mults
+        self.fix_edge_mults();
+
+        Ok(())
     }
 }
 
@@ -1700,7 +1776,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
 
             format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\"]", bits_to_base(base))
         } else {
-            format!("[color={color}]")
+            format!("[color={color}, penwidth={}]", colors.edge_width(1)) // since there should be no edge mults, this will return default value
         }
     }
 
@@ -1847,15 +1923,12 @@ F2: Fn(&D) -> bool
                                     next = cand;
                                 }
                             }
-    
-                            if oscore(cand) > oscore(next) {
-                                next = cand;
-                            }
                         }
-    
-                        if solid_paths > 1 {
+                        
+                        // break if multiple solid paths are available
+                        /* if solid_paths > 1 {
                             break;
-                        }
+                        } */
     
                         match next {
                             Some((next_id, next_incoming)) if !used_nodes.contains(&next_id) => {
@@ -1885,6 +1958,65 @@ F2: Fn(&D) -> bool
     }
 }
 
+
+/// iterator over the edges of the de bruijn graph
+pub struct EdgeIter<'a, K: Kmer, D: Debug> {
+    graph: &'a DebruijnGraph<K, D>,
+    visited_edges: HashSet<(usize, usize)>,
+    current_node: usize,
+    current_dir: Dir,
+    node_edge_iter: smallvec::IntoIter<[(u8, usize, Dir, bool); 4]>
+}
+
+impl<K: Kmer, D: Debug> EdgeIter<'_, K, D> {
+    pub fn new(graph: &DebruijnGraph<K, D>) -> EdgeIter<'_, K, D>{
+        let node_edge_iter = graph.get_node(0).l_edges().into_iter();
+
+        EdgeIter { 
+            graph, 
+            visited_edges: HashSet::new(), 
+            current_node: 0, 
+            current_dir: Dir::Left, 
+            node_edge_iter
+        }
+    }
+}
+
+impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
+    type Item = (usize, Dir, u8, usize); // node, direction leaving node, base, target node
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((base, nb_node_id, _, _)) = self.node_edge_iter.next() {
+                let edge = if self.current_node > nb_node_id { (nb_node_id, self.current_node) } else { (self.current_node, nb_node_id) };
+
+                if self.visited_edges.insert(edge) { return Some((self.current_node, self.current_dir, base, nb_node_id)); } // else simply skip and move on
+
+            } else {
+                match self.current_dir {
+                Dir::Left => {
+                    // no left edges, switch to right edges
+                    self.current_dir = Dir::Right;
+                    self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
+                    
+                }
+                Dir::Right => {
+                    // no right edges, switch to next node left edges
+                    self.current_node += 1;
+
+                    // quit if end of graph is reached
+                    if self.current_node == self.graph.len() { return None }
+
+                    self.current_dir = Dir::Left;
+                    self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
+                }
+            }
+            }
+            
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{fs::File, io::BufReader};
@@ -1892,11 +2024,12 @@ mod test {
     use crate::{kmer::Kmer16, summarizer::TagsCountsSumData};
 
     use super::DebruijnGraph;
+    use crate::{summarizer::SummaryData, Dir, BUF};
+
 
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
-        use crate::{summarizer::SummaryData, Dir, BUF};
 
         let path = "test_data/400.graph.dbg";
         let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
@@ -1925,6 +2058,36 @@ mod test {
             }
         }
         assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true));
+    }
+
+    #[test]
+    fn test_iter_edges() {
+        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}, Exts};
+
+        let read1 = "CAGCATCGATGCGACGAGCGCTCGCATCGA".as_bytes();
+        let read2 = "ACGATCGTACGTAGCTAGCTGACTGAGC".as_bytes();
+
+        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        reads.add_from_bytes(read1, Exts::empty(), 0u8);
+        reads.add_from_bytes(read2, Exts::empty(), 1);
+
+        let reads_paired = ReadsPaired::Unpaired { reads };
+
+        let sample_info = SampleInfo::new(0b1, 0b10, 1, 1, vec![12, 12]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
+
+        let graph = uncompressed_graph(&kmers).finish();
+
+        let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
+        (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
+        (5, Dir::Right, 2, 19), (6, Dir::Left, 1, 24), (6, Dir::Right, 2, 12), (7, Dir::Left, 2, 23), (7, Dir::Right, 3, 11), (8, Dir::Left, 0, 12), 
+        (9, Dir::Left, 3, 17), (9, Dir::Right, 3, 24), (10, Dir::Right, 1, 21), (13, Dir::Left, 1, 18), (14, Dir::Right, 0, 26), 
+        (15, Dir::Left, 2, 20), (15, Dir::Right, 3, 22), (18, Dir::Left, 2, 19), (20, Dir::Left, 1, 26), (22, Dir::Right, 2, 25), (23, Dir::Left, 1, 25)];
+
+        let edges = graph.iter_edges().collect::<Vec<_>>();
+
+        assert_eq!(check_edges, edges);
     }
 }
 
