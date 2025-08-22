@@ -741,7 +741,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for kmer in sequence.iter_kmers::<K>() {
                 if let Some(node) = self.search_kmer(kmer, Dir::Right) {
                     node_transcript_ids[node].push(gene_id);
-                    //println!("node: {node}, seq: {}, kmer: {:?}, ids: {:?}, tr id: {}", self.get_node(node).sequence(), kmer, self.get_node(node).data(), gene_id);                
                 }
             }
         }
