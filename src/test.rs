@@ -280,7 +280,7 @@ mod tests {
         let uncompressed_dbg = base_graph.finish();
 
         // comparison uncompressed graph
-        let uc_graph = uncompressed_graph(&valid_kmers).finish_serial();
+        let uc_graph = uncompressed_graph(&valid_kmers, false).finish_serial();
         assert_eq!(uc_graph.base.sequences.sequence, uncompressed_dbg.base.sequences.sequence);
 
         // Canonicalize the graph with

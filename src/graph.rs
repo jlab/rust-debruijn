@@ -2,6 +2,8 @@
 
 //! Containers for path-compressed De Bruijn graphs
 
+use bimap::BiHashMap;
+use bio::io::fasta;
 use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
@@ -26,6 +28,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::process::id;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -43,6 +46,7 @@ use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
+use crate::summarizer::ID;
 use crate::BUF;
 use crate::PROGRESS_STYLE;
 use crate::{Dir, Exts, Kmer, Mer, Vmer};
@@ -421,6 +425,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         new_exts
     }
 
+    /// mutable reference to the auxiliary data of the node node_id
+    pub fn mut_data(&mut self, node_id: usize) -> &mut D {
+        &mut self.base.data[node_id]
+    }
+
     /// Find the highest-scoring, unambiguous path in the graph. Each node get a score
     /// given by `score`. Any node where `solid_path(node) == True` are valid paths -
     /// paths will be terminated if there are multiple valid paths emanating from a node.
@@ -694,6 +703,54 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
+    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
+    pub fn map_transcripts<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<Box<[ID]>>, String> 
+    where 
+        P: AsRef<Path>
+    {
+        // return err if not stranded
+        if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
+
+        let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
+        let mut node_transcript_ids = vec![Vec::new(); self.len()];
+
+        let mut backup_id_tr = BiHashMap::new();
+
+        let id_tr = if let Some(id_tr) = translator.mut_id_translator() {
+            id_tr
+        } else {
+            &mut backup_id_tr
+        };
+
+        // go through each transcript and map to graph
+        for result in reader.records() {
+            let record = result.expect("error parsing transcripts fasta");
+
+            // get gene id or make new id
+            let gene_id = match id_tr.get_by_left(&record.id().to_string()) {
+                Some(id) => *id,
+                None => {
+                    let new_id = id_tr.len() as ID;
+                    id_tr.insert(record.id().to_string(), new_id);
+                    new_id
+                }
+            };
+
+            // iterate over k-mers in transcript and find each one in the graph
+            let sequence = DnaString::from_acgt_bytes(record.seq());
+            for kmer in sequence.iter_kmers::<K>() {
+                if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                    node_transcript_ids[node].push(gene_id);
+                }
+            }
+        }
+
+        // change to boxed slices to reduce memory
+        let boxed_transcripts = node_transcript_ids.into_iter().map(|vec| vec.into()).collect();
+
+        Ok(boxed_transcripts)
+    }
+
     /// write a node to a dot file
     /// 
     /// ### Arguments: 
@@ -765,7 +822,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `colors`: a [`Colors`] with the color settings for the graph
     /// * `translator`: a [`Translator`] which translates tags or IDs to strings
     /// * `config`: a [`SummaryConfig`] which contains settings for the graph
-    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig)
+    pub fn to_dot_with_path<P, FE, DI>(&self, path: P, edge_label: &FE, colors: &Colors<'_, D, DI>, translator: &Translator, config: &SummaryConfig, translate_id_groups: bool)
     where 
     P: AsRef<Path>,
     D: SummaryData<DI>,
@@ -781,7 +838,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for node_id in component {
                 self.node_to_dot(
                     &self.get_node(node_id),
-                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id)), 
+                    &|node| node.node_dot_default(colors, config, translator, hashed_path.contains(&node_id), translate_id_groups), 
                     edge_label, 
                     &mut f
                 );
@@ -904,7 +961,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "# {:?}", nodes).unwrap();
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
         for i in nodes.into_iter().progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
@@ -1781,13 +1837,14 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     }
 
     /// get default format for dot nodes, based on node data
-    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, outline: bool) -> String
+    pub fn node_dot_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, outline: bool, translate_id_groups: bool) -> String
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
         let color = colors.node_color(self.data(), config, outline);
+        let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
 
-        let data_info = self.data().print(translator, config);
+        let data_info = self.data().print(translator, config, translate_id_groups);
         const MIN_TEXT_WIDTH: usize = 40;
         let wrap = if self.len() > MIN_TEXT_WIDTH { self.len() } else { MIN_TEXT_WIDTH };
 
@@ -2021,7 +2078,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::File, io::BufReader};
 
-    use crate::{kmer::Kmer16, summarizer::TagsCountsSumData};
+    use crate::{compression::uncompressed_graph, graph, kmer::{Kmer16, Kmer22}, serde::{SerGraph, SerKmers}, summarizer::{IDEMData, IDMapEMData, TagsCountsSumData, ID}};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2077,7 +2134,7 @@ mod test {
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
 
-        let graph = uncompressed_graph(&kmers).finish();
+        let graph = uncompressed_graph(&kmers, true).finish();
 
         let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
         (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
@@ -2088,6 +2145,28 @@ mod test {
         let edges = graph.iter_edges().collect::<Vec<_>>();
 
         assert_eq!(check_edges, edges);
+    }
+
+    // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
+    #[cfg(not(feature = "sample128"))]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum.kmers.dbg";
+
+    // cargo run --features sample128 -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum_128 --checkpoint -k 22
+    #[cfg(feature = "sample128")]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum_128.kmers.dbg";
+
+    #[test]
+    fn test_map_transcripts() {
+        // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
+        let graph_path = TEST_GRAPH;
+        let t_ref_path = "test_data/marbel_100_tr_ref.fasta";
+        let (kmers, mut translator, _) = SerKmers::<Kmer22, u32>::deserialize_from(graph_path).dissolve();
+
+        let unc_graph = uncompressed_graph(&kmers, true).finish();
+
+        let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 10720);
     }
 }
 

@@ -18,6 +18,16 @@ pub enum ColorMode<'a> {
     FoldChange
 }
 
+impl ColorMode<'_> {
+    /// get the hash map connecting IDs to their group IDs
+    pub fn id_group_ids(&self) -> Option<&HashMap<ID, ID>> {
+        match self {
+            Self::IDGroups { id_group_ids, n_id_groups: _ } => Some(id_group_ids),
+            _ => None
+        }
+    }
+}
+
 
 /// contains the hues, the markers signifying which tag belongs to which group, 
 /// the maximun kmer count and the average kmer count
@@ -294,12 +304,30 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
         // adapt font color to value ( currently always black)
         let font_color= if value <= 0.5 { "white" } else { "black" };
 
+        
         // set outline (eg if it is in a path)
-        let prefix = if outline {
-            "black, penwidth=10, fillcolor="
+        let mut prefix = if outline {
+            "black, penwidth=10, fillcolor=".to_string()
         } else {
-            ""
+            "".to_string()
         };
+
+        // overwrite generated path with mapped paths
+        if let Some(t_ids) = data.mapped_ids() {
+            if !t_ids.is_empty() {
+                match self.color_mode {
+                    ColorMode::IDS { n_ids } => {
+                        let outline_hue = t_ids.iter().map(|id| *id as f32 / (n_ids * t_ids.len()) as f32).sum::<f32>();
+                        prefix = format!("\"{outline_hue} 1 0.6\", penwidth=30, fillcolor=");
+                    }
+                    ColorMode::IDGroups { id_group_ids, n_id_groups } => {
+                        let outline_hue = t_ids.iter().map(|id| *(id_group_ids.get(id).expect("id was not in HM")) as f32 / (n_id_groups * t_ids.len()) as f32).sum::<f32>();
+                        prefix = format!("\"{outline_hue} 1 0.6\", penwidth=30, fillcolor=");
+                    }
+                    _ => ()
+                }
+            }
+        }
 
         // return formatted string for color, fillcolor, and fontcolor
         format!("color={prefix}\"{hue} {saturation} {value}\", fontcolor={font_color}")
@@ -311,6 +339,10 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             Some((m, b)) => (edge_mult as f32).log10() * m + b,
             None => Self::EDGE_WIDTH_DEF
         }
+    }
+
+    pub fn id_group_ids(&self) -> Option<&HashMap<ID, ID>> {
+        self.color_mode.id_group_ids()
     }
     
 }

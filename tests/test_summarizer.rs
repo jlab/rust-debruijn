@@ -1,6 +1,6 @@
 
 use bimap::BiHashMap;
-use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
+use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDData, IDEMData, IDMapEMData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a Translator ) 
     -> (Option<usize>, Option<Tags>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String, Summarizers)
@@ -44,8 +44,8 @@ where
         ids,
         em,
         valid,
-        data.print(translator, config),
-        data.print_ol(translator, config),
+        data.print(translator, config, None),
+        data.print_ol(translator, config, None),
         SD::summarizer()
     )
 }
@@ -230,12 +230,26 @@ fn test_summary_data() {
     //       |tag    |counts box     |counts                 |ids box        |ids                    |p  |em box         |em     |buf| 14 * 8 = 112
     //       |tag            |counts box     |counts                 |ids box        |ids                    |p  |em box         |em     |buf| 15 * 8 = 120
 
-    let data = test_summarize::<IDTagsCountsPEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
+    let data = test_summarize::<IDTagsCountsPEMData, _, _, _>(input_id_tags.clone().into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, tags, MEM[12], p_value, fold_change, sample_count, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true,  
         "IDs: ['0', '1', '2', '3', '7', '8'], samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
         "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
         Summarizers::IDTagsCountsPEM
     )); 
+
+    let data = test_summarize::<IDEMData, _, _, _>(input_id_tags.clone().into_iter(), &summary_config, &translator);
+    assert_eq!(data, (None, None, MEM[1] + 8*4, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
+        "IDs: ['0', '1', '2', '3', '7', '8'], edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(), 
+        Summarizers::IDEM)
+    );
+
+    let data = test_summarize::<IDMapEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
+    assert_eq!(data, (None, None, MEM[1] + 8*4 + 2*8, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
+        Summarizers::IDMapEM)
+    );
 
     let data = test_summarize::<GroupCountData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, None, MEM[13], None, None, None, None, None, true, 
