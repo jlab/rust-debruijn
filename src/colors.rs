@@ -19,6 +19,7 @@ pub enum ColorMode<'a> {
 }
 
 impl ColorMode<'_> {
+    /// get the hash map connecting IDs to their group IDs
     pub fn id_group_ids(&self) -> Option<&HashMap<ID, ID>> {
         match self {
             Self::IDGroups { id_group_ids, n_id_groups: _ } => Some(id_group_ids),

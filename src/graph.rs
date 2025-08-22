@@ -703,11 +703,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    /// map sequences from a fasta file to a completely uncompressed (!!!) and stranded (!!!!!) debruijn graph
+    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
     pub fn map_transcripts<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<Box<[ID]>>, String> 
     where 
         P: AsRef<Path>
     {
+        // return err if not stranded
         if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
 
         let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
