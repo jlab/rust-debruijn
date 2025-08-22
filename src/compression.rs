@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 use std::time::Instant;
@@ -765,7 +766,7 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
     CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, &index,false)
 }
 
-/// assumes stranded = false
+/// build an uncompressed graph from hashed k-mers
 pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
     index: &BoomHashMap2<K, Exts, D>,
     stranded: bool
@@ -781,5 +782,41 @@ pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
         }
         graph.add(&kmer_seq, *exts, data.clone());
     }
+    graph
+}
+
+/// re-build an uncompressed graph while leaving out nodes
+pub fn rebuild_uncompressed_graph<K: Kmer + Sync + Send, D: Debug + Clone>(
+    stranded: bool,
+    old_graph: DebruijnGraph<K, D>,
+    censor_nodes: Vec<usize>,
+) -> DebruijnGraph<K, D> 
+{
+    // build bit set for efficency
+    let mut available_node = BitSet::with_capacity(old_graph.len());
+    for i in 0..old_graph.len() {
+        available_node.insert(i);
+    }
+
+    for node in censor_nodes {
+        available_node.remove(node);
+    }
+
+    let mut graph: BaseGraph<K, D> = BaseGraph::new(stranded);
+
+    for i in 0..old_graph.len() {
+        if available_node.contains(i) {
+            let node = old_graph.get_node(i);
+            let seq = node.sequence();
+            let exts = node.exts();
+            let data = node.data();
+
+            graph.add(&seq, exts, data.clone());
+        }
+    }
+
+    let mut graph = graph.finish();
+    graph.fix_exts(None);
+
     graph
 }
