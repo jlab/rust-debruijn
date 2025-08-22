@@ -1945,6 +1945,27 @@ mod tests {
     }
 
     #[test]
+    fn test_kmer_19() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K19>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_18() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K18>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_17() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u64, K17>>();
+        }
+    }
+
+    #[test]
     fn test_kmer_16() {
         for _ in 0..10000 {
             check_kmer::<IntKmer<u32>>();
@@ -1966,9 +1987,23 @@ mod tests {
     }
 
     #[test]
+    fn test_kmer_13() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u32, K13>>();
+        }
+    }
+
+    #[test]
     fn test_kmer_12() {
         for _ in 0..10000 {
             check_kmer::<VarIntKmer<u32, K12>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_11() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u32, K11>>();
         }
     }
 
@@ -1980,9 +2015,23 @@ mod tests {
     }
 
     #[test]
+    fn test_kmer_9() {
+        for _ in 0..10000 {
+            check_kmer::<VarIntKmer<u32, K9>>();
+        }
+    }
+
+    #[test]
     fn test_kmer_8() {
         for _ in 0..10000 {
             check_kmer::<IntKmer<u16>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_7() {
+        for _ in 0..10000 {
+            check_kmer::<Kmer7>();
         }
     }
 
@@ -2004,6 +2053,20 @@ mod tests {
     fn test_kmer_4() {
         for _ in 0..10000 {
             check_kmer::<Kmer4>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_3() {
+        for _ in 0..10000 {
+            check_kmer::<Kmer3>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_2() {
+        for _ in 0..10000 {
+            check_kmer::<Kmer2>();
         }
     }
 }
