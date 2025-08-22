@@ -14,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
@@ -41,7 +40,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1460,7 +1458,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Colors::new(self, config, color_mode)
     }
     
-    /// edge mults will contain hanging edges if the nodes were filtered
+    /// [`crate::EdgeMult`] will contain hanging edges if the nodes were filtered
     pub fn fix_edge_mults<DI>(&mut self) 
     where 
         SD: SummaryData<DI>
@@ -1472,7 +1470,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         }
     }
 
-    /// if there are edge mults in the data, prune the graph by removing edges that have a low coverage
+    /// if there are [`crate::EdgeMult`]s in the data, prune the graph by removing edges that have a low coverage
     pub fn filter_edges<DI>(&mut self, min: u32) -> Result<(), String>
     where 
         SD: SummaryData<DI>
