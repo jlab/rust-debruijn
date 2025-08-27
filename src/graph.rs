@@ -1593,19 +1593,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
                         for path in target_paths.iter() {
-                            if let Err(err)  = self.remove_path(path.clone(), Dir::Right) {
-                                let print_paths = target_paths.iter()
-                                    .map(|path| (path, path.iter().map(|node_id| {
-                                        let node = self.get_node(*node_id);
-                                        (
-                                            node.sequence(),
-                                            node.l_edges(),
-                                            node.r_edges(),
-                                            node.data()
-                                        )
-                                    }).collect::<Vec<_>>()
-                                )).collect::<Vec<_>>();
-                                warn!("partial path could not be removed: \n{err} \n, path group: {:?}", print_paths)
+                            if self.remove_path(path.clone(), Dir::Right).is_err() {
+                                warn!("removing ladders: partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                             }
                         } 
                     }
@@ -1991,7 +1980,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove ext to the right of current node
             let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
                 else { return Err(format!(
-"incorrect path (base dir)
+"no edge to remove (base dir)
 path: {:?}
 dir: {:?}
 node1:
@@ -2026,7 +2015,7 @@ node2:
             // remove ext to the left of the next node
             let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
                 else { return Err( format!(
-"incorrect path (other dir)
+"no edge to remove (other dir)
 path: {:?}
 dir: {:?}
 node1:
