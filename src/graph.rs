@@ -29,8 +29,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::process::id;
-
 use boomphf::hashmap::BoomHashMap;
 
 use serde_json;
@@ -44,7 +42,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1613,11 +1610,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<Vec<usize>>, f32, f32)> 
     where SD: SummaryData<DI>
     {
-        const COV_MARGIN: f32 = 0.3;
-        const COV_ADD_MARGIN: f32 = 2.;
         // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
-        const COV_STATE_FACTOR: f32 = 1.2; 
-        const COV_STATE_ADD: f32 = 2.;
+/*         const COV_STATE_FACTOR: f32 = 0.2; 
+        const COV_STATE_ADD: f32 = 2.; */
         // TODO maybe move values into config struct, set as defaults but make customizable
 
         // path, including start and target node
@@ -1711,20 +1706,20 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     }
                 }
                 _ => return None
-            }        
+            }
 
-            // check coverage
+            // check coverage, in theoretical ladder, coverage should be uniform
             let coverage = edge_coverages.edge_mult(out_ext, Dir::Right) as f32;
-            match state {
+            current_cov = coverage;
+/*             match state {
                 LadderState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
                     // if way bigger, increase state
-                    if  coverage > current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
-                        // higher by too much
+                    if  coverage > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
+                        // higher by too much, change state
                         state = LadderState::Double;
-                    } else if (coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN)
-                        | (coverage > current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN) {
-                        // lower by too much or higher by not enough
+                    } else if coverage < current_cov - current_cov * COV_STATE_FACTOR - COV_STATE_ADD {
+                        // lower by too much, return none
                         return None;
                     } else {
                         // in acceptable frame
@@ -1733,8 +1728,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
                 LadderState::Double => {
                     // double state: if way smaller, decrease state, else dont treat as current coverage
-                    if (coverage > current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN)
-                        & (coverage < current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN) {
+                    if (coverage > current_cov - current_cov * COV_STATE_FACTOR - COV_STATE_ADD)
+                        & (coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) {
                         // back in acceptable range
                         state = LadderState::Singular;
                         paths.push(vec![current_node_id]); // start new path
@@ -1742,7 +1737,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     } // else continue on 
                     // TODO check if better to also interrupt if coverage increases further
                 }
-            }
+            } */
 
             // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
             match state {
@@ -2580,23 +2575,23 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
             } else {
                 match self.current_dir {
-                Dir::Left => {
-                    // no left edges, switch to right edges
-                    self.current_dir = Dir::Right;
-                    self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
-                    
-                }
-                Dir::Right => {
-                    // no right edges, switch to next node left edges
-                    self.current_node += 1;
+                    Dir::Left => {
+                        // no left edges, switch to right edges
+                        self.current_dir = Dir::Right;
+                        self.node_edge_iter = self.graph.get_node(self.current_node).r_edges().into_iter();
+                        
+                    }
+                    Dir::Right => {
+                        // no right edges, switch to next node left edges
+                        self.current_node += 1;
 
-                    // quit if end of graph is reached
-                    if self.current_node == self.graph.len() { return None }
+                        // quit if end of graph is reached
+                        if self.current_node == self.graph.len() { return None }
 
-                    self.current_dir = Dir::Left;
-                    self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
+                        self.current_dir = Dir::Left;
+                        self.node_edge_iter = self.graph.get_node(self.current_node).l_edges().into_iter();
+                    }
                 }
-            }
             }
             
         }

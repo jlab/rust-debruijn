@@ -1226,7 +1226,7 @@ impl EdgeMult {
                 (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_mults[i]);
         
                 return Some(EdgeMult::new_from(combined))
-            } 
+            }
         }
 
         None
@@ -1239,7 +1239,7 @@ impl EdgeMult {
             Dir::Right => SingleDirEdgeMult::new(self.edge_mults[0..ALPHABET_SIZE]
                 .try_into().expect("Error: slice has incorrect length")),
         }
-    } 
+    }
 }
 
 impl Default for EdgeMult {
