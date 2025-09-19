@@ -256,7 +256,7 @@ DI: Clone + Copy + Send + Sync
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
-    let n_buckets = bucket_ranges.len();
+    let n_slices = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
         debug!(
@@ -283,7 +283,7 @@ DI: Clone + Copy + Send + Sync
 
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
 
-        debug!("Processing slice {} of {}", i+1, n_buckets);
+        debug!("Processing slice {} of {}", i+1, n_slices);
 
         let before_kmer_picking = Instant::now();
         // first step: picking kmers with their exts & data from the reads
@@ -604,7 +604,7 @@ where
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
-    let n_buckets = bucket_ranges.len();
+    let n_slices = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
         debug!(
@@ -636,7 +636,7 @@ where
 
     // iterate over the bucket ranges
     for (i, bucket_range) in bucket_ranges.into_iter().enumerate() {
-        debug!("Processing slice {} of {}", i+1, n_buckets);
+        debug!("Processing slice {} of {}", i+1, n_slices);
 
         let before_kmer_picking = Instant::now();
         // first step: picking kmers with their exts & data from the reads

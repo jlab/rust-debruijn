@@ -29,6 +29,8 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::process::id;
+
 use boomphf::hashmap::BoomHashMap;
 
 use serde_json;
@@ -42,6 +44,7 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1550,8 +1553,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
-    /// remove simple ladder structure caused by 1 base sequencing errors from the graph
+    /// remove simple ladder structures and bubbles caused by 1-base sequencing errors from the graph
+    /// 
     /// graph must contain edge mults and be stranded
+    /// this function will likely leave tips on the graph, so it is recommended to run
+    /// [`DebruijnGraph::remove_tips`] afterwards
+    /// 
+    /// ladder structure refers to bubbles where one side has been compressed into one node
+    /// but the other has low compression, due to differences in coverage and thus data variance,
+    /// leading to a ladder-like appearance
     pub fn remove_ladders<DI, P>(&mut self, min_diff_factor: u32, max_avg_low_cov: f32, out_path: Option<P>) -> Result<(), String> 
     where 
         SD: SummaryData<DI>,
@@ -1611,9 +1621,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     where SD: SummaryData<DI>
     {
         // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
-/*         const COV_STATE_FACTOR: f32 = 0.2; 
-        const COV_STATE_ADD: f32 = 2.; */
-        // TODO maybe move values into config struct, set as defaults but make customizable
+        // nodes with higher state are kept connected together
+        // tests have shown that increase in coverage does not necessarily indicate 
+        // a multiplicity change
+        // however, we are trying to avoid false positives - false negatives will 
+        // most likely be cut off from the component or would be removed by remove_tips
+        // as a next step
+        // increasing these values will increase the number of removed edges
+        const COV_STATE_FACTOR: f32 = 0.2; 
+        const COV_STATE_ADD: f32 = 2.;
 
         // path, including start and target node
         let mut paths = Vec::new();
@@ -1710,26 +1726,21 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // check coverage, in theoretical ladder, coverage should be uniform
             let coverage = edge_coverages.edge_mult(out_ext, Dir::Right) as f32;
-            current_cov = coverage;
-/*             match state {
+            match state {
                 LadderState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
-                    // if way bigger, increase state
+                    // if way bigger, increase state, else adapt current coverage
                     if  coverage > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // higher by too much, change state
                         state = LadderState::Double;
-                    } else if coverage < current_cov - current_cov * COV_STATE_FACTOR - COV_STATE_ADD {
-                        // lower by too much, return none
-                        return None;
                     } else {
                         // in acceptable frame
                         current_cov = coverage;
                     }
                 }
                 LadderState::Double => {
-                    // double state: if way smaller, decrease state, else dont treat as current coverage
-                    if (coverage > current_cov - current_cov * COV_STATE_FACTOR - COV_STATE_ADD)
-                        & (coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) {
+                    // double state: if way smaller (back in acceptable frame), decrease state, else dont treat as current coverage
+                    if coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // back in acceptable range
                         state = LadderState::Singular;
                         paths.push(vec![current_node_id]); // start new path
@@ -1737,7 +1748,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     } // else continue on 
                     // TODO check if better to also interrupt if coverage increases further
                 }
-            } */
+            }
 
             // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
             match state {
@@ -1824,7 +1835,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         }
     }
 
-    /// remove tips from the graph, reqires edge mults and stranded
+    /// remove tips from the graph, reqires the graoh to have edge mults and be stranded
+    /// it is recommended to use this function after [`DebruijnGraph::remove_ladders`], since 
+    /// the latter will likely leave tips in the graph
     pub fn remove_tips<DI, P>(&mut self, min_diff_factor: u32, max_avg_tip_cov: f32, out_path: Option<P>) -> Result<(), String> 
     where 
         SD: SummaryData<DI>,

@@ -17,3 +17,12 @@ Forked from [10XGenomics/rust-debruijn](https://github.com/10XGenomics/rust-debr
 * Configurable for stranded and non-stranded input sequence
 * Extensive unit test suite
 * In production use in Supernova, Long Ranger, Cell Ranger, and Cell Ranger VDJ pipelines from 10x Genomics.
+
+### Notable changes in this fork
+* improved memory efficiency
+* compact structure for sample labels
+* more compact reads containier
+* specialized storage for paired reads
+* many new summarizing options, including statistical tests and edge coverage
+* multithreaded graph constuction and GFA/DOT file writing
+* new options for error removal
