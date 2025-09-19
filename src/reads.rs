@@ -99,10 +99,7 @@ impl<D: Clone + Copy> Reads<D> {
             reads.exts.push(exts);
         }
 
-        reads.storage.shrink_to_fit();
-        reads.data.shrink_to_fit();
-        reads.exts.shrink_to_fit();
-        reads.ends.shrink_to_fit();
+        reads.shrink_to_fit();
         
         reads
     }

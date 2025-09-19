@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::{remove_file, File}, io::BufReader};
 
 use bimap::BiMap;
-use debruijn::{colors::{ColorMode, Colors}, compression::uncompressed_graph, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer16, Kmer8}, reads::{Reads, ReadsPaired}, serde::SerGraph, summarizer::{IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, SummaryData, TagsCountsPEMData, Translator, ID}, Exts};
+use debruijn::{colors::{ColorMode, Colors}, compression::{compress_kmers_with_hash, uncompressed_graph, ScmapCompress, SimpleCompress}, filter::filter_kmers, graph::{self, DebruijnGraph}, kmer::{Kmer16, Kmer8}, reads::{Reads, ReadsPaired}, serde::SerGraph, summarizer::{IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, SummaryData, TagsCountsPEMData, Translator, ID}, Exts};
 
 #[cfg(not(feature = "sample128"))]
 const TEST_FILE_T: &str = "test_data/sided.graph.dbg";

@@ -1226,7 +1226,7 @@ impl EdgeMult {
                 (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_mults[i]);
         
                 return Some(EdgeMult::new_from(combined))
-            } 
+            }
         }
 
         None
