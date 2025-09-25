@@ -858,11 +858,7 @@ mod tests {
             (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
         ];
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
-
-        for (read, exts, data) in fastq {
-            reads.add_read(read, exts, data);
-        }
+        let reads = Reads::from_vmer_vec(fastq, crate::reads::Strandedness::Unstranded);
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
 
@@ -900,7 +896,7 @@ mod tests {
 
         for _i in 0..10000 {
             let dna = random_dna(150);
-            reads.add_from_bytes(&dna, Exts::empty(), 0u8);
+            reads.add_from_bytes(&dna, None, 0u8);
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());

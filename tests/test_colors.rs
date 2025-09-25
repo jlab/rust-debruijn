@@ -175,7 +175,7 @@ fn test_colors() {
 #[test]
 fn test_colors_mapped_ids() {
     let mut reads = Reads::new(debruijn::reads::Strandedness::Forward);
-    reads.add_from_bytes("AAAAAAAAC".as_bytes(), Exts::empty(), IDTag::new(0, 0));
+    reads.add_from_bytes("AAAAAAAAC".as_bytes(), None, IDTag::new(0, 0));
     let reads = ReadsPaired::Unpaired { reads };
 
     let sample_info = SampleInfo::new(0b1, 0b0, 1, 0, vec![2]);

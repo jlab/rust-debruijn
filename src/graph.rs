@@ -2662,8 +2662,8 @@ mod test {
         let read2 = "ACGATCGTACGTAGCTAGCTGACTGAGC".as_bytes();
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
-        reads.add_from_bytes(read1, Exts::empty(), 0u8);
-        reads.add_from_bytes(read2, Exts::empty(), 1);
+        reads.add_from_bytes(read1, None, 0u8);
+        reads.add_from_bytes(read2, None, 1);
 
         let reads_paired = ReadsPaired::Unpaired { reads };
 
@@ -2720,28 +2720,28 @@ mod test {
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
-            reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
+            reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
 
         for _i in 0..2 {
-            reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
+            reads.add_from_bytes(incorrect, None, IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..15 {
-            reads.add_from_bytes(incorrec2, Exts::empty(), IDTag::new(2, 2)); // should be removed
+            reads.add_from_bytes(incorrec2, None, IDTag::new(2, 2)); // should be removed
         }
 
         for _i in 0..25 {
-            reads.add_from_bytes(incorrec3, Exts::empty(), IDTag::new(3, 3)); // should be removed
+            reads.add_from_bytes(incorrec3, None, IDTag::new(3, 3)); // should be removed
         }
 
         for _i in 0..30 {
-            reads.add_from_bytes(incorrec4, Exts::empty(), IDTag::new(4, 4)); // should be removed
+            reads.add_from_bytes(incorrec4, None, IDTag::new(4, 4)); // should be removed
         }
 
 
         for _i in 0..1 {
-            reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 3)); // should not be removed
+            reads.add_from_bytes(insertion, None, IDTag::new(1, 3)); // should not be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
@@ -2801,15 +2801,15 @@ mod test {
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
-            reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
+            reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect_r, Exts::empty(), IDTag::new(1, 1)); // should be removed
+            reads.add_from_bytes(incorrect_r, None, IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect_l, Exts::empty(), IDTag::new(2, 2)); // should be removed
+            reads.add_from_bytes(incorrect_l, None, IDTag::new(2, 2)); // should be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };

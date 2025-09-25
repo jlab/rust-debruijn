@@ -564,8 +564,8 @@ mod tests {
 
             for _i in 0..5 {
                 let read = DnaString::from_bytes(&c);
-                clean_seqs.add_read(read.clone(), Exts::empty(), rng.gen_range(0, 10) as u8);
-                all_seqs.add_read(read, Exts::empty(), rng.gen_range(0, 10) as u8);
+                clean_seqs.add_read(read.clone(), None, rng.gen_range(0, 10) as u8);
+                all_seqs.add_read(read, None, rng.gen_range(0, 10) as u8);
             }
 
             let junk = random_dna(5);
@@ -573,8 +573,8 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), Exts::empty(), 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
         }
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
@@ -762,11 +762,7 @@ mod tests {
             (DnaString::from_dna_string("GCGATCTAGCGGATCTGCGAGCTATGC"), Exts::empty(), 6u8),
         ];
 
-        let mut reads = Reads::new(Strandedness::Unstranded);
-
-        for (read, exts, data) in fastq {
-            reads.add_read(read, exts, data);
-        }
+        let reads = Reads::from_vmer_vec(fastq, Strandedness::Unstranded);
 
         let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);

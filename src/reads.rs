@@ -25,7 +25,7 @@ pub enum Strandedness {
 /// 
 /// * `storage`: `Vec` with 2-bit encoded DNA bases of all sequences
 /// * `ends`:  `Vec` with the ends (exclusive) of the separate sequences in the `Reads`
-/// * `exts`: `Vec` with one Exts for each sequence
+/// * `exts`: `Option<Vec>` with one Exts for each sequence
 /// * `data`: `Vec` with data for each sequence
 /// * `len`: length of all sequences together
 /// * `stranded`: [`Stranded`] conveying the strandedness and direction of the reads
@@ -33,7 +33,7 @@ pub enum Strandedness {
 pub struct Reads<D> {
     storage: Vec<u64>,
     ends: Vec<usize>,
-    exts: Vec<Exts>,
+    exts: Option<Vec<Exts>>,
     data: Vec<D>,
     len: usize,
     stranded: Strandedness
@@ -46,7 +46,19 @@ impl<D: Clone + Copy> Reads<D> {
         Reads {
             storage: Vec::new(),
             ends: Vec::new(),
-            exts: Vec::new(),
+            exts: None,
+            data: Vec::new(),
+            len: 0,
+            stranded
+        }
+    }
+
+    /// Returns a new `Reads` with exts
+    pub fn new_with_exts(stranded: Strandedness) -> Self {
+        Reads {
+            storage: Vec::new(),
+            ends: Vec::new(),
+            exts: Some(Vec::new()),
             data: Vec::new(),
             len: 0,
             stranded
@@ -66,7 +78,8 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// get the memory required for the reads
     pub fn mem(&self) -> usize {
-        mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + size_of_val(&*self.exts)
+        let exts_size = size_of_val(&self.exts) + if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
+        mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + exts_size
     }
 
     /// set the strandedness and the direction of the reads
@@ -74,16 +87,44 @@ impl<D: Clone + Copy> Reads<D> {
         self.stranded = stranded
     }
 
+    /// add exts to `Reads` if needed - use after adding sequence
+    fn add_exts(&mut self, exts: Option<Exts>) {
+        match exts {
+            Some(e) => {
+                // only add exts if some exts are not empty
+                match self.exts.as_mut() {
+                    // already has exts, simply append new exts
+                    Some(e_vec) => e_vec.push(e),
+                    // no exts so far
+                    None => {
+                        // check if exts are empty
+                        if e != Exts::empty() {
+                            // if not, add vector of empty exts and then push new exts
+                            self.exts = Some(vec![Exts::empty(); self.n_reads() - 1]);
+                            self.exts.as_mut().unwrap().push(e);
+                        } // else keep no exts
+                    }
+                }
+            }
+            None => {
+                if let Some(e_vec) = self.exts.as_mut() {
+                    // Reads has exts, but no exts here, so add empty exts
+                    e_vec.push(Exts::empty())
+                } // else do nothing
+            }
+        }
+        
+    }
+
     /// Adds a new read to the `Reads`
     // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
-    pub fn add_read<V: Vmer>(&mut self, read: V, exts: Exts, data: D) {
+    pub fn add_read<V: Vmer>(&mut self, read: V, exts: Option<Exts>, data: D) {
         for base in read.iter() {
             self.push_base(base);
         }
         self.ends.push(self.len);
+        self.add_exts(exts);
         self.data.push(data);
-        self.exts.push(exts);
-       
     }
 
     /// Transforms a `[(vmer, exts, data)]` into a `Reads` - watch for memory usage
@@ -95,8 +136,8 @@ impl<D: Clone + Copy> Reads<D> {
                 reads.push_base(base);
             }
             reads.ends.push(reads.len);
+            reads.add_exts(Some(exts));
             reads.data.push(data);
-            reads.exts.push(exts);
         }
 
         reads.shrink_to_fit();
@@ -105,11 +146,13 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
 
-    /// add ASCII encoded bases to the Reads
+    /// add ASCII encoded bases to the `Reads`
     /// 
     /// will transform all ascii characters outside of ACGTacgt into A
+    /// 
+    /// if `Reads` previously contained no exts, no new exts will be added
     /// see also: [`Reads::add_from_bytes_checked`]
-    pub fn add_from_bytes(&mut self, bytes: &[u8], exts: Exts, data: D) {
+    pub fn add_from_bytes(&mut self, bytes: &[u8], exts: Option<Exts>, data: D) {
         
         // fill the last incomplete u64 block
         let missing = 32 - (self.len % 32);
@@ -117,7 +160,7 @@ impl<D: Clone + Copy> Reads<D> {
             if  missing > bytes.len() {
                 let fill = bytes.iter().map(|c| base_to_bits(*c));
                 self.extend(fill);
-                self.exts.push(exts);
+                self.add_exts(exts);
                 self.data.push(data);
                 self.ends.push(self.len);
                 return;
@@ -143,7 +186,7 @@ impl<D: Clone + Copy> Reads<D> {
                     }
                 }
 
-                self.exts.push(exts);
+                self.add_exts(exts);
                 self.data.push(data);
                 self.ends.push(self.len);
                 return;
@@ -153,7 +196,7 @@ impl<D: Clone + Copy> Reads<D> {
         let b = bytes.iter().map(|c| base_to_bits(*c));
         self.extend(b);
 
-        self.exts.push(exts);
+        self.add_exts(exts);
         self.data.push(data);
         self.ends.push(self.len);
         
@@ -163,7 +206,7 @@ impl<D: Clone + Copy> Reads<D> {
     /// 
     /// will return `false` if the bytes contained characters outside of `ACGTacgt`, otherwise return true and add the bases
     /// see also: [`Reads::add_from_bytes`]
-    pub fn add_from_bytes_checked(&mut self, bytes: &[u8], exts: Exts, data: D) -> bool {
+    pub fn add_from_bytes_checked(&mut self, bytes: &[u8], exts: Option<Exts>, data: D) -> bool {
 
         let (_, corrects): (Vec<u8>, Vec<bool>) = bytes.iter().map(|c| base_to_bits_checked(*c)).collect();
         if corrects.iter().contains(&false) { return false }
@@ -175,7 +218,7 @@ impl<D: Clone + Copy> Reads<D> {
             if  missing > bytes.len() {
                 let fill = bytes.iter().map(|c| base_to_bits(*c));
                 self.extend(fill);
-                self.exts.push(exts);
+                self.add_exts(exts);
                 self.data.push(data);
                 self.ends.push(self.len);
                 return true;
@@ -201,7 +244,7 @@ impl<D: Clone + Copy> Reads<D> {
                     }
                 }
 
-                self.exts.push(exts);
+                self.add_exts(exts);
                 self.data.push(data);
                 self.ends.push(self.len);
                 return true;
@@ -211,7 +254,7 @@ impl<D: Clone + Copy> Reads<D> {
         let b = bytes.iter().map(|c| base_to_bits(*c));
         self.extend(b);
 
-        self.exts.push(exts);
+        self.add_exts(exts);
         self.data.push(data);
         self.ends.push(self.len);
 
@@ -294,7 +337,12 @@ impl<D: Clone + Copy> Reads<D> {
             sequence.push(base);
         }
 
-        Some((sequence, self.exts[i], self.data[i], self.stranded))
+        let exts = match self.exts {
+            Some(ref e_vec) => e_vec[i],
+            None => Exts::empty()
+        };
+
+        Some((sequence, exts, self.data[i], self.stranded))
     }
 
 
@@ -304,7 +352,7 @@ impl<D: Clone + Copy> Reads<D> {
     pub fn shrink_to_fit(&mut self)  {
         self.storage.shrink_to_fit();
         self.data.shrink_to_fit();
-        self.exts.shrink_to_fit();
+        if let Some(e_vec) = self.exts.as_mut() { e_vec.shrink_to_fit(); }
         self.ends.shrink_to_fit();
     }
 
@@ -714,8 +762,8 @@ mod tests {
 
 
         let mut reads = Reads::new(Strandedness::Unstranded);
-        for (read, ext, data) in fastq.clone() {
-            reads.add_read(read, ext, data);
+        for (read, _, data) in fastq.clone() {
+            reads.add_read(read, None, data);
         }
 
         println!("reads: {:#?}", reads);
@@ -748,7 +796,7 @@ mod tests {
     fn test_get_read() {
         let mut reads = Reads::new(Strandedness::Unstranded);
         //reads.add_read(DnaString::from_acgt_bytes("AGCTAGCTAGC".as_bytes()), Exts::empty(), 67u8);
-        reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), Exts::empty(), 67u8);
+        reads.add_from_bytes("ACGATCGNATGCTAGCTGATCGGCGACGATCGATGCTAGCTGATCGTAGCTGACTGATCGATCG".as_bytes(), None, 67u8);
         let read = reads.get_read(0);
         println!("{:?}", read);
         println!("{:#066b}", reads.storage[0]);
@@ -770,7 +818,7 @@ mod tests {
 
         let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for seq in dna {
-            reads.add_from_bytes(seq, Exts::empty(), random());
+            reads.add_from_bytes(seq, None, random());
 
         }
 
@@ -799,7 +847,7 @@ mod tests {
         let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         let mut corrects = Vec::new();
         for seq in dna {
-            corrects.push(reads.add_from_bytes_checked(seq, Exts::empty(), random()));
+            corrects.push(reads.add_from_bytes_checked(seq, None, random()));
         }
 
         let mut read_counter = 0;
@@ -846,7 +894,7 @@ mod tests {
         let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
-                reads.add_read(DnaString::from_acgt_bytes(dna), Exts::empty(), random());
+                reads.add_read(DnaString::from_acgt_bytes(dna), None, random());
             }
         }
         let ds_finish = ds_start.elapsed();
@@ -855,7 +903,7 @@ mod tests {
         let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
-                reads.add_from_bytes(dna, Exts::empty(), random());
+                reads.add_from_bytes(dna, None, random());
             }
         }
         let r_finish = r_start.elapsed();
@@ -885,7 +933,7 @@ mod tests {
             ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
         ];
 
-        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), None, *tag as u8));
         let data_kmers = reads.tag_kmers(16);
        
         let comp_hm: HashMap<u8, usize> = [(0, 30), (1, 19), (2, 26), (3, 21)].into_iter().collect();
@@ -903,7 +951,7 @@ mod tests {
             ("CACACACGGCATCGATCGAGCAGCATCGACTACGTA", 3),
         ];
 
-        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), Exts::empty(), *tag as u8));
+        seqs.iter().for_each(|(read, tag)| reads.add_from_bytes(read.as_bytes(), None, *tag as u8));
 
         assert_eq!(reads.info(), "Reads { n reads: 4, stranded: Unstranded }".to_string());
     }
@@ -935,9 +983,9 @@ mod tests {
 
         let tags = (0..4).collect::<Vec<u8>>();
 
-        reads_p1.iter().enumerate().for_each(|(i, read)| p1.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
-        reads_p2.iter().enumerate().for_each(|(i, read)| p2.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
-        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), Exts::empty(), tags[i]));
+        reads_p1.iter().enumerate().for_each(|(i, read)| p1.add_from_bytes(read.as_bytes(), None, tags[i]));
+        reads_p2.iter().enumerate().for_each(|(i, read)| p2.add_from_bytes(read.as_bytes(), None, tags[i]));
+        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), None, tags[i]));
 
         let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
         assert_eq!(empty, ReadsPaired::Empty);
@@ -1027,7 +1075,7 @@ Reads { n reads: 2, stranded: Unstranded }".to_string());
             "CACACACGGCATCGATCGAGCAGCATCGACTACGTA",
         ];
 
-        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), Exts::empty(), 0u8));
+        reads_p1.iter().for_each(|read| p1.add_from_bytes(read.as_bytes(), None, 0u8));
 
         let _ = ReadsPaired::from_reads((p1, Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
     }
