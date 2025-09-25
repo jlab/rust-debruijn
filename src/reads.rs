@@ -78,7 +78,7 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// get the memory required for the reads
     pub fn mem(&self) -> usize {
-        let exts_size = size_of_val(&self.exts) + if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
+        let exts_size = if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
         mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + exts_size
     }
 
@@ -87,7 +87,7 @@ impl<D: Clone + Copy> Reads<D> {
         self.stranded = stranded
     }
 
-    /// add exts to `Reads` if needed - use after adding sequence
+    /// add exts to `Reads` if needed - use after adding sequence and new end
     fn add_exts(&mut self, exts: Option<Exts>) {
         match exts {
             Some(e) => {
@@ -100,6 +100,7 @@ impl<D: Clone + Copy> Reads<D> {
                         // check if exts are empty
                         if e != Exts::empty() {
                             // if not, add vector of empty exts and then push new exts
+                            println!("n reads bf e: {}", self.n_reads());
                             self.exts = Some(vec![Exts::empty(); self.n_reads() - 1]);
                             self.exts.as_mut().unwrap().push(e);
                         } // else keep no exts
@@ -113,6 +114,7 @@ impl<D: Clone + Copy> Reads<D> {
                 } // else do nothing
             }
         }
+        println!("exts: {:?}", self.exts);
         
     }
 
@@ -160,9 +162,9 @@ impl<D: Clone + Copy> Reads<D> {
             if  missing > bytes.len() {
                 let fill = bytes.iter().map(|c| base_to_bits(*c));
                 self.extend(fill);
+                self.ends.push(self.len);
                 self.add_exts(exts);
                 self.data.push(data);
-                self.ends.push(self.len);
                 return;
             } else {
                 let fill = bytes[0..missing].iter().map(|c| base_to_bits(*c));
@@ -185,20 +187,20 @@ impl<D: Clone + Copy> Reads<D> {
                         self.extend(b);
                     }
                 }
-
+                self.ends.push(self.len);
                 self.add_exts(exts);
                 self.data.push(data);
-                self.ends.push(self.len);
+                
                 return;
             }
         }
 
         let b = bytes.iter().map(|c| base_to_bits(*c));
         self.extend(b);
-
+        self.ends.push(self.len);
         self.add_exts(exts);
         self.data.push(data);
-        self.ends.push(self.len);
+        
         
     }
 
@@ -244,19 +246,19 @@ impl<D: Clone + Copy> Reads<D> {
                     }
                 }
 
+                self.ends.push(self.len);
                 self.add_exts(exts);
                 self.data.push(data);
-                self.ends.push(self.len);
+                
                 return true;
             }
         }
 
         let b = bytes.iter().map(|c| base_to_bits(*c));
         self.extend(b);
-
+        self.ends.push(self.len);
         self.add_exts(exts);
         self.data.push(data);
-        self.ends.push(self.len);
 
         true         
     }
@@ -985,7 +987,7 @@ mod tests {
 
         reads_p1.iter().enumerate().for_each(|(i, read)| p1.add_from_bytes(read.as_bytes(), None, tags[i]));
         reads_p2.iter().enumerate().for_each(|(i, read)| p2.add_from_bytes(read.as_bytes(), None, tags[i]));
-        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), None, tags[i]));
+        reads_up.iter().enumerate().for_each(|(i, read)| up.add_from_bytes(read.as_bytes(), Some(Exts::new(i as u8)), tags[i]));
 
         let empty: ReadsPaired<u8> = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded)));
         assert_eq!(empty, ReadsPaired::Empty);
@@ -995,19 +997,20 @@ mod tests {
 
         let unpaired = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), up.clone()));
         assert_eq!(ReadsPaired::Unpaired { reads: up.clone() }, unpaired);
+        println!("exts up {:?}", unpaired);
         assert_eq!(unpaired.mem(), 148);
         assert_eq!(unpaired.n_reads(), 2);
         assert_eq!(unpaired.iterable(), vec![&up]);
       
         let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
         assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
-        assert_eq!(paired.mem(), 384);
+        assert_eq!(paired.mem(), 376);
         assert_eq!(paired.n_reads(), 8);
         assert_eq!(paired.iterable(), vec![&p1, &p2]);
 
         let combined = ReadsPaired::from_reads((p1.clone(), p2.clone(), up.clone()));
         assert_eq!(ReadsPaired::Combined { paired1: p1.clone(), paired2: p2.clone(), unpaired: up.clone() }, combined);
-        assert_eq!(combined.mem(), 532);
+        assert_eq!(combined.mem(), 524);
         assert_eq!(combined.n_reads(), 10);
         assert_eq!(combined.iterable(), vec![&p1, &p2, &up]);
 

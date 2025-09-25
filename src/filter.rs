@@ -122,16 +122,16 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
+/// use debruijn::reads::{Reads, ReadsPaired, Strandedness};
 /// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new(Stranded::Unstranded);
-/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
-/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+/// let mut seqs = Reads::new(Strandedness::Unstranded);
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), None, 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), None, 2u8);
 ///       
 /// let sample_info = SampleInfo::new(
 ///     0b000011,
@@ -151,7 +151,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 ///     StatTest::StudentsTTest,
 /// );
 ///    
-/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData>(
+/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData, u8>(
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
@@ -493,16 +493,16 @@ DI: Clone + Copy + Send + Sync
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
+/// use debruijn::reads::{Reads, ReadsPaired, Strandedness};
 /// use debruijn::filter::filter_kmers;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new(Stranded::Unstranded);
-/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
-/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+/// let mut seqs = Reads::new(Strandedness::Unstranded);
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), None, 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), None, 2u8);
 ///       
 /// let sample_info = SampleInfo::new(
 ///     0b000011,

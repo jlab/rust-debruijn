@@ -2709,6 +2709,8 @@ mod test {
     #[test]
     fn test_remove_ladders() {
         let print = false; 
+        let c_csv = if print { Some("c_ladders.csv") } else { None };
+        let uc_csv = if print { Some("uc_ladders.csv") } else { None };
 
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
@@ -2764,7 +2766,7 @@ mod test {
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders(10, 10., Some("uc.csv")).unwrap();
+        unc_graph.remove_ladders(10, 10., uc_csv).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
@@ -2783,7 +2785,7 @@ mod test {
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders(10, 10., Some("c.csv")).unwrap();
+        c_graph.remove_ladders(10, 10., c_csv).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
@@ -2792,6 +2794,8 @@ mod test {
     fn test_remove_tips() {
 
         let print = false;
+        let c_csv = if print { Some("c_tips.csv") } else { None };
+        let uc_csv = if print { Some("uc_tips.csv") } else { None };
 
         let     correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect_r = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTAACGTGAC".as_bytes();
@@ -2834,7 +2838,7 @@ mod test {
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
-        unc_graph.remove_tips(10, 10., Some("uc.csv")).unwrap();
+        unc_graph.remove_tips(10, 10., uc_csv).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
@@ -2855,7 +2859,7 @@ mod test {
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
-        c_graph.remove_tips(10, 10., Some("c.csv")).unwrap();
+        c_graph.remove_tips(10, 10., c_csv).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
