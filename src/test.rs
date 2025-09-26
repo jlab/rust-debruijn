@@ -359,19 +359,11 @@ mod tests {
             }
         }
 
-        // Kmer extensions from BSP match raw kmers
-        if kmer_set != msp_kmers {
-            println!("{:?}", kmer_set);
-            println!("{:?}", msp_kmers);
-        }
-
         // Raw kmers and BSP kmers match
-        assert!(kmer_set == msp_kmers);
+        assert_eq!(kmer_set, msp_kmers);
 
         let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
-
-
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(

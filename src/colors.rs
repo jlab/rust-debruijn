@@ -235,11 +235,21 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
 
     /// get the color for a node in a HSV format
     pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
+        // calculate saturation
+        let saturation = match self.log10_p_mb {
+            //Some((m, b)) => m * data.p_value(summary_config).expect("error getting p-value").log10() + b, // to broad
+            Some((_m, _b)) => if data.p_value(summary_config).expect("error getting p-value") < 0.05 { Self::SAT_MAX } else { Self::SAT_MIN },
+            None => Self::SAT_DEF
+        };
 
-        // get hue
-        let hue = match self.color_mode {
+        // set value as default value
+        let value = Self::VAL_DEF;
+        
+        
+        // get hue and color
+        let colors = match self.color_mode {
             ColorMode::FoldChange => {
-                match self.log2_fc_factor {
+                let hue = match self.log2_fc_factor {
                     // if fold change available calculate hue based on log2(fc)
                     Some(fc_factor) => {
                         match data.fold_change(summary_config).unwrap() {
@@ -249,10 +259,11 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         }
                     }, 
                     None => Self::HUE_PURPLE
-                }
+                };
+                format!("{hue} {saturation} {value}")
             },
             ColorMode::SampleGroups  => {
-                match data.tags() {
+                let hue = match data.tags() {
                     Some(tag) => {
                         if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
                             // tags are only in marker0 group
@@ -271,37 +282,36 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         }
                     },
                     None => Self::HUE_PURPLE
-                }
+                };
+                format!("{hue} {saturation} {value}")
             },
             ColorMode::IDGroups { id_group_ids, n_id_groups } => {
                 match data.ids() {
                     Some(ids) => {
-                        ids.iter().map(|id| *(id_group_ids.get(id).expect("id was not in HM")) as f32 / (n_id_groups * ids.len()) as f32).sum::<f32>()
+                        format!("{:?}", 
+                            ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                *(id_group_ids.get(id).expect("id was not in HM")) as f32 / n_id_groups as f32
+                            )).collect::<Vec<_>>()
+                        ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                     },
-                    None => Self::HUE_PURPLE
+                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
                 }
             }
             ColorMode::IDS { n_ids } => {
                 match data.ids() {
                     Some(ids) => {
-                        ids.iter().map(|id| *id as f32 / (n_ids * ids.len()) as f32).sum::<f32>()
+                        format!("{:?}", 
+                            ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                *id as f32 / n_ids as f32
+                            )).collect::<Vec<_>>()
+                        ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                     }
-                    None => Self::HUE_PURPLE
+                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
                 }
             }
         };
 
-        // calculate saturation
-        let saturation = match self.log10_p_mb {
-            //Some((m, b)) => m * data.p_value(summary_config).expect("error getting p-value").log10() + b, // to broad
-            Some((_m, _b)) => if data.p_value(summary_config).expect("error getting p-value") < 0.05 { Self::SAT_MAX } else { Self::SAT_MIN },
-            None => Self::SAT_DEF
-        };
-
-        // set value as default value
-        let value = Self::VAL_DEF;
-
-        // adapt font color to value ( currently always black)
+        // adapt font color to value (currently always black)
         let font_color= if value <= 0.5 { "white" } else { "black" };
 
         
@@ -310,6 +320,12 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
             "black, penwidth=10, fillcolor=".to_string()
         } else {
             "".to_string()
+        };
+
+        // set shape and style
+        let shape_style = match self.color_mode {
+            ColorMode::FoldChange | ColorMode::SampleGroups => "style=filled", // default to oval shape
+            ColorMode::IDGroups { id_group_ids: _, n_id_groups: _ } | ColorMode::IDS { n_ids: _ } => "shape=rectangle, style=striped" // striped only works in rectangle
         };
 
         // overwrite generated path with mapped paths
@@ -330,7 +346,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
         }
 
         // return formatted string for color, fillcolor, and fontcolor
-        format!("color={prefix}\"{hue} {saturation} {value}\", fontcolor={font_color}")
+        format!("{shape_style}, color={prefix}\"{colors}\", fontcolor={font_color}")
     }
 
     /// get the edge width based on the edge multiplicity

@@ -100,7 +100,6 @@ impl<D: Clone + Copy> Reads<D> {
                         // check if exts are empty
                         if e != Exts::empty() {
                             // if not, add vector of empty exts and then push new exts
-                            println!("n reads bf e: {}", self.n_reads());
                             self.exts = Some(vec![Exts::empty(); self.n_reads() - 1]);
                             self.exts.as_mut().unwrap().push(e);
                         } // else keep no exts
@@ -114,7 +113,6 @@ impl<D: Clone + Copy> Reads<D> {
                 } // else do nothing
             }
         }
-        println!("exts: {:?}", self.exts);
         
     }
 
@@ -744,7 +742,7 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, ID}, Exts};
+    use crate::{dna_string::DnaString, reads::Strandedness, summarizer::{IDTag, Tag, ID}, test::random_dna, Exts};
     use crate::reads::ReadData;
     use super::{Reads, ReadsPaired};
 
@@ -941,6 +939,18 @@ mod tests {
         let comp_hm: HashMap<u8, usize> = [(0, 30), (1, 19), (2, 26), (3, 21)].into_iter().collect();
 
         assert_eq!(comp_hm, data_kmers);
+    }
+
+    #[test]
+    fn test_reads_add_exts() {
+        let mut raw_reads = Vec::new();
+        for _i in 0..10 {
+            raw_reads.push((DnaString::from_bytes(&random_dna(100)), Exts::new(rand::random::<u8>()), rand::random::<u8>()));
+        }
+        let reads = Reads::from_vmer_vec(raw_reads.clone(), Strandedness::Unstranded);
+        let new_raw_reads = reads.iter().map(|(read, e, d, _)| (read, e, d)).collect::<Vec<_>>();
+
+        assert_eq!(raw_reads, new_raw_reads)
     }
 
     #[test]

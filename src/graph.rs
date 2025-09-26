@@ -29,7 +29,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::process::id;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -44,7 +43,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -2393,7 +2391,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
             data_info
         ), wrap);
 
-        format!("[style=filled, {color}, label=\"{label}\"]")
+        format!("[{color}, label=\"{label}\"]")
     }
 }
 
@@ -2615,7 +2613,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::File, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsSumData, Translator}, Exts};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsSumData, Translator}};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2656,7 +2654,7 @@ mod test {
 
     #[test]
     fn test_iter_edges() {
-        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}, Exts};
+        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}};
 
         let read1 = "CAGCATCGATGCGACGAGCGCTCGCATCGA".as_bytes();
         let read2 = "ACGATCGTACGTAGCTAGCTGACTGAGC".as_bytes();
