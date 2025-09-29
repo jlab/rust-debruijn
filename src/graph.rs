@@ -1184,6 +1184,55 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(())    
     }
 
+    fn node_to_tsv<W: Write, F>(&self, writer: &mut W, node_id: usize, data_format: F) -> Result<(), Box<dyn std::error::Error>> 
+    where 
+        F: Fn(&Node<'_, K, D>) -> String,
+    {
+
+        let node = self.get_node(node_id);
+        let l_e = node.l_edges();
+        let r_e = node.r_edges();
+
+        
+        if self.base.stranded {
+            // format: node id    l nb    r nb    seq    data
+            let l_nb = l_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let r_nb = r_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            writeln!(writer, "{node_id}\t{:?}\t{:?}\t{}\t{}", l_nb, r_nb, node.sequence(), data_format(&node))?
+        } else {
+            // format: node id    l nb    l inc dir    r nb    r inc dir    seq    data
+            let l_nb = l_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let r_nb = r_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let l_nb_dirs = l_e.iter().map(|(_b, _nb, dir, _f)| *dir).collect::<Vec<_>>();
+            let r_nb_dirs = r_e.iter().map(|(_b, _nb, dir, _f)| *dir).collect::<Vec<_>>();
+            writeln!(writer, "{node_id}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{}", l_nb, l_nb_dirs, r_nb, r_nb_dirs, node.sequence(), data_format(&node))?
+        }
+
+        Ok(())
+    }
+
+    /// save the graph as a tsv file with custom formatting for the node data
+    pub fn to_tsv<P, F>(&self, path: P, data_format: F) -> Result<(), Box<dyn std::error::Error>> 
+    where 
+        F: Fn(&Node<'_, K, D>) -> String,
+        P: AsRef<Path> + Display,
+    { 
+        let mut writer = BufWriter::new(File::create(path)?);
+
+        // different format if stranded vs unstranded
+        if self.base.stranded {
+            writeln!(writer, "node id\tleft neighbors\tright neighbors\tsequence\tdata")?;
+        } else {
+            writeln!(writer, "node id\tleft neighbors\tleft nb incoming dirs\tright neighbors\tright nb incoming dirs\tsequence\tdata")?;
+        }
+            
+        for i in 0..self.len() {
+            self.node_to_tsv(&mut writer, i, &data_format)?
+        }
+        
+        Ok(())
+    }
+
     pub fn to_json_rest<W: Write, F: Fn(&D) -> Value>(
         &self,
         fmt_func: F,
@@ -2611,9 +2660,9 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::BufReader};
+    use std::{fs::{remove_file, File}, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsSumData, Translator}};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer16, Kmer22, Kmer6}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna, Exts};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2861,6 +2910,44 @@ mod test {
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
+    }
+
+    #[test]
+    fn test_to_tsv() {
+        let reads_us = Reads::from_vmer_vec(
+            (0..10).map(|i| (DnaString::from_bytes(&random_dna(100)), Exts::empty(), i as u8)).collect::<Vec<_>>(), 
+            crate::reads::Strandedness::Unstranded
+        );
+
+        let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
+
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, 5, 5, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1, false);
+
+        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
+
+        graph.to_tsv("test_graph_unstranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
+
+
+        let reads_us = Reads::from_vmer_vec(
+            (0..10).map(|i| (DnaString::from_bytes(&random_dna(100)), Exts::empty(), i as u8)).collect::<Vec<_>>(), 
+            crate::reads::Strandedness::Forward
+        );
+
+        let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
+
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, 5, 5, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1, false);
+
+        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();
+
+        graph.to_tsv("test_graph_stranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
+    
+        remove_file("test_graph_unstranded.tsv").unwrap();
+        remove_file("test_graph_stranded.tsv").unwrap();
+    
     }
 }
 
