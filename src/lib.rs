@@ -1005,11 +1005,41 @@ impl Tags {
     pub fn bit_and_dist(&self, marker: Marker) -> usize {
         (self.val & marker).count_ones() as usize
     }
+
+    /// get an iterator over the tags in the [`Tags`]
+    pub fn iter(&self) -> TagsIterator {
+        TagsIterator::new(*self)
+    }
 }
 
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_tag_vec())
+    }
+}
+
+pub struct TagsIterator {
+    tags: Tags,
+    i: Tag
+}
+
+impl TagsIterator  {
+    fn new(tags: Tags) -> TagsIterator {
+        TagsIterator {tags, i: 0}
+    }
+}
+
+impl Iterator for TagsIterator {
+    type Item = Tag;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.i as usize == mem::size_of::<Tags>()*8 { return None }
+            let result = self.tags.val % 2 != 0;
+            self.tags.val >>= 1;
+            self.i += 1;
+            if result { return Some(self.i - 1); }
+        }
     }
 }
 
@@ -1414,6 +1444,14 @@ mod tests {
         let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
         print!("{}", TagsFormatter::new(tags, &translator));
 
+    }
+
+    #[test]
+    fn test_iter_tags() {
+        let tags = Tags::from_tag_vec(vec![0, 1, 4, 12, 32, 63]);
+        for tag in tags.iter() {
+            println!("tag: {tag}")
+        }
     }
 }
 
