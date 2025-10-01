@@ -74,7 +74,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
     // calculate which bucket this kmer belongs to
     let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
     //let bucket = bucket(min_kmer);
-    // check if bucket is in current range and if so, push kmer to bucket
+    // check if bucket is in current range
     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
 
     if in_range {
@@ -308,7 +308,7 @@ DI: Clone + Copy + Send + Sync
             
             // reserve capacities needed for current range in each bucket
             for (i, capacity) in capacities[i].into_iter().enumerate() {
-                if range.contains(&i) {
+                if bucket_range.contains(&i) {
                     // capacity is in bucket range, allocate bucket with capacity
                     kmer_buckets1d.push(Vec::with_capacity(capacity));
                 } else {
