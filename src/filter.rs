@@ -641,10 +641,17 @@ where
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
         
-        let mut kmer_buckets = Vec::new();
+        let mut kmer_buckets = Vec::with_capacity(BUCKETS);
         // reserve needed capacity in each bucket
-        for capacity in capacities {
-            kmer_buckets.push(Vec::with_capacity(capacity));
+        for (i, capacity) in capacities.iter().enumerate() {
+            if bucket_range.contains(&i) {
+                // bucket is in range, add with prepared capacity
+                kmer_buckets.push(Vec::with_capacity(*capacity));
+            } else {
+                // bucket is not in range, add empty placeholder
+                kmer_buckets.push(Vec::new());
+            }
+            
         }
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
