@@ -473,6 +473,35 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
+    /// get the read with the index `i` from the `ReadsPaired` - with multiple 
+    /// underlying `Reads` its is counted linearly trough paired1, paired2, unpaired
+    pub fn get_read(&self, i: usize) -> Option<(DnaString, Exts, D, Strandedness)> {
+        match self {
+            ReadsPaired::Empty => None,
+            ReadsPaired::Unpaired { reads } => reads.get_read(i),
+            ReadsPaired::Paired { paired1, paired2 } => {
+                if i < paired1.n_reads() {
+                    paired1.get_read(i)
+                } else if (i - paired1.n_reads()) < paired2.n_reads() {
+                    paired2.get_read(i -  paired1.n_reads())
+                } else {
+                    None
+                }
+            },
+            ReadsPaired::Combined { paired1, paired2, unpaired } => {
+                if i < paired1.n_reads() {
+                    paired1.get_read(i)
+                } else if (i - paired1.n_reads()) < paired2.n_reads() {
+                    paired2.get_read(i -  paired1.n_reads())
+                } else if (i - (paired1.n_reads() + paired2.n_reads())) < unpaired.n_reads() {
+                    unpaired.get_read(i - (paired1.n_reads() + paired2.n_reads()))
+                } else {
+                    None
+                }
+            },
+        }
+    }
+
     pub fn mem(&self) -> usize {
         match self {
             Self::Empty => 0,

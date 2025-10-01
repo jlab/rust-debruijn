@@ -2,6 +2,7 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -17,6 +18,7 @@ use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
+use rand::Rng;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
@@ -425,8 +427,8 @@ DI: Clone + Copy + Send + Sync
     pb_bucket_ranges.finish_and_clear();
 
     if time { 
-        println!("time counting + collecting par (s): {}", time_picking_par);
-        println!("time counting + collecting (s): {}", time_picking);
+        println!("time collecting par (s): {}", time_picking_par);
+        println!("time collecting (s): {}", time_picking);
         println!("time summarizing (s): {}", time_summarizing);
     }
 
@@ -556,32 +558,64 @@ where
     pb.set_style(style.clone());
     pb.set_message(format!("{:<32}", "finding bucket lengths"));
 
+    // try to predict graph size by predicting the average coverage
+    // pick 1000 reads troughout the ReadsPaired and choose a random k-mer from each 
+    // to measure the the coverage of in the next step
+    let mut coverage_kmers = HashMap::with_capacity(1000);
+    const N_TEST_READS: usize = 1000;
+    let n_reads = seqs.n_reads();
+    let mut rng = rand::thread_rng();
+    // pick evenly spaced reads
+    for i in 0..N_TEST_READS {
+        if let Some((read, _, _, _)) = seqs.get_read(i * (n_reads / N_TEST_READS)) {
+            // pick random k-mer from read
+            let random_kmer = read.get_kmer::<K>(rng.gen_range(0, read.len() - K::k() + 1));
+            coverage_kmers.insert(random_kmer, 0);
+        }
+    }
 
-    // first go trough all kmers to find the length of all buckets (to reserve capacity)
+    // go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
 
     for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
     {
         // iterate through all kmers in seq
         for kmer in seq.iter_kmers::<K>() {
-            // calculate which bucket this kmer belongs to
-            capacities[bucket_flip(kmer, stranded)] += 1 
+            // calculate which bucket this kmer belongs to and add to capacity measurement
+            capacities[bucket_flip(kmer, stranded)] += 1;
+
+            // if k-mer was picked for coverage testing, add coverage
+            if let Some(cov) = coverage_kmers.get_mut(&kmer) {
+                *cov += 1
+            }
         }
     }
 
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
-
     let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
+    println!("coverage kmers: {:?}", coverage_kmers);
+
+    // calculate average coverage
+    let avg_cov = coverage_kmers.iter().map(|(_kmer, &coverage)| coverage).sum::<usize>() / coverage_kmers.len();
+    let n_exp_nodes = input_kmers / avg_cov; 
+    // calculate expected size per node
+    // some SDs will have additional content in heap, we approximate this by adding 20%
+    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.2) as usize;
+    // calculate expected graph size, subtract from memory limit
+    let exp_graph_mem = n_exp_nodes * exp_node_mem; 
+
+
+    // calculate numnber of necessary slices for memory limit
     let mem_per_kmer = mem::size_of::<(K, DI)>();
     debug!("size used for calculation: {} B", mem_per_kmer);
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, DI)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
     debug!("type D1: {}", std::any::type_name::<DI>());
 
-    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize;
+    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize - exp_graph_mem;
     let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
 
     let mut start_bucket = 0;
