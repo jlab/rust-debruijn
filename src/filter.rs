@@ -103,7 +103,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 ///
 /// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
 /// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
-///    information necessary for the filtering
+///   information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
 ///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
 ///   to the lexicographic minimum of the kmer and it's reverse complement.
@@ -136,8 +136,6 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 /// let sample_info = SampleInfo::new(
 ///     0b000011,
 ///     0b111100,
-///     2,
-///     4,
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
@@ -155,7 +153,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
-///     10,
+///     10.,
 ///     false,
 /// );
 /// ```
@@ -165,7 +163,7 @@ pub fn filter_kmers_parallel<K, SD, DI>(
     seqs: &ReadsPaired<DI>,
     summariy_config: &SummaryConfig,
     report_all_kmers: bool,
-    memory_size: usize,
+    memory_size: f32,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where 
@@ -230,7 +228,7 @@ DI: Clone + Copy + Send + Sync
 
     // estimate the number of slices needed to adhere to memory limit
     let mem_per_kmer = mem::size_of::<(K, Exts, u8)>();
-    let max_mem = memory_size * 10_usize.pow(9);
+    let max_mem = (memory_size * 10f32.powf(9.)) as usize;
     let slices = mem_per_kmer * input_kmers / max_mem + 1;
 
     debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, slices);
@@ -507,8 +505,6 @@ DI: Clone + Copy + Send + Sync
 /// let sample_info = SampleInfo::new(
 ///     0b000011,
 ///     0b111100,
-///     2,
-///     4,
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
@@ -526,7 +522,7 @@ DI: Clone + Copy + Send + Sync
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
-///     10,
+///     10.,
 ///    false,
 /// );
 /// ```
@@ -535,7 +531,7 @@ pub fn filter_kmers<SD, K, DI>(
     seqs: &ReadsPaired<DI>,
     summary_config: &SummaryConfig,
     report_all_kmers: bool,
-    memory_size: usize,
+    memory_size: f32,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
@@ -578,7 +574,7 @@ where
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
     debug!("type D1: {}", std::any::type_name::<DI>());
 
-    let max_mem: usize = memory_size * 10_usize.pow(9);
+    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize;
     let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
 
     let mut start_bucket = 0;
@@ -860,7 +856,7 @@ mod tests {
 
         let reads = Reads::from_vmer_vec(fastq, crate::reads::Strandedness::Unstranded);
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
 
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
@@ -869,7 +865,7 @@ mod tests {
             &ReadsPaired::Unpaired { reads }, 
             &config,
             false, 
-            1,
+            1.,
             false,
          );
 
@@ -899,7 +895,7 @@ mod tests {
             reads.add_from_bytes(&dna, None, 0u8);
         }
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
 
@@ -907,7 +903,7 @@ mod tests {
             &ReadsPaired::Unpaired { reads }, 
             &config,
             false, 
-            1,
+            1.,
             false,         
         );
 

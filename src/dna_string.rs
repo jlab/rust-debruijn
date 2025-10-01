@@ -815,7 +815,7 @@ impl PackedDnaStringSet {
     }
 
     /// Get a `DnaStringSlice` containing `i`th sequence in the set
-    pub fn get(&self, i: usize) -> DnaStringSlice {
+    pub fn get(&'_ self, i: usize) -> DnaStringSlice<'_> {
         DnaStringSlice {
             dna_string: &self.sequence,
             start: self.start[i],
@@ -825,7 +825,7 @@ impl PackedDnaStringSet {
     }
 
     /// Get a `DnaStringSlice` containing `i`th sequence in the set
-    pub fn slice(&self, i: usize, start: usize, end: usize) -> DnaStringSlice {
+    pub fn slice(&'_ self, i: usize, start: usize, end: usize) -> DnaStringSlice<'_> {
         assert!(start <= self.length[i] as usize);
         assert!(end <= self.length[i] as usize);
 

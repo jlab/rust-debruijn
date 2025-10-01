@@ -217,7 +217,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Get a node given it's `node_id`
-    pub fn get_node(&self, node_id: usize) -> Node<K, D> {
+    pub fn get_node(&'_ self, node_id: usize) -> Node<'_, K, D> {
         Node {
             node_id,
             graph: self,
@@ -225,7 +225,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Get a node given it's `node_id`
-    pub fn get_node_kmer(&self, node_id: usize) -> NodeKmer<K, D> {
+    pub fn get_node_kmer(&'_ self, node_id: usize) -> NodeKmer<'_, K, D> {
         let node = self.get_node(node_id);
         let node_seq = node.sequence();
 
@@ -238,7 +238,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Return an iterator over all nodes in the graph
-    pub fn iter_nodes(&self) -> NodeIter<K, D> {
+    pub fn iter_nodes(&'_ self) -> NodeIter<'_, K, D> {
         NodeIter {
             graph: self,
             node_id: 0,
@@ -622,7 +622,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     
     }
 
-    pub fn iter_max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> PathCompIter<K, D, F, F2> 
+    pub fn iter_max_path_comp<F, F2>(&'_ self, score: F, solid_path: F2) -> PathCompIter<'_, K, D, F, F2> 
     where 
     F: Fn(&D) -> f32,
     F2: Fn(&D) -> bool
@@ -758,7 +758,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `node`: [`Node<K, D>`] which will be written to a dot file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `f`: writer
     fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir, bool) -> String>(
         &self,
@@ -786,7 +786,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes, e.g. [`Node::node_dot_default`]
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
     P: AsRef<Path>,
@@ -818,7 +818,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// 
     /// * `path`: path to the output file
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `colors`: a [`Colors`] with the color settings for the graph
     /// * `translator`: a [`Translator`] which translates tags or IDs to strings
     /// * `config`: a [`SummaryConfig`] which contains settings for the graph
@@ -861,7 +861,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot_parallel<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
         D: Sync,
@@ -947,7 +947,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `nodes`: [`Vec<usize>`] listing all IDs of nodes which should be included
     pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: Vec<usize>) 
     where 
@@ -1440,7 +1440,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
 
-    pub fn iter_components(&self) -> IterComponents<K, D> {
+    pub fn iter_components(&'_ self) -> IterComponents<'_, K, D> {
         let mut visited: Vec<bool> = Vec::with_capacity(self.len());
         let pos = 0;
 
@@ -2714,9 +2714,9 @@ mod test {
 
         let reads_paired = ReadsPaired::Unpaired { reads };
 
-        let sample_info = SampleInfo::new(0b1, 0b10, 1, 1, vec![12, 12]);
+        let sample_info = SampleInfo::new(0b1, 0b10, vec![12, 12]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = uncompressed_graph(&kmers, true).finish();
 
@@ -2794,9 +2794,9 @@ mod test {
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 0b111110, 1, 5, vec![1000, 10, 20, 20, 20, 20]);
+        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -2864,9 +2864,9 @@ mod test {
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 6, 1, 2, vec![1000, 10, 20]);
+        let sample_info = SampleInfo::new(1, 6, vec![1000, 10, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -2921,9 +2921,9 @@ mod test {
 
         let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
 
-        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, 5, 5, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
 
@@ -2937,9 +2937,9 @@ mod test {
 
         let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
 
-        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, 5, 5, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();
 
@@ -2947,7 +2947,6 @@ mod test {
     
         remove_file("test_graph_unstranded.tsv").unwrap();
         remove_file("test_graph_stranded.tsv").unwrap();
-    
     }
 }
 

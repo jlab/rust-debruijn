@@ -178,9 +178,9 @@ fn test_colors_mapped_ids() {
     reads.add_from_bytes("AAAAAAAAC".as_bytes(), None, IDTag::new(0, 0));
     let reads = ReadsPaired::Unpaired { reads };
 
-    let sample_info = SampleInfo::new(0b1, 0b0, 1, 0, vec![2]);
+    let sample_info = SampleInfo::new(0b1, 0b0, vec![2]);
     let summary_config = SummaryConfig::new(1, None, debruijn::summarizer::GroupFrac::None, 0.3, sample_info, None, debruijn::summarizer::StatTest::WelchsTTest);
-    let (kmers, _) = filter_kmers::<IDMapEMData, Kmer8, _>(&reads, &summary_config, false, 1, false);
+    let (kmers, _) = filter_kmers::<IDMapEMData, Kmer8, _>(&reads, &summary_config, false, 1., false);
     let mut graph = uncompressed_graph(&kmers, true).finish();
 
     graph.print();

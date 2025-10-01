@@ -149,7 +149,7 @@ impl SummaryConfig {
     /// * `sample_info`: a [`SampleInfo`] with information about the sample groups
     /// * `max_p`: a maximum p-value which will be used for filtering if applicable
     /// * `stat_test`: a [`StatTest`], determining which statistical test will be used
-    ///    for calculation of p-values
+    ///   for calculation of p-values
     pub fn new(min_kmer_obs: usize, significant: Option<u32>, group_frac: GroupFrac, frac_cutoff: f32, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
         SummaryConfig { min_kmer_obs, significant, group_frac, frac_cutoff, sample_info, max_p, stat_test, stat_test_changed: false }
     }
@@ -242,16 +242,10 @@ impl std::fmt::Display for StatTest {
 /// let marker0: Marker = 0b0000111; // = 7
 /// let marker1: Marker = 0b1111000; // = 120
 /// 
-/// let count0: u8 = 3;
-/// let count1: u8 = 4;
-/// 
 /// let sample_kmers = vec![1232, 12323, 24342, 24234, 345456, 21234, 546456];
+/// assert_eq!(marker0.count_ones() + marker1.count_ones(), sample_kmers.len() as u32);
 /// 
-/// assert_eq!(marker0.count_ones(), count0 as u32);
-/// assert_eq!(marker0.count_ones(), count0 as u32);
-/// assert_eq!(count0 + count1, sample_kmers.len() as u8);
-/// 
-/// let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+/// let sample_info = SampleInfo::new(marker0, marker1, sample_kmers);
 /// 
 /// ```
 /// 
@@ -270,13 +264,11 @@ impl SampleInfo {
     /// ### Arguments
     /// * `marker0`: a [`M`] which binary-encodes the affiliation of the tags to a group
     /// * `marker1`: same as `marker0`, for a second group
-    /// * `count0`: the number of samples in group 1
-    /// * `count1`: the number of samples in group 2
     /// * `sample_kmers`: a [`Vec<u64>`] containing numbers of non-unique k-mers for each sample
-    ///    at the index of the sample-id
-    pub fn new(marker0: Marker, marker1: Marker, count0: u8, count1: u8, sample_kmers: Vec<u64>) -> Self {
-        assert_eq!(marker0.count_ones(), count0 as u32);
-        assert_eq!(marker0.count_ones(), count0 as u32);
+    ///   at the index of the sample-id
+    pub fn new(marker0: Marker, marker1: Marker, sample_kmers: Vec<u64>) -> Self {
+        let count0 = marker0.count_ones() as u8;
+        let count1 = marker1.count_ones() as u8;
         assert_eq!(count0+count1, sample_kmers.len() as u8);
 
         SampleInfo { marker0, marker1, count0, count1, sample_kmers }
@@ -1273,10 +1265,7 @@ impl SummaryData<Tag> for TagsCountsSumData {
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
-            Ok(p_value) => Some(p_value),
-            Err(_) => None,
-        }
+        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
     }
 
 
@@ -1374,10 +1363,7 @@ impl SummaryData<Tag> for TagsCountsData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
-            Ok(p_value) => Some(p_value),
-            Err(_) => None,
-        }
+        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
     }
 
 
@@ -1613,10 +1599,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
-            Ok(p_value) => Some(p_value),
-            Err(_) => None,
-        }
+        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
@@ -1873,10 +1856,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        match p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config) {
-            Ok(p_value) => Some(p_value),
-            Err(_) => None,
-        }
+        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
     }
 
 
@@ -2494,8 +2474,8 @@ mod test {
         group 2: 000000011111 = 31
          */
 
-        let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-        let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
+        let sample_kmers = vec![1; 12];
+        let sample_info = SampleInfo::new(31, 4064, sample_kmers);
         let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
         let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
@@ -2521,7 +2501,7 @@ mod test {
         // test with different kmer counts
         let sample_kmers = vec![12, 3345, 3478, 87, 1, 2, 666, 98111, 23982938, 555, 122, 7238];
 
-        let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
+        let sample_info = SampleInfo::new(31, 4064, sample_kmers);
         let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
         let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
@@ -2552,7 +2532,7 @@ mod test {
          */
 
         let sample_kmers = vec![3, 3, 3];
-        let sample_info = SampleInfo::new(4, 4, 1, 2, sample_kmers);
+        let sample_info = SampleInfo::new(0b100, 0b11, sample_kmers);
         let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
         let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
@@ -2574,7 +2554,7 @@ mod test {
     #[test]
     fn test_valid_p() {
         let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-        let sample_info = SampleInfo::new(31, 4064, 5, 7, sample_kmers);
+        let sample_info = SampleInfo::new(31, 4064, sample_kmers);
         let summary_config_m = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let summary_config_p = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.05), summarizer::StatTest::WelchsTTest);
 
@@ -2618,7 +2598,7 @@ mod test {
         graph.print();
 
         let sample_kmers = vec![123, 234, 12334, 34, 1232, 123, 123, 34];
-        let sample_info = SampleInfo::new(0b00100101, 0b11011010, 3, 5, sample_kmers);
+        let sample_info = SampleInfo::new(0b00100101, 0b11011010, sample_kmers);
         let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::StudentsTTest);
 
         let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer8, TagsCountsSumData>| !node.data().valid(&config))
@@ -2654,10 +2634,8 @@ mod test {
     fn test_fold_change() {    
         let marker0 = 0b0000000001111;
         let marker1 = 0b1111111110000;
-        let count0 = 4;
-        let count1 = 9;
         let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
-        let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+        let sample_info = SampleInfo::new(marker0, marker1, sample_kmers);
         //let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
 
         let labels = vec![0, 1, 2, 3, 7, 8];

@@ -159,7 +159,7 @@ pub trait Mer: Sized + fmt::Debug {
     fn rc(&self) -> Self;
 
     /// Iterate over the bases in the sequence
-    fn iter(&self) -> MerIter<Self> {
+    fn iter(&'_ self) -> MerIter<'_, Self> {
         MerIter {
             sequence: self,
             i: 0,

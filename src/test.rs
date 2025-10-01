@@ -134,7 +134,7 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
 mod tests {
 
     use crate::compression::{compress_graph, compress_kmers, compress_kmers_no_exts, compress_kmers_with_hash, rebuild_uncompressed_graph, uncompressed_graph, ScmapCompress, SimpleCompress};
-    use crate::graph::{self, BaseGraph};
+    use crate::graph::BaseGraph;
     use crate::reads::{Reads, Strandedness};
     use crate::{DnaBytes, Tags};
     use crate::{Dir, Exts, Kmer};
@@ -241,7 +241,7 @@ mod tests {
             .collect();
 
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
 
@@ -249,12 +249,12 @@ mod tests {
             &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
 
         let spec =
-            SimpleCompress::new(|d1: u32, d2: &u32| ((d1 + *d2) % 65535));
+            SimpleCompress::new(|d1: u32, d2: &u32| (d1 + *d2) % 65535);
         let from_kmers = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers, true, false).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
@@ -362,7 +362,7 @@ mod tests {
         // Raw kmers and BSP kmers match
         assert_eq!(kmer_set, msp_kmers);
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let sample_info = SampleInfo::new(0, 0,Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
         // Check the correctness of the process_kmer_shard kmer filtering function
@@ -370,7 +370,7 @@ mod tests {
             &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
         let mut process_kmer_set: HashSet<K> = HashSet::new();
@@ -469,7 +469,7 @@ mod tests {
 
         let mut shard_asms = Vec::new();
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let sample_info = SampleInfo::new(0, 0,Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
 
@@ -481,7 +481,7 @@ mod tests {
                 &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
                 &config,
                 stranded,
-                4,
+                4.,
                 true,
             );
 
@@ -569,7 +569,7 @@ mod tests {
             all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
         }
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0,Vec::new());
+        let sample_info = SampleInfo::new(0, 0,Vec::new());
         let config = SummaryConfig::new(2, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
@@ -577,7 +577,7 @@ mod tests {
             &crate::reads::ReadsPaired::Unpaired { reads: clean_seqs },
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
         let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);
@@ -592,14 +592,14 @@ mod tests {
             &all_seqs_p,
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
         let (valid_kmers_errs2, _): (BoomHashMap2<K, Exts, TagsCountsSumData>, _) = filter::filter_kmers_parallel(
             &all_seqs_p,
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
 
@@ -610,14 +610,14 @@ mod tests {
             &all_seqs_p,
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
         let (_valid_kmers_errs4, _): (BoomHashMap2<K, Exts, TagsCountsEMData>, _) = filter::filter_kmers_parallel(
             &all_seqs_p,
             &config,
             stranded,
-            4,
+            4.,
             true,
         );
 
@@ -756,14 +756,14 @@ mod tests {
 
         let reads = Reads::from_vmer_vec(fastq, Strandedness::Unstranded);
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &crate::reads::ReadsPaired::Unpaired { reads }, 
             &config,
             false, 
-            1,
+            1.,
             false,
          );
 
