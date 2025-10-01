@@ -307,8 +307,15 @@ DI: Clone + Copy + Send + Sync
             let mut kmer_buckets1d = Vec::with_capacity(BUCKETS); 
             
             // reserve capacities needed for current range in each bucket
-            for capacity in capacities[i].into_iter() {
-                kmer_buckets1d.push(Vec::with_capacity(capacity));
+            for (i, capacity) in capacities[i].into_iter().enumerate() {
+                if range.contains(&i) {
+                    // capacity is in bucket range, allocate bucket with capacity
+                    kmer_buckets1d.push(Vec::with_capacity(capacity));
+                } else {
+                    // not in current range, add empty placeholder vector
+                    kmer_buckets1d.push(Vec::new());
+                }
+                
             }
 
             // fill buckets with kmers
