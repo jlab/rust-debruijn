@@ -596,8 +596,6 @@ where
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    println!("coverage kmers: {:?}", coverage_kmers);
-
     // calculate average coverage
     let avg_cov = coverage_kmers.iter().map(|(_kmer, &coverage)| coverage).sum::<usize>() / coverage_kmers.len();
     let n_exp_nodes = input_kmers / avg_cov; 
@@ -607,6 +605,8 @@ where
     // calculate expected graph size, subtract from memory limit
     let exp_graph_mem = n_exp_nodes * exp_node_mem; 
 
+    debug!("average coverage: {avg_cov}");
+    debug!("expexted graph memory: {exp_graph_mem}");
 
     // calculate numnber of necessary slices for memory limit
     let mem_per_kmer = mem::size_of::<(K, DI)>();
