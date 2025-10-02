@@ -561,8 +561,8 @@ where
     // try to predict graph size by predicting the average coverage
     // pick 1000 reads troughout the ReadsPaired and choose a random k-mer from each 
     // to measure the the coverage of in the next step
-    let mut coverage_kmers = HashMap::with_capacity(1000);
     const N_TEST_READS: usize = 10000;
+    let mut coverage_kmers = HashMap::with_capacity(N_TEST_READS);
     let n_reads = seqs.n_reads();
     let mut rng = rand::thread_rng();
     // pick evenly spaced reads
@@ -577,6 +577,9 @@ where
     // go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
 
+    // also track coverage to predict final graph size
+    let mut coverages = HashMap::new();
+
     for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
     {
         // iterate through all kmers in seq
@@ -587,6 +590,13 @@ where
             // if k-mer was picked for coverage testing, add coverage
             if let Some(cov) = coverage_kmers.get_mut(&kmer) {
                 *cov += 1
+            }
+
+            // add coverage
+            if let Some(cov) = coverages.get_mut(&kmer) {
+                *cov += 1
+            } else {
+                coverages.insert(kmer, 1);
             }
         }
     }
@@ -610,15 +620,24 @@ where
     let n_exp_nodes = input_kmers / median_cov; 
     // calculate expected size per node
     // some SDs will have additional content in heap, we approximate this by adding 20%
-    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.2) as usize;
+    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.5) as usize;
     // calculate expected graph size, subtract from memory limit
     let exp_graph_mem = n_exp_nodes * exp_node_mem; 
 
+    debug!("values for sampled coverage:");
     debug!("average coverage: {avg_cov}");
-    debug!("average coverage: {median_cov}");
+    debug!("median coverage: {median_cov}");
     debug!("n expected nodes: {n_exp_nodes}");
     debug!("expected node memory: {exp_node_mem}");
     debug!("expexted graph memory: {exp_graph_mem}");
+
+    let real_avg_cov = coverages.into_values().sum::<usize>() / input_kmers;
+    let n_nodes = input_kmers / real_avg_cov;
+    let graph_mem = n_nodes * exp_node_mem;
+    debug!("values for actual counts: ");
+    debug!("average coverage: {real_avg_cov}");
+    debug!("n nodes: {n_nodes}");
+    debug!("expected graph memory: {graph_mem}");
 
     // calculate numnber of necessary slices for memory limit
     let mem_per_kmer = mem::size_of::<(K, DI)>();
@@ -627,7 +646,7 @@ where
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
     debug!("type D1: {}", std::any::type_name::<DI>());
 
-    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize - exp_graph_mem;
+    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize - graph_mem;
     let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
 
     let mut start_bucket = 0;
