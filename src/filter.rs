@@ -18,7 +18,6 @@ use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
-use rand::Rng;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
@@ -558,22 +557,6 @@ where
     pb.set_style(style.clone());
     pb.set_message(format!("{:<32}", "finding bucket lengths"));
 
-    // try to predict graph size by predicting the average coverage
-    // pick 1000 reads troughout the ReadsPaired and choose a random k-mer from each 
-    // to measure the the coverage of in the next step
-    const N_TEST_READS: usize = 10000;
-    let mut coverage_kmers = HashMap::with_capacity(N_TEST_READS);
-    let n_reads = seqs.n_reads();
-    let mut rng = rand::thread_rng();
-    // pick evenly spaced reads
-    for i in 0..N_TEST_READS {
-        if let Some((read, _, _, _)) = seqs.get_read(i * (n_reads / N_TEST_READS)) {
-            // pick random k-mer from read
-            let random_kmer = read.get_kmer::<K>(rng.gen_range(0, read.len() - K::k() + 1));
-            coverage_kmers.insert(random_kmer, 0);
-        }
-    }
-
     // go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
 
@@ -587,12 +570,7 @@ where
             // calculate which bucket this kmer belongs to and add to capacity measurement
             capacities[bucket_flip(kmer, stranded)] += 1;
 
-            // if k-mer was picked for coverage testing, add coverage
-            if let Some(cov) = coverage_kmers.get_mut(&kmer) {
-                *cov += 1
-            }
-
-            // add coverage
+            // add coverage, prediction also ignores min rc if unstranded
             if let Some(cov) = coverages.get_mut(&kmer) {
                 *cov += 1
             } else {
@@ -601,44 +579,20 @@ where
         }
     }
     
-    println!("all k-mers with coverages: {:?}", coverages);
-
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
     let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    // calculate average coverage
-    let avg_cov = coverage_kmers.iter().map(|(_kmer, &coverage)| coverage).sum::<usize>() / coverage_kmers.len();
-    let mut coverage_kmers_vec = coverage_kmers.into_values().collect::<Vec<_>>();
-    coverage_kmers_vec.sort();
-    // calculate median coverage
-    let n_cov_kmers = coverage_kmers_vec.len();
-    let median_cov = if n_cov_kmers.is_multiple_of(2) {
-        (coverage_kmers_vec[n_cov_kmers / 2] + coverage_kmers_vec[(n_cov_kmers / 2) - 1]) / 2
-    } else {
-        coverage_kmers_vec[n_cov_kmers / 2]
-    };
-    let n_exp_nodes = input_kmers / median_cov; 
     // calculate expected size per node
     // some SDs will have additional content in heap, we approximate this by adding 20%
     let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.5) as usize;
-    // calculate expected graph size, subtract from memory limit
-    let exp_graph_mem = n_exp_nodes * exp_node_mem; 
-
-    debug!("values for sampled coverage:");
-    debug!("average coverage: {avg_cov}");
-    debug!("median coverage: {median_cov}");
-    debug!("n expected nodes: {n_exp_nodes}");
-    debug!("expected node memory: {exp_node_mem}");
-    debug!("expexted graph memory: {exp_graph_mem}");
 
     let n_nodes = coverages.len();
     let real_avg_cov = coverages.into_values().sum::<usize>() / n_nodes;
     let graph_mem = n_nodes * exp_node_mem;
-    debug!("values for actual counts: ");
     debug!("average coverage: {real_avg_cov}");
-    debug!("n nodes: {n_nodes}");
+    debug!("n nodes (if stranded): {n_nodes}");
     debug!("expected graph memory: {graph_mem}");
 
     // calculate numnber of necessary slices for memory limit
