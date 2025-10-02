@@ -598,7 +598,16 @@ where
 
     // calculate average coverage
     let avg_cov = coverage_kmers.iter().map(|(_kmer, &coverage)| coverage).sum::<usize>() / coverage_kmers.len();
-    let n_exp_nodes = input_kmers / avg_cov; 
+    let mut coverage_kmers_vec = coverage_kmers.into_values().collect::<Vec<_>>();
+    coverage_kmers_vec.sort();
+    // calculate median coverage
+    let n_cov_kmers = coverage_kmers_vec.len();
+    let median_cov = if n_cov_kmers.is_multiple_of(2) {
+        (coverage_kmers_vec[n_cov_kmers / 2] + coverage_kmers_vec[(n_cov_kmers / 2) - 1]) / 2
+    } else {
+        coverage_kmers_vec[n_cov_kmers / 2]
+    };
+    let n_exp_nodes = input_kmers / median_cov; 
     // calculate expected size per node
     // some SDs will have additional content in heap, we approximate this by adding 20%
     let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.2) as usize;
@@ -606,6 +615,7 @@ where
     let exp_graph_mem = n_exp_nodes * exp_node_mem; 
 
     debug!("average coverage: {avg_cov}");
+    debug!("average coverage: {median_cov}");
     debug!("n expected nodes: {n_exp_nodes}");
     debug!("expected node memory: {exp_node_mem}");
     debug!("expexted graph memory: {exp_graph_mem}");
