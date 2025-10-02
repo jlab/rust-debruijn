@@ -600,6 +600,8 @@ where
             }
         }
     }
+    
+    println!("all k-mers with coverages: {:?}", coverages);
 
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
     let input_kmers = capacities.iter().sum::<usize>();
@@ -646,7 +648,7 @@ where
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
     debug!("type D1: {}", std::any::type_name::<DI>());
 
-    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize - graph_mem;
+    let max_mem: usize = ((memory_size * 10f32.powf(9.)) as usize).saturating_sub(graph_mem);
     let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
 
     let mut start_bucket = 0;
