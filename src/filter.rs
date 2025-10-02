@@ -633,8 +633,8 @@ where
     debug!("expected node memory: {exp_node_mem}");
     debug!("expexted graph memory: {exp_graph_mem}");
 
-    let real_avg_cov = coverages.into_values().sum::<usize>() / input_kmers;
-    let n_nodes = input_kmers / real_avg_cov;
+    let n_nodes = coverages.len();
+    let real_avg_cov = coverages.into_values().sum::<usize>() / n_nodes;
     let graph_mem = n_nodes * exp_node_mem;
     debug!("values for actual counts: ");
     debug!("average coverage: {real_avg_cov}");
