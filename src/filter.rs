@@ -606,6 +606,8 @@ where
     let exp_graph_mem = n_exp_nodes * exp_node_mem; 
 
     debug!("average coverage: {avg_cov}");
+    debug!("n expected nodes: {n_exp_nodes}");
+    debug!("expected node memory: {exp_node_mem}");
     debug!("expexted graph memory: {exp_graph_mem}");
 
     // calculate numnber of necessary slices for memory limit
