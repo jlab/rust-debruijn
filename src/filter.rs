@@ -562,7 +562,7 @@ where
     // pick 1000 reads troughout the ReadsPaired and choose a random k-mer from each 
     // to measure the the coverage of in the next step
     let mut coverage_kmers = HashMap::with_capacity(1000);
-    const N_TEST_READS: usize = 1000;
+    const N_TEST_READS: usize = 10000;
     let n_reads = seqs.n_reads();
     let mut rng = rand::thread_rng();
     // pick evenly spaced reads
