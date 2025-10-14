@@ -2,7 +2,7 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -18,7 +18,7 @@ use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
-use rand::Rng;
+use log::warn;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
@@ -41,7 +41,7 @@ pub fn bucket<K: Kmer>(kmer: K) -> usize {
         | (kmer.get(3) as usize)
 }
 
-fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
+fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> (usize, K) {
     // if not stranded choose lexiographically lesser of kmer and rc of kmer
     // if forward, use original kmer
     // if reverse, use rc of kmer
@@ -55,7 +55,7 @@ fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
     };
 
     // calculate which bucket this kmer belongs to
-    if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize }
+    (if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize }, min_kmer)
     //let bucket = bucket(min_kmer);
 }
 
@@ -75,7 +75,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 
     // calculate which bucket this kmer belongs to
     let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-    //let bucket = bucket(min_kmer);
+
     // check if bucket is in current range
     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
 
@@ -200,6 +200,7 @@ DI: Clone + Copy + Send + Sync
     debug!("parallel ranges: {:?}", parallel_ranges);
 
     let capacities = Arc::new(Mutex::new(vec![[0; BUCKETS]; n_threads]));
+    let unique_kmers = Arc::new(Mutex::new(vec![HashSet::new(); n_threads]));
 
     let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
     pb_size_buckets.set_style(style.clone());
@@ -209,50 +210,93 @@ DI: Clone + Copy + Send + Sync
 
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut thread_capacities = [0usize; BUCKETS];
+        let mut thread_kmers = HashSet::new();
         for (ref seq, _, _, stranded) in seqs.iter_partial(range.clone())
         { 
             // iterate through all kmers in seq
             for kmer in seq.iter_kmers::<K>() {
                 // calculate which bucket this kmer belongs to
-                thread_capacities[bucket_flip(kmer, stranded)] += 1;
+                let (bucket, min_kmer) = bucket_flip(kmer, stranded);
+                thread_capacities[bucket] += 1;
+
+                // count k-mer coverages
+                thread_kmers.insert(min_kmer);
             }
+
             pb_size_buckets.inc(1);
         }
 
         let mut cap = capacities.lock().expect("error locking capacity mutex");
         cap[i] = thread_capacities;
+
+        let mut u_kmers = unique_kmers.lock().expect("error locking coverages mutex");
+        u_kmers[i] = thread_kmers;
     });
 
     let capacities = capacities.lock().expect("error in final lock capacites");
     let input_kmers = capacities.iter().flatten().sum::<usize>();
 
+    let mut unique_kmers = unique_kmers.lock().expect("error final lock coverages");
+
+    // combine unique k-mers found by separate threads
+    let mut combined_kmers = unique_kmers.pop().expect("no k-mers, empty graph");
+
+    while let Some(k) = unique_kmers.pop() {
+        combined_kmers.extend(k);
+    }
+
+    // calculate expected size per node
+    // some SDs will have additional content in heap, we approximate this by adding 50%
+    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.5) as usize;
+
+    // guess final graph size
+    let n_nodes = combined_kmers.len();
+    let graph_mem = n_nodes * exp_node_mem;
+    debug!("n final nodes: {n_nodes}");
+    debug!("expected graph memory: {graph_mem}");
+
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    // estimate the number of slices needed to adhere to memory limit
+    // estimate the number of slices needed to adhere to memory limit   
     let mem_per_kmer = mem::size_of::<(K, Exts, u8)>();
-    let max_mem = (memory_size * 10f32.powf(9.)) as usize;
-    let slices = mem_per_kmer * input_kmers / max_mem + 1;
+    let memory_limit = (memory_size * 10f32.powf(9.)) as usize;
+    let max_mem = memory_limit.saturating_sub(graph_mem);
 
-    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, slices);
-    
-    // split ranges into slices according no of kmers inside
-    let mut start_bucket = 0;
-    let mut size = 0;
+    let required_slices = if max_mem == 0 {
+        // no memory left after subtracting graph size, use max slices
+        BUCKETS
+    } else {
+        mem_per_kmer * input_kmers / max_mem
+    }; 
 
-    let max_size = max_mem / mem_per_kmer;
+    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, required_slices);
 
-    let mut bucket_ranges = Vec::with_capacity(slices);
+    let bucket_ranges = if required_slices >= BUCKETS {
+        warn!("supplied memory limit might not be sufficient, will construct graph with lowest possible memory usage");
+        // run each bucket in a separate slice    
+        (0..BUCKETS).map(|i| i..(i+1)).collect::<Vec<_>>()
+    } else {
+        // split ranges into slices according no of kmers inside
+        let mut start_bucket = 0;
+        let mut size = 0;
 
-    for i in 0..BUCKETS {
-        let capacity = capacities.iter().map(|c_bucket| c_bucket[i]).sum::<usize>(); 
-        size += capacity;
-        if size > max_size {
-            bucket_ranges.push(start_bucket..i);
-            start_bucket = i;
-            size = capacity;
-        }
-    }   
-    bucket_ranges.push(start_bucket..BUCKETS);
+        let max_size = max_mem / mem_per_kmer;
+
+        let mut bucket_ranges = Vec::with_capacity(required_slices);
+
+        for i in 0..BUCKETS {
+            let capacity = capacities.iter().map(|c_bucket| c_bucket[i]).sum::<usize>(); 
+            size += capacity;
+            if size > max_size {
+                bucket_ranges.push(start_bucket..i);
+                start_bucket = i;
+                size = capacity;
+            }
+        }   
+        bucket_ranges.push(start_bucket..BUCKETS);
+
+        bucket_ranges
+    };
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
@@ -558,102 +602,91 @@ where
     pb.set_style(style.clone());
     pb.set_message(format!("{:<32}", "finding bucket lengths"));
 
-    // try to predict graph size by predicting the average coverage
-    // pick 1000 reads troughout the ReadsPaired and choose a random k-mer from each 
-    // to measure the the coverage of in the next step
-    let mut coverage_kmers = HashMap::with_capacity(1000);
-    const N_TEST_READS: usize = 10000;
-    let n_reads = seqs.n_reads();
-    let mut rng = rand::thread_rng();
-    // pick evenly spaced reads
-    for i in 0..N_TEST_READS {
-        if let Some((read, _, _, _)) = seqs.get_read(i * (n_reads / N_TEST_READS)) {
-            // pick random k-mer from read
-            let random_kmer = read.get_kmer::<K>(rng.gen_range(0, read.len() - K::k() + 1));
-            coverage_kmers.insert(random_kmer, 0);
-        }
-    }
-
     // go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
+
+    // also track coverage to predict final graph size
+    let mut unique_kmers = HashSet::new();
 
     for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
     {
         // iterate through all kmers in seq
         for kmer in seq.iter_kmers::<K>() {
             // calculate which bucket this kmer belongs to and add to capacity measurement
-            capacities[bucket_flip(kmer, stranded)] += 1;
+            let (bucket, min_kmer) = bucket_flip(kmer, stranded);
+            capacities[bucket] += 1;
 
-            // if k-mer was picked for coverage testing, add coverage
-            if let Some(cov) = coverage_kmers.get_mut(&kmer) {
-                *cov += 1
-            }
+            // add kmer to uniqe
+            unique_kmers.insert(min_kmer);
         }
     }
-
+    
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
     let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    // calculate average coverage
-    let avg_cov = coverage_kmers.iter().map(|(_kmer, &coverage)| coverage).sum::<usize>() / coverage_kmers.len();
-    let mut coverage_kmers_vec = coverage_kmers.into_values().collect::<Vec<_>>();
-    coverage_kmers_vec.sort();
-    // calculate median coverage
-    let n_cov_kmers = coverage_kmers_vec.len();
-    let median_cov = if n_cov_kmers.is_multiple_of(2) {
-        (coverage_kmers_vec[n_cov_kmers / 2] + coverage_kmers_vec[(n_cov_kmers / 2) - 1]) / 2
-    } else {
-        coverage_kmers_vec[n_cov_kmers / 2]
-    };
-    let n_exp_nodes = input_kmers / median_cov; 
     // calculate expected size per node
-    // some SDs will have additional content in heap, we approximate this by adding 20%
-    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.2) as usize;
-    // calculate expected graph size, subtract from memory limit
-    let exp_graph_mem = n_exp_nodes * exp_node_mem; 
+    // some SDs will have additional content in heap, we approximate this by adding 50%
+    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * 1.5) as usize;
 
-    debug!("average coverage: {avg_cov}");
-    debug!("average coverage: {median_cov}");
-    debug!("n expected nodes: {n_exp_nodes}");
-    debug!("expected node memory: {exp_node_mem}");
-    debug!("expexted graph memory: {exp_graph_mem}");
+    let n_nodes = unique_kmers.len();
+    let graph_mem = n_nodes * exp_node_mem;
+    debug!("n final nodes: {n_nodes}");
+    debug!("expected graph memory: {graph_mem}");
 
     // calculate numnber of necessary slices for memory limit
     let mem_per_kmer = mem::size_of::<(K, DI)>();
     debug!("size used for calculation: {} B", mem_per_kmer);
     debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, DI)>());
     debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
-    debug!("type D1: {}", std::any::type_name::<DI>());
+    debug!("type DI: {}", std::any::type_name::<DI>());
 
-    let max_mem: usize = (memory_size * 10f32.powf(9.)) as usize - exp_graph_mem;
-    let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
+    let memory_limit = (memory_size * 10f32.powf(9.)) as usize;
+    let max_mem = memory_limit.saturating_sub(graph_mem);
+    let required_slices = if max_mem == 0 {
+        BUCKETS
+    } else {
+        mem_per_kmer * input_kmers / max_mem
+    }; 
 
-    let mut start_bucket = 0;
-    let mut size = 0;
+    let bucket_ranges = if required_slices >= BUCKETS {
+        warn!("supplied memory limit might not be sufficient, will construct graph with lowest possible memory usage");
+        // run each bucket in a separate slice
+        (0..BUCKETS).map(|i| i..(i+1)).collect::<Vec<_>>()
+    } else {
+        // if max_mem > 0, split k-mers into however many slices are needed
+        debug!("splitting k-mers into {required_slices} slices");
 
-    let max_size = max_mem / mem_per_kmer;
+        let mut start_bucket = 0;
+        let mut size = 0;
 
-    let mut bucket_ranges = Vec::with_capacity(slices);
+        // maximum number of k-mers in a slice
+        let max_size = max_mem / mem_per_kmer;
 
-    for (i, capacity) in capacities.iter().enumerate() {
-        size += capacity;
-        if size > max_size {
-            bucket_ranges.push(start_bucket..i);
-            start_bucket = i;
-            size = *capacity;
+        let mut bucket_ranges = Vec::with_capacity(required_slices);
+
+        for (i, capacity) in capacities.iter().enumerate() {
+            size += capacity;
+            if size > max_size {
+                bucket_ranges.push(start_bucket..i);
+                start_bucket = i;
+                size = *capacity;
+            }
         }
-    }
-    bucket_ranges.push(start_bucket..BUCKETS);
+        bucket_ranges.push(start_bucket..BUCKETS);
+
+        bucket_ranges
+    };
+    
+    let n_slices = bucket_ranges.len();
 
     debug!("bucket ranges: {:?}", bucket_ranges);
 
-    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", mem_per_kmer * input_kmers, max_mem, slices);
+    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", mem_per_kmer * input_kmers, max_mem, n_slices);
 
     debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
     assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
-    let n_slices = bucket_ranges.len();
 
     if bucket_ranges.len() > 1 {
         debug!(
@@ -904,7 +937,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::{Kmer2, Kmer6}, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::{random_dna, random_kmer}, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -971,4 +1004,34 @@ mod tests {
 
     }
 
+
+    #[test]
+    fn test_par_hmap_combination() {
+        let n_threads = rayon::current_num_threads();
+        let kmers = Arc::new(Mutex::new(vec![HashSet::new(); n_threads]));
+        
+        (0..10).into_par_iter().for_each(|i| {
+            let mut ks = HashSet::new();
+            for _j in 0..100 {
+                let kmer = random_kmer::<Kmer2>();
+                ks.insert(kmer);
+            }
+            let mut c = kmers.lock().expect("cov lock");
+            c[i] = ks;
+        });
+
+        println!("k-mers uncombinded: {:?}", kmers);
+
+        let mut kmers = kmers.lock().expect("final lock coverages");
+
+        let mut combined_kmers = kmers.pop().expect("no kmers");
+        while  let Some(kmap) = kmers.pop() {
+                combined_kmers.extend(kmap);
+        }
+
+        assert_eq!(combined_kmers.len(), 16);
+
+        println!("combined k-mers: {:?}", combined_kmers)
+    }
 }
+
