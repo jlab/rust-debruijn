@@ -1010,7 +1010,7 @@ mod tests {
         let n_threads = rayon::current_num_threads();
         let kmers = Arc::new(Mutex::new(vec![HashSet::new(); n_threads]));
         
-        (0..10).into_par_iter().for_each(|i| {
+        (0..n_threads).into_par_iter().for_each(|i| {
             let mut ks = HashSet::new();
             for _j in 0..100 {
                 let kmer = random_kmer::<Kmer2>();
