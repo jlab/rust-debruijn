@@ -710,14 +710,14 @@ impl ReadData for ID {
         let mut gene = String::new();
 
         let Some(gene1) = split_iter.next() else {
-            panic!("no gene names found in reads - only use id-sum summarizer with marbel data - read name: {}", read_name_sting)
+            panic!("no gene names found in reads - only use id summarizers with marbel data - read name: {}", read_name_sting)
         };
         gene.push_str(gene1);
 
         gene.push('_');
 
         let Some(gene2) = split_iter.next() else {
-            panic!("no gene names found in reads - only use id-sum summarizer with marbel data - read name: {}", read_name_sting)
+            panic!("no gene names found in reads - only use id summarizers with marbel data - read name: {}", read_name_sting)
         };
         gene.push_str(gene2);
 
