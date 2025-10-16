@@ -286,24 +286,44 @@ impl SampleInfo {
     }
 }
 
+/// count the ocurrences of the tags
+fn tag_counter(out_data: &[Tag]) -> Vec<u32> {
+    let mut tag_counter = 1;
+    let mut tag_counts: Vec<u32> = Vec::new();
+
+    // count the occurences of the labels
+    for i in 1..out_data.len() {
+        if out_data[i] == out_data[i-1] {
+            tag_counter += 1;
+        } else {
+            tag_counts.push(tag_counter);
+            tag_counter = 1;
+        }
+    }
+    tag_counts.push(tag_counter);
+    tag_counts.shrink_to_fit();
+
+    tag_counts
+}
+
 /// summarize the k-mers, exts and labels
 fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data = HashMap::new();
+    let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
 
     let mut nobs = 0;
     for (_, exts, d) in items {
-        if let Some(count) = out_data.get_mut(&d) {
-            *count += 1
-        } else {
-            out_data.insert(d, 1);
-        }
+        out_data.push(d); 
         all_exts = all_exts.add(exts);
         nobs += 1;
     }
 
-    let (out_data, tag_counts) = out_data.into_iter().sorted().collect::<(Vec<_>, Vec<_>)>();
+    out_data.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
 
     (all_exts, out_data, tag_counts, nobs)
 }
@@ -312,16 +332,12 @@ fn summarize<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>
 fn summarize_with_em<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, EdgeMult) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data = HashMap::new();
+    let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
     let mut edge_mults = EdgeMult::new();
 
     let mut nobs = 0;
     for (_, exts, d) in items {
-        if let Some(count) = out_data.get_mut(&d) {
-            *count += 1
-        } else {
-            out_data.insert(d, 1);
-        }
+        out_data.push(d); 
         all_exts = all_exts.add(exts);
         edge_mults.add_exts(exts);
         nobs += 1;
@@ -329,7 +345,11 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, 
 
     assert_eq!(all_exts, edge_mults.exts());
 
-    let (out_data, tag_counts) = out_data.into_iter().sorted().collect::<(Vec<_>, Vec<_>)>();
+    out_data.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
 
     (all_exts, out_data, tag_counts, nobs, edge_mults)
 }
@@ -338,24 +358,25 @@ fn summarize_with_em<K, F: Iterator<Item = (K, Exts, Tag)>>(items: F) -> (Exts, 
 fn summarize_with_ids<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data = HashMap::new();
-    let mut ids = HashSet::new();
+    let mut out_data = Vec::with_capacity(items.size_hint().0);
+    let mut ids = Vec::new();
 
     let mut nobs = 0;
     for (_, exts, id_tag) in items {
-        if let Some(count) = out_data.get_mut(&id_tag.tag) {
-            *count += 1
-        } else {
-            out_data.insert(id_tag.tag, 1);
-        }
-
-        ids.insert(id_tag.id);
+        out_data.push(id_tag.tag); 
+        ids.push(id_tag.id);
         all_exts = all_exts.add(exts);
         nobs += 1;
     }
 
-    let (out_data, tag_counts) = out_data.into_iter().sorted().collect::<(Vec<_>, Vec<_>)>();
-    let ids = ids.into_iter().sorted().collect::<Vec<_>>();
+    out_data.sort();
+    ids.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
+    ids.dedup();
+    ids.shrink_to_fit();
 
     (all_exts, out_data, tag_counts, nobs, ids)
 }
@@ -364,32 +385,30 @@ fn summarize_with_ids<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Ext
 fn summarize_with_ids_em<K, F: Iterator<Item = (K, Exts, IDTag)>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>, EdgeMult) {
     let mut all_exts = Exts::empty();
 
-    let mut out_data = HashMap::new();
-    let mut ids = HashSet::new();
+    let mut out_data = Vec::with_capacity(items.size_hint().0);
+    let mut ids = Vec::new();
     let mut edge_mults = EdgeMult::new();
 
     let mut nobs = 0;
     for (_, exts, id_tag) in items {
-        if let Some(count) = out_data.get_mut(&id_tag.tag) {
-            *count += 1
-        } else {
-            out_data.insert(id_tag.tag, 1);
-        }
-
-        ids.insert(id_tag.id);
+        out_data.push(id_tag.tag); 
+        ids.push(id_tag.id);
         all_exts = all_exts.add(exts);
         edge_mults.add_exts(exts);
         nobs += 1;
     }
 
-    let (out_data, tag_counts) = out_data.into_iter().sorted().collect::<(Vec<_>, Vec<_>)>();
-    let ids = ids.into_iter().sorted().collect::<Vec<_>>();
+    out_data.sort();
+    ids.sort();
+
+    let tag_counts = tag_counter(&out_data);
+
+    out_data.dedup();
+    ids.dedup();
+    ids.shrink_to_fit();
 
     (all_exts, out_data, tag_counts, nobs, ids, edge_mults)
 }
-
-
-
 
 /// round an unsigned integer to the specified amount of digits,
 /// if the integer is shorter than the number if digits, it returns the original integer

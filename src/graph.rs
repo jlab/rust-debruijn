@@ -949,7 +949,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
     ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `nodes`: [`Vec<usize>`] listing all IDs of nodes which should be included
-    pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: Vec<usize>) 
+    pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: &[usize]) 
     where 
         P: AsRef<Path>,
         FN: Fn(&Node<K, D>) -> String,
@@ -962,8 +962,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
         writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
-        for i in nodes.into_iter().progress_with(pb) {
-            self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
+        for i in nodes.iter().progress_with(pb) {
+            self.node_to_dot(&self.get_node(*i), node_label, edge_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
 

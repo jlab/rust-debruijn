@@ -141,7 +141,7 @@ fn test_colors() {
         "test_dot_partial.dot", 
         &|node| node.node_dot_default(&colors, &config_tcpem, &translator, false, false), 
         &|node, base, dir, flipped| node.edge_dot_default(&colors, base, dir, flipped),
-        vec![0, 1, 2, 3]
+        &[0, 1, 2, 3]
     );
 
     graph_tcpem.to_dot_with_path(
