@@ -211,12 +211,12 @@ DI: Clone + Copy + Send + Sync
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut thread_capacities = [0usize; BUCKETS];
         let mut thread_kmers = HashSet::new();
-        for (ref seq, _, _, stranded) in seqs.iter_partial(range.clone())
+        for ref read in seqs.iter_partial(range.clone())
         { 
             // iterate through all kmers in seq
-            for kmer in seq.iter_kmers::<K>() {
+            for kmer in read.seq().iter_kmers::<K>() {
                 // calculate which bucket this kmer belongs to
-                let (bucket, min_kmer) = bucket_flip(kmer, stranded);
+                let (bucket, min_kmer) = bucket_flip(kmer, read.stranded());
                 thread_capacities[bucket] += 1;
 
                 // count k-mer coverages
@@ -365,13 +365,13 @@ DI: Clone + Copy + Send + Sync
             }
 
             // fill buckets with kmers
-            for (ref seq, seq_exts, ref d, stranded) in seqs.iter_partial(range.clone())
+            for ref read in seqs.iter_partial(range.clone())
             {
-                for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+                for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
                     // if needed, flip kmer and exts
                     // check if bucket is in current range and if so, push kmer to bucket
-                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
-                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, *d));
+                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
+                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, read.data()));
                     }
 
                 }
@@ -608,12 +608,12 @@ where
     // also track coverage to predict final graph size
     let mut unique_kmers = HashSet::new();
 
-    for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
+    for ref read in seqs.iter().progress_with(pb)         
     {
         // iterate through all kmers in seq
-        for kmer in seq.iter_kmers::<K>() {
+        for kmer in read.seq().iter_kmers::<K>() {
             // calculate which bucket this kmer belongs to and add to capacity measurement
-            let (bucket, min_kmer) = bucket_flip(kmer, stranded);
+            let (bucket, min_kmer) = bucket_flip(kmer, read.stranded());
             capacities[bucket] += 1;
 
             // add kmer to uniqe
@@ -745,14 +745,14 @@ where
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
-        for (ref seq, seq_exts, ref d, stranded) in seqs.iter().progress_with(pb)             
+        for ref read in seqs.iter().progress_with(pb)             
         {
             // iterate trough all kmers in seq
-            for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+            for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
                 // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
-                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, *d));
+                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, read.data()));
                 }
             }
         }

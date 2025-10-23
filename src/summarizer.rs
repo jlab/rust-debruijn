@@ -1,10 +1,9 @@
 use bimap::BiMap;
 use clap::ValueEnum;
-use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use crate::{EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter};
-use std::{cmp::min_by, collections::{HashMap, HashSet}, error::Error, fmt::{Debug, Display}, mem};
+use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
 
 /// inner type for [`Tags`] and group markers
 #[cfg(not(feature = "sample128"))]
@@ -2456,7 +2455,7 @@ pub enum Summarizers {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashSet, fs::File, io::BufReader};
+    use std::{fs::File, io::BufReader};
     
 
     use bimap::BiMap;
