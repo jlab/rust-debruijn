@@ -244,8 +244,8 @@ fn test_summary_data() {
 
     let data = test_summarize::<IDMapEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (None, None, MEM[1] + 8*4 + 2*8, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
-        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
-        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(), 
         Summarizers::IDMapEM)
     );
 

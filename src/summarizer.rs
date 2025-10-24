@@ -2163,15 +2163,22 @@ impl SummaryData<IDTag> for IDMapEMData{
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("IDs: {}, mapped IDs: {}", 
+        format!("IDs: {}, mapped IDs: {}, edge coverage: {}", 
             ids_format, 
-            map_ids_format
+            map_ids_format,
+            self.edge_mults
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        self.print(translator, config, id_group_translator) // one line anyways
+        let ids_format = id_format(&self.ids, translator, id_group_translator);
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
+        format!("IDs: {}, mapped IDs: {}, edge coverage: {:?}", 
+            ids_format, 
+            map_ids_format,
+            self.edge_mults
+        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
     fn tags(&self) -> Option<Tags> { None }

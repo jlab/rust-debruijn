@@ -175,8 +175,8 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// Adds a new read to the `Reads`
     // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
-    pub fn add_read<V: Vmer>(&mut self, read: V, exts: Option<Exts>, data: D) {
-        for base in read.iter() {
+    pub fn add_read<V: Vmer>(&mut self, seq: V, exts: Option<Exts>, data: D) {
+        for base in seq.iter() {
             self.push_base(base);
         }
         self.ends.push(self.len);

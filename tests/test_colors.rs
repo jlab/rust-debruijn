@@ -196,10 +196,10 @@ fn test_colors_mapped_ids() {
     let colors = Colors::new(&graph, &summary_config, ColorMode::IDGroups { id_group_ids: &id_group_ids, n_id_groups: 1 });
 
     let node = graph.get_node(0);
-    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: []\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: [], edge\ncoverage: A: 0 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
 
     let node = graph.get_node(1);
-    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A']\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A'],\nedge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
 
     // id_group_ids
     assert_eq!(&id_group_ids, colors.id_group_ids().unwrap());
@@ -208,10 +208,10 @@ fn test_colors_mapped_ids() {
     let colors = Colors::new(&graph, &summary_config, ColorMode::IDS { n_ids: 1 });
 
     let node = graph.get_node(0);
-    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: []\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 1\", fontcolor=black, label=\"id: 0, len: 8, exts: |C, seq: AAAAAAAA\nIDs: ['ID A'], mapped IDs: [], edge\ncoverage: A: 0 | 0\nC: 0 | 1\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
 
     let node = graph.get_node(1);
-    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A']\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
+    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs: ['ID A'],\nedge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
     
 
 }
