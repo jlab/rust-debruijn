@@ -799,7 +799,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
         for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
@@ -830,7 +830,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
 
         // iterate over components
         for (component, path) in self.iter_max_path_comp(|d| d.sum().unwrap_or(1) as f32, |_| true) {
@@ -912,7 +912,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let mut out_file = BufWriter::with_capacity(BUF, File::create(path).expect("error creating combined dot file"));
 
-        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
@@ -961,7 +961,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
         for i in nodes.iter().progress_with(pb) {
             self.node_to_dot(&self.get_node(*i), node_label, edge_label, &mut f);
         }
