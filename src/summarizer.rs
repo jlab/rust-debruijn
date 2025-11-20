@@ -2557,7 +2557,7 @@ mod test {
 
     #[test]
     fn test_valid_p() {
-        let sample_kmers = vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let sample_kmers = vec![1; 12];
         let sample_info = SampleInfo::new(31, 4064, sample_kmers);
         let summary_config_m = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
         let summary_config_p = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.05), summarizer::StatTest::WelchsTTest);

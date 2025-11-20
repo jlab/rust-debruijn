@@ -533,7 +533,7 @@ impl<D: Clone + Copy> ReadsPaired<D> {
     }
 
     /// the number of paired reads
-    pub fn n_paired_reads(&self) -> usize {
+    pub fn n_read_pairs(&self) -> usize {
         match self {
             Self::Empty => 0,
             Self::Unpaired { reads: _ } => 0,

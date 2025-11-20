@@ -68,11 +68,11 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
     const FC_MAX: f32 = 5.;
     const FC_MIN: f32 = -5.;
     const P_MAX: f32 = -4.;
+    const SIGN_P: f32 = 0.05;
 
     const EDGE_WIDTH_MAX: f32 = 20.;
     const EDGE_WIDTH_MIN: f32 = 3.;
     const EDGE_WIDTH_DEF: f32 = 8.;
-
 
 
     /// Creates a new [`Colors<SD>`]. 
@@ -237,8 +237,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
     pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
         // calculate saturation
         let saturation = match self.log10_p_mb {
-            //Some((m, b)) => m * data.p_value(summary_config).expect("error getting p-value").log10() + b, // to broad
-            Some((_m, _b)) => if data.p_value(summary_config).expect("error getting p-value") < 0.05 { Self::SAT_MAX } else { Self::SAT_MIN },
+            Some((_m, _b)) => if data.p_value(summary_config).expect("error getting p-value") < Self::SIGN_P { Self::SAT_MAX } else { Self::SAT_MIN },
             None => Self::SAT_DEF
         };
 
@@ -293,6 +292,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                                 *(id_group_ids.get(id).expect("id was not in HM")) as f32 / n_id_groups as f32
                             )).collect::<Vec<_>>()
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                        // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     },
                     None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
                 }
@@ -305,6 +305,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                                 *id as f32 / n_ids as f32
                             )).collect::<Vec<_>>()
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                        // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     }
                     None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
                 }
