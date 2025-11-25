@@ -108,10 +108,8 @@ fn test_summary_data() {
 
     let marker0 = 0b0000000001111;
     let marker1 = 0b1111111110000;
-    let count0 = 4;
-    let count1 = 9;
     let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
-    let sample_info = SampleInfo::new(marker0, marker1, count0, count1, sample_kmers);
+    let sample_info = SampleInfo::new(marker0, marker1, sample_kmers);
     let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
     let mut tag_translator = BiHashMap::new();
     (0..15).for_each(|i| { tag_translator.insert(format!("{i}"), i as u8); } );
@@ -246,8 +244,8 @@ fn test_summary_data() {
 
     let data = test_summarize::<IDMapEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (None, None, MEM[1] + 8*4 + 2*8, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
-        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
-        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: []".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(), 
         Summarizers::IDMapEM)
     );
 

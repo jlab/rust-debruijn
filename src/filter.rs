@@ -2,6 +2,7 @@
 
 //! Methods for converting sequences into kmers, filtering observed kmers before De Bruijn graph construction, and summarizing 'color' annotations.
 
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -17,9 +18,11 @@ use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
 use log::debug;
+use log::warn;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
+use crate::reads::Read;
 use crate::reads::ReadsPaired;
 use crate::reads::Strandedness;
 use crate::summarizer::SummaryConfig;
@@ -31,15 +34,21 @@ use crate::Vmer;
 use crate::BUCKETS;
 use crate::PROGRESS_STYLE;
 
-// FIXME does not work with k < 4
+const HEAP_APPROX: f32 = 1.5;
+
+/// check which bucket a k-mer has to be sorted into according to first four bases
 pub fn bucket<K: Kmer>(kmer: K) -> usize {
-    (kmer.get(0) as usize) << 6
-        | (kmer.get(1) as usize) << 4
-        | (kmer.get(2) as usize) << 2
-        | (kmer.get(3) as usize)
+    if K::k() > 3 {
+        (kmer.get(0) as usize) << 6
+            | (kmer.get(1) as usize) << 4
+            | (kmer.get(2) as usize) << 2
+            | (kmer.get(3) as usize)
+    } else {
+        kmer.to_u64() as usize
+    }
 }
 
-fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
+fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> (usize, K) {
     // if not stranded choose lexiographically lesser of kmer and rc of kmer
     // if forward, use original kmer
     // if reverse, use rc of kmer
@@ -53,8 +62,7 @@ fn bucket_flip<K: Kmer>(kmer: K, stranded: Strandedness) -> usize {
     };
 
     // calculate which bucket this kmer belongs to
-    if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize }
-    //let bucket = bucket(min_kmer);
+    (bucket(min_kmer), min_kmer)
 }
 
 fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_range: Range<usize>) ->Option<(K, Exts, usize)> {
@@ -73,8 +81,8 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 
     // calculate which bucket this kmer belongs to
     let bucket = if K::k() > 3 { bucket(min_kmer) } else { min_kmer.to_u64() as usize };
-    //let bucket = bucket(min_kmer);
-    // check if bucket is in current range and if so, push kmer to bucket
+
+    // check if bucket is in current range
     let in_range = bucket >= bucket_range.start && bucket < bucket_range.end;
 
     if in_range {
@@ -82,6 +90,83 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
     } else {
         None
     }
+}
+
+/// increase the capacities for each bucket for the k-mers in one read
+fn add_seq_bucket_capacities<K: Kmer, DI: Clone + Copy>(read: &Read<DI>, capacities: &mut [usize; BUCKETS], unique_kmers: &mut HashSet<K>) {
+    // iterate through all kmers in seq
+    for kmer in read.seq().iter_kmers::<K>() {
+        // calculate which bucket this kmer belongs to
+        let (bucket, min_kmer) = bucket_flip(kmer, read.stranded());
+        capacities[bucket] += 1;
+
+        // count k-mer coverages
+        unique_kmers.insert(min_kmer);
+    }
+}
+
+/// caclulate the ranges (slices) in which the buckets are split
+fn bucket_ranges<K, SD, DI, I>(n_nodes: usize, input_kmers: usize, memory_size: f32, iter_capacities: I) -> Vec<Range<usize>> 
+where I: Iterator<Item = (usize, usize)>
+{
+    // calculate expected size per node
+    // some SDs will have additional content in heap, we approximate this by adding 50%
+    let exp_node_mem = mem::size_of::<K>() + mem::size_of::<Exts>() + (mem::size_of::<SD>() as f32 * HEAP_APPROX) as usize;
+
+    let graph_mem = n_nodes * exp_node_mem;
+    debug!("n final nodes: {n_nodes}");
+    debug!("expected graph memory: {graph_mem}");
+
+    // calculate numnber of slices for memory limit
+    let mem_per_kmer = mem::size_of::<(K, Exts, DI)>();
+    debug!("size used for calculation: {} bytes", mem_per_kmer);
+    debug!("size of kmer, E, D: {} bytes", mem::size_of::<(K, Exts, DI)>());
+    debug!("size of K: {} bytes, size of Exts: {} bytes, size of DI: {} bytes", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
+    debug!("type DI: {}", std::any::type_name::<DI>());
+
+    let memory_limit = (memory_size * 10f32.powf(9.)) as usize;
+    let max_mem = memory_limit.saturating_sub(graph_mem);
+    let required_slices = if max_mem == 0 {
+        BUCKETS
+    } else {
+        mem_per_kmer * input_kmers / max_mem
+    }; 
+
+    let bucket_ranges = if required_slices >= BUCKETS {
+        warn!("supplied memory limit might not be sufficient, will construct graph with lowest possible memory usage");
+        // run each bucket in a separate slice
+        (0..BUCKETS).map(|i| i..(i+1)).collect::<Vec<_>>()
+    } else {
+        // if max_mem > 0, split k-mers into however many slices are needed
+        debug!("splitting k-mers into {required_slices} slices");
+
+        let mut start_bucket = 0;
+        let mut size = 0;
+
+        // maximum number of k-mers in a slice
+        let max_size = max_mem / mem_per_kmer;
+
+        let mut bucket_ranges = Vec::with_capacity(required_slices);
+
+        for (i, capacity) in iter_capacities {
+            size += capacity;
+            if size > max_size {
+                bucket_ranges.push(start_bucket..i);
+                start_bucket = i;
+                size = capacity;
+            }
+        }
+        bucket_ranges.push(start_bucket..BUCKETS);
+
+        bucket_ranges
+    };
+
+    debug!("bucket ranges: {:?}", bucket_ranges);
+    debug!("kmer_mem: {} bytes, max_mem: {} bytes, slices: {}", mem_per_kmer * input_kmers, max_mem, bucket_ranges.len());
+    debug!("bucket_ranges: {:?}", bucket_ranges);
+    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
+
+    bucket_ranges
 }
 
 /// Process DNA sequences into kmers and determine the set of valid kmers,
@@ -103,7 +188,7 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 ///
 /// * `seqs` are the reads wrapped in a `Reads<u8>`. See [`Reads<D>`]
 /// * `summary_config` is a [`SummaryConfig`], which contains prameters and 
-///    information necessary for the filtering
+///   information necessary for the filtering
 /// * `stranded`: if true, preserve the strandedness of the input sequences, effectively
 ///   assuming they are all in the positive strand. If false, the kmers will be canonicalized
 ///   to the lexicographic minimum of the kmer and it's reverse complement.
@@ -122,22 +207,20 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
+/// use debruijn::reads::{Reads, ReadsPaired, Strandedness};
 /// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new(Stranded::Unstranded);
-/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
-/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+/// let mut seqs = Reads::new(Strandedness::Unstranded);
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), None, 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), None, 2u8);
 ///       
 /// let sample_info = SampleInfo::new(
 ///     0b000011,
 ///     0b111100,
-///     2,
-///     4,
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
@@ -151,11 +234,11 @@ fn bucket_ext_flip<K: Kmer>(kmer: K, exts: Exts, stranded: Strandedness, bucket_
 ///     StatTest::StudentsTTest,
 /// );
 ///    
-/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData>(
+/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData, u8>(
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
-///     10,
+///     10.,
 ///     false,
 /// );
 /// ```
@@ -165,7 +248,7 @@ pub fn filter_kmers_parallel<K, SD, DI>(
     seqs: &ReadsPaired<DI>,
     summariy_config: &SummaryConfig,
     report_all_kmers: bool,
-    memory_size: usize,
+    memory_size: f32,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where 
@@ -200,6 +283,7 @@ DI: Clone + Copy + Send + Sync
     debug!("parallel ranges: {:?}", parallel_ranges);
 
     let capacities = Arc::new(Mutex::new(vec![[0; BUCKETS]; n_threads]));
+    let unique_kmers = Arc::new(Mutex::new(vec![HashSet::<K>::new(); n_threads]));
 
     let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
     pb_size_buckets.set_style(style.clone());
@@ -209,63 +293,38 @@ DI: Clone + Copy + Send + Sync
 
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut thread_capacities = [0usize; BUCKETS];
-        for (ref seq, _, _, stranded) in seqs.iter_partial(range.clone())
+        let mut thread_kmers = HashSet::new();
+        for ref read in seqs.iter_partial(range.clone())
         { 
-            // iterate through all kmers in seq
-            for kmer in seq.iter_kmers::<K>() {
-                // calculate which bucket this kmer belongs to
-                thread_capacities[bucket_flip(kmer, stranded)] += 1;
-            }
+            // add the required capacities to the respective buckets
+            add_seq_bucket_capacities(read, &mut thread_capacities, &mut thread_kmers);
+
             pb_size_buckets.inc(1);
         }
 
         let mut cap = capacities.lock().expect("error locking capacity mutex");
         cap[i] = thread_capacities;
+
+        let mut u_kmers = unique_kmers.lock().expect("error locking coverages mutex");
+        u_kmers[i] = thread_kmers;
     });
 
     let capacities = capacities.lock().expect("error in final lock capacites");
     let input_kmers = capacities.iter().flatten().sum::<usize>();
 
-    if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
+    let mut unique_kmers = unique_kmers.lock().expect("error final lock coverages");
 
-    // estimate the number of slices needed to adhere to memory limit
-    let mem_per_kmer = mem::size_of::<(K, Exts, u8)>();
-    let max_mem = memory_size * 10_usize.pow(9);
-    let slices = mem_per_kmer * input_kmers / max_mem + 1;
+    // combine unique k-mers found by separate threads
+    let mut combined_kmers = unique_kmers.pop().expect("no k-mers, empty graph");
 
-    debug!("kmers: {}, mem per kmer: {}, kmer_mem: {} Bytes, slices: {}", input_kmers, mem::size_of::<(K, Exts, u8)>(), mem_per_kmer * input_kmers, slices);
-    
-    // split ranges into slices according no of kmers inside
-    let mut start_bucket = 0;
-    let mut size = 0;
-
-    let max_size = max_mem / mem_per_kmer;
-
-    let mut bucket_ranges = Vec::with_capacity(slices);
-
-    for i in 0..BUCKETS {
-        let capacity = capacities.iter().map(|c_bucket| c_bucket[i]).sum::<usize>(); 
-        size += capacity;
-        if size > max_size {
-            bucket_ranges.push(start_bucket..i);
-            start_bucket = i;
-            size = capacity;
-        }
-    }   
-    bucket_ranges.push(start_bucket..BUCKETS);
-
-    debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
-    let n_slices = bucket_ranges.len();
-
-    if bucket_ranges.len() > 1 {
-        debug!(
-            "{} sequences, {} kmers, {} passes",
-            seqs.n_reads(),
-            input_kmers,
-            bucket_ranges.len()
-        );
+    while let Some(k) = unique_kmers.pop() {
+        combined_kmers.extend(k);
     }
+
+    let iter_capacities = (0..BUCKETS).map(|i| (i, capacities.iter().map(|c_bucket| c_bucket[i]).sum::<usize>()));
+    let bucket_ranges = bucket_ranges::<K, SD, DI, _>(combined_kmers.len(), input_kmers, memory_size, iter_capacities);
+
+    let n_slices = bucket_ranges.len();
 
     debug!("n of seqs: {}", seqs.n_reads());
 
@@ -309,20 +368,26 @@ DI: Clone + Copy + Send + Sync
             let mut kmer_buckets1d = Vec::with_capacity(BUCKETS); 
             
             // reserve capacities needed for current range in each bucket
-            for capacity in capacities[i].into_iter() {
-                kmer_buckets1d.push(Vec::with_capacity(capacity));
+            for (i, capacity) in capacities[i].into_iter().enumerate() {
+                if bucket_range.contains(&i) {
+                    // capacity is in bucket range, allocate bucket with capacity
+                    kmer_buckets1d.push(Vec::with_capacity(capacity));
+                } else {
+                    // not in current range, add empty placeholder vector
+                    kmer_buckets1d.push(Vec::new());
+                }
+                
             }
 
             // fill buckets with kmers
-            for (ref seq, seq_exts, ref d, stranded) in seqs.iter_partial(range.clone())
+            for ref read in seqs.iter_partial(range.clone())
             {
-                for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+                for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
                     // if needed, flip kmer and exts
                     // check if bucket is in current range and if so, push kmer to bucket
-                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
-                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, *d));
+                    if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
+                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, read.data()));
                     }
-
                 }
 
                 pb_fill_buckets.inc(1);
@@ -420,8 +485,8 @@ DI: Clone + Copy + Send + Sync
     pb_bucket_ranges.finish_and_clear();
 
     if time { 
-        println!("time counting + collecting par (s): {}", time_picking_par);
-        println!("time counting + collecting (s): {}", time_picking);
+        println!("time collecting par (s): {}", time_picking_par);
+        println!("time collecting (s): {}", time_picking);
         println!("time summarizing (s): {}", time_summarizing);
     }
 
@@ -493,22 +558,20 @@ DI: Clone + Copy + Send + Sync
 /// 
 /// ```
 /// use debruijn::summarizer::{SampleInfo, SummaryConfig, TagsCountsData, StatTest, GroupFrac};
-/// use debruijn::reads::{Reads, ReadsPaired, Stranded};
+/// use debruijn::reads::{Reads, ReadsPaired, Strandedness};
 /// use debruijn::filter::filter_kmers;
 /// use debruijn::kmer::Kmer16;
 /// use debruijn::Exts;
 /// 
-/// let mut seqs = Reads::new(Stranded::Unstranded);
-/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), Exts::empty(), 1u8);
-/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), Exts::empty(), 2u8);
-/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), Exts::empty(), 2u8);
+/// let mut seqs = Reads::new(Strandedness::Unstranded);
+/// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), None, 1u8);
+/// seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), None, 2u8);
+/// seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), None, 2u8);
 ///       
 /// let sample_info = SampleInfo::new(
 ///     0b000011,
 ///     0b111100,
-///     2,
-///     4,
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
@@ -526,7 +589,7 @@ DI: Clone + Copy + Send + Sync
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
-///     10,
+///     10.,
 ///    false,
 /// );
 /// ```
@@ -535,7 +598,7 @@ pub fn filter_kmers<SD, K, DI>(
     seqs: &ReadsPaired<DI>,
     summary_config: &SummaryConfig,
     report_all_kmers: bool,
-    memory_size: usize,
+    memory_size: f32,
     time: bool,
 ) -> (BoomHashMap2<K, Exts, SD>, Vec<K>)
 where
@@ -553,79 +616,37 @@ where
     pb.set_style(style.clone());
     pb.set_message(format!("{:<32}", "finding bucket lengths"));
 
-
-    // first go trough all kmers to find the length of all buckets (to reserve capacity)
+    // go trough all kmers to find the length of all buckets (to reserve capacity)
     let mut capacities = [0; BUCKETS];
 
-    for (ref seq, _, _, stranded) in seqs.iter().progress_with(pb)         
+    // also track coverage to predict final graph size
+    let mut unique_kmers = HashSet::<K>::new();
+
+    for ref read in seqs.iter().progress_with(pb)         
     {
-        // iterate through all kmers in seq
-        for kmer in seq.iter_kmers::<K>() {
-            // calculate which bucket this kmer belongs to
-            capacities[bucket_flip(kmer, stranded)] += 1 
-        }
+        // add the required capacities to the respective buckets
+            add_seq_bucket_capacities(read, &mut capacities, &mut unique_kmers);
     }
-
+    
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
-
     let input_kmers = capacities.iter().sum::<usize>();
 
     if time { println!("time counting kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
-    let mem_per_kmer = mem::size_of::<(K, DI)>();
-    debug!("size used for calculation: {} B", mem_per_kmer);
-    debug!("size of kmer, E, D: {} B", mem::size_of::<(K, Exts, DI)>());
-    debug!("size of K: {} B, size of Exts: {} B, size of D1: {}", mem::size_of::<K>(), mem::size_of::<Exts>(), mem::size_of::<DI>());
-    debug!("type D1: {}", std::any::type_name::<DI>());
+    let iter_capacities = capacities.iter().enumerate().map(|(i, &c)| (i, c));
+    let bucket_ranges = bucket_ranges::<K, SD, DI, _>(unique_kmers.len(), input_kmers, memory_size, iter_capacities);
 
-    let max_mem: usize = memory_size * 10_usize.pow(9);
-    let slices: usize = mem_per_kmer * input_kmers / max_mem + 1;
-
-    let mut start_bucket = 0;
-    let mut size = 0;
-
-    let max_size = max_mem / mem_per_kmer;
-
-    let mut bucket_ranges = Vec::with_capacity(slices);
-
-    for (i, capacity) in capacities.iter().enumerate() {
-        size += capacity;
-        if size > max_size {
-            bucket_ranges.push(start_bucket..i);
-            start_bucket = i;
-            size = *capacity;
-        }
-    }
-    bucket_ranges.push(start_bucket..BUCKETS);
-
-    debug!("bucket ranges: {:?}", bucket_ranges);
-
-    debug!("kmer_mem: {} B, max_mem: {}B, slices: {}", mem_per_kmer * input_kmers, max_mem, slices);
-
-    debug!("bucket_ranges: {:?}, len br: {}", bucket_ranges, bucket_ranges.len());
-    assert!(bucket_ranges[bucket_ranges.len() - 1].end >= BUCKETS);
     let n_slices = bucket_ranges.len();
 
-    if bucket_ranges.len() > 1 {
-        debug!(
-            "{} sequences, {} kmers, {} passes",
-            seqs.n_reads(),
-            input_kmers,
-            bucket_ranges.len()
-        );
-    }
-
     debug!("n of seqs: {}", seqs.n_reads());
-
 
     let mut all_kmers = Vec::new();
     let mut valid_kmers = Vec::new();
     let mut valid_exts = Vec::new();
     let mut valid_data = Vec::new();
 
-    let mut time_picking = 0.;
+    let mut time_collecting = 0.;
     let mut time_summarizing = 0.;
-    let mut time_picking_par = 0.;
 
     if time { println!("time all prepariations before sliced in filter_kmers (s): {}", before_all.elapsed().as_secs_f32()) }
 
@@ -645,10 +666,17 @@ where
         // when using the first four bases, this needs 256 buckets
         // the buckets are split in to the bucket_ranges to save memory
         
-        let mut kmer_buckets = Vec::new();
+        let mut kmer_buckets = Vec::with_capacity(BUCKETS);
         // reserve needed capacity in each bucket
-        for capacity in capacities {
-            kmer_buckets.push(Vec::with_capacity(capacity));
+        for (i, capacity) in capacities.iter().enumerate() {
+            if bucket_range.contains(&i) {
+                // bucket is in range, add with prepared capacity
+                kmer_buckets.push(Vec::with_capacity(*capacity));
+            } else {
+                // bucket is not in range, add empty placeholder
+                kmer_buckets.push(Vec::new());
+            }
+            
         }
 
         // then go through all kmers and add to bucket according to first four bases and current bucket_range
@@ -656,33 +684,19 @@ where
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
-        for (ref seq, seq_exts, ref d, stranded) in seqs.iter().progress_with(pb)             
+        for ref read in seqs.iter().progress_with(pb)             
         {
             // iterate trough all kmers in seq
-            for (kmer, exts) in seq.iter_kmer_exts::<K>(seq_exts) {
+            for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
                 // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
-                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, stranded, bucket_range.clone()) {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, *d));
+                if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
+                    kmer_buckets[bucket].push((min_kmer, flip_exts, read.data()));
                 }
             }
         }
 
-        time_picking_par += before_kmer_picking.elapsed().as_secs_f32();
-
-        debug!("size of the slice: {} B", mem::size_of_val(&*kmer_buckets));
-        let mut slice_elements: usize = 0;
-        for bucket in kmer_buckets.iter() {
-            slice_elements += bucket.len();
-        }
-        debug!("overall elements in this bucket: {slice_elements}");
-        debug!("slice size guess (advanced version):
-            {} (len) * 24B (ref vec) + {} B (elements size) * {} (elements)
-            = {} B", kmer_buckets.len(), mem::size_of::<(K, Exts, DI)>(), slice_elements, kmer_buckets.len() * 24 + (mem::size_of::<(K, Exts, DI)>() * slice_elements));
-        
-        debug!("no of kmer buckets: {}", kmer_buckets.len());
-
-        time_picking += before_kmer_picking.elapsed().as_secs_f32();
+        time_collecting += before_kmer_picking.elapsed().as_secs_f32();
 
         let before_summarizing = Instant::now();
 
@@ -739,8 +753,7 @@ where
     pb_bucket_ranges.finish_and_clear();
 
     if time { 
-        println!("time picking par (s): {}", time_picking_par);
-        println!("time picking (s): {}", time_picking);
+        println!("time collecting (s): {}", time_collecting);
         println!("time summarizing (s): {}", time_summarizing);
     }
 
@@ -848,7 +861,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use crate::{dna_string::DnaString, filter::*, kmer::Kmer6, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::random_dna, Exts};
+    use crate::{dna_string::DnaString, filter::*, kmer::{Kmer2, Kmer6}, reads::Reads, summarizer::{GroupFrac, SampleInfo, TagsSumData}, test::{random_dna, random_kmer}, Exts};
 
     #[test]
     fn test_filter_kmers() {
@@ -858,13 +871,9 @@ mod tests {
             (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
         ];
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
+        let reads = Reads::from_vmer_vec(fastq, crate::reads::Strandedness::Unstranded);
 
-        for (read, exts, data) in fastq {
-            reads.add_read(read, exts, data);
-        }
-
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
 
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
 
@@ -873,7 +882,7 @@ mod tests {
             &ReadsPaired::Unpaired { reads }, 
             &config,
             false, 
-            1,
+            1.,
             false,
          );
 
@@ -900,10 +909,10 @@ mod tests {
 
         for _i in 0..10000 {
             let dna = random_dna(150);
-            reads.add_from_bytes(&dna, Exts::empty(), 0u8);
+            reads.add_from_bytes(&dna, None, 0u8);
         }
 
-        let sample_info = SampleInfo::new(0, 0, 0, 0, Vec::new());
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
         let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
 
 
@@ -911,7 +920,7 @@ mod tests {
             &ReadsPaired::Unpaired { reads }, 
             &config,
             false, 
-            1,
+            1.,
             false,         
         );
 
@@ -919,4 +928,34 @@ mod tests {
 
     }
 
+
+    #[test]
+    fn test_par_hmap_combination() {
+        let n_threads = rayon::current_num_threads();
+        let kmers = Arc::new(Mutex::new(vec![HashSet::new(); n_threads]));
+        
+        (0..n_threads).into_par_iter().for_each(|i| {
+            let mut ks = HashSet::new();
+            for _j in 0..100 {
+                let kmer = random_kmer::<Kmer2>();
+                ks.insert(kmer);
+            }
+            let mut c = kmers.lock().expect("cov lock");
+            c[i] = ks;
+        });
+
+        println!("k-mers uncombinded: {:?}", kmers);
+
+        let mut kmers = kmers.lock().expect("final lock coverages");
+
+        let mut combined_kmers = kmers.pop().expect("no kmers");
+        while  let Some(kmap) = kmers.pop() {
+                combined_kmers.extend(kmap);
+        }
+
+        assert_eq!(combined_kmers.len(), 16);
+
+        println!("combined k-mers: {:?}", combined_kmers)
+    }
 }
+

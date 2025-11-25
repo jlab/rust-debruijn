@@ -29,7 +29,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::process::id;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -44,7 +43,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -219,7 +217,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Get a node given it's `node_id`
-    pub fn get_node(&self, node_id: usize) -> Node<K, D> {
+    pub fn get_node(&'_ self, node_id: usize) -> Node<'_, K, D> {
         Node {
             node_id,
             graph: self,
@@ -227,7 +225,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Get a node given it's `node_id`
-    pub fn get_node_kmer(&self, node_id: usize) -> NodeKmer<K, D> {
+    pub fn get_node_kmer(&'_ self, node_id: usize) -> NodeKmer<'_, K, D> {
         let node = self.get_node(node_id);
         let node_seq = node.sequence();
 
@@ -240,7 +238,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Return an iterator over all nodes in the graph
-    pub fn iter_nodes(&self) -> NodeIter<K, D> {
+    pub fn iter_nodes(&'_ self) -> NodeIter<'_, K, D> {
         NodeIter {
             graph: self,
             node_id: 0,
@@ -624,7 +622,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     
     }
 
-    pub fn iter_max_path_comp<F, F2>(&self, score: F, solid_path: F2) -> PathCompIter<K, D, F, F2> 
+    pub fn iter_max_path_comp<F, F2>(&'_ self, score: F, solid_path: F2) -> PathCompIter<'_, K, D, F, F2> 
     where 
     F: Fn(&D) -> f32,
     F2: Fn(&D) -> bool
@@ -760,7 +758,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `node`: [`Node<K, D>`] which will be written to a dot file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `f`: writer
     fn node_to_dot<FN: Fn(&Node<K, D>) -> String, FE: Fn(&Node<K, D>, u8, Dir, bool) -> String>(
         &self,
@@ -788,7 +786,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes, e.g. [`Node::node_dot_default`]
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
     P: AsRef<Path>,
@@ -801,7 +799,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
         for i in (0..self.len()).progress_with(pb) {
             self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
         }
@@ -820,7 +818,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// 
     /// * `path`: path to the output file
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge, e.g. [`Node::edge_dot_default`]
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `colors`: a [`Colors`] with the color settings for the graph
     /// * `translator`: a [`Translator`] which translates tags or IDs to strings
     /// * `config`: a [`SummaryConfig`] which contains settings for the graph
@@ -832,7 +830,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     {
         let mut f = BufWriter::with_capacity(BUF, File::create(path).expect("error creating dot file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
 
         // iterate over components
         for (component, path) in self.iter_max_path_comp(|d| d.sum().unwrap_or(1) as f32, |_| true) {
@@ -863,7 +861,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     pub fn to_dot_parallel<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE) 
     where 
         D: Sync,
@@ -914,7 +912,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         let mut out_file = BufWriter::with_capacity(BUF, File::create(path).expect("error creating combined dot file"));
 
-        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
+        writeln!(&mut out_file, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
@@ -949,9 +947,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     /// * `path`: path to the output file
     /// * `node_label`: closure taking [`Node<K, D>`] and returning a string containing commands for dot nodes 
     /// * `edge_label`: closure taking [`Node<K, D>`], the base as a [`u8`], the incoming [`Dir`] of the edge 
-    ///    and if the neighbor is flipped - returns a string containing commands for dot edges, 
+    ///   and if the neighbor is flipped - returns a string containing commands for dot edges, 
     /// * `nodes`: [`Vec<usize>`] listing all IDs of nodes which should be included
-    pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: Vec<usize>) 
+    pub fn to_dot_partial<P, FN, FE>(&self, path: P, node_label: &FN, edge_label: &FE, nodes: &[usize]) 
     where 
         P: AsRef<Path>,
         FN: Fn(&Node<K, D>) -> String,
@@ -963,9 +961,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "writing graph to DOT file"));
 
-        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset\noverlap=scalexy").unwrap();
-        for i in nodes.into_iter().progress_with(pb) {
-            self.node_to_dot(&self.get_node(i), node_label, edge_label, &mut f);
+        writeln!(&mut f, "digraph {{\nrankdir=\"LR\"\nmodel=subset").unwrap();
+        for i in nodes.iter().progress_with(pb) {
+            self.node_to_dot(&self.get_node(*i), node_label, edge_label, &mut f);
         }
         writeln!(&mut f, "}}").unwrap();
 
@@ -1186,6 +1184,55 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(())    
     }
 
+    fn node_to_tsv<W: Write, F>(&self, writer: &mut W, node_id: usize, data_format: F) -> Result<(), Box<dyn std::error::Error>> 
+    where 
+        F: Fn(&Node<'_, K, D>) -> String,
+    {
+
+        let node = self.get_node(node_id);
+        let l_e = node.l_edges();
+        let r_e = node.r_edges();
+
+        
+        if self.base.stranded {
+            // format: node id    l nb    r nb    seq    data
+            let l_nb = l_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let r_nb = r_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            writeln!(writer, "{node_id}\t{:?}\t{:?}\t{}\t{}", l_nb, r_nb, node.sequence(), data_format(&node))?
+        } else {
+            // format: node id    l nb    l inc dir    r nb    r inc dir    seq    data
+            let l_nb = l_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let r_nb = r_e.iter().map(|(_b, nb, _d, _f)| *nb).collect::<Vec<_>>();
+            let l_nb_dirs = l_e.iter().map(|(_b, _nb, dir, _f)| *dir).collect::<Vec<_>>();
+            let r_nb_dirs = r_e.iter().map(|(_b, _nb, dir, _f)| *dir).collect::<Vec<_>>();
+            writeln!(writer, "{node_id}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{}", l_nb, l_nb_dirs, r_nb, r_nb_dirs, node.sequence(), data_format(&node))?
+        }
+
+        Ok(())
+    }
+
+    /// save the graph as a tsv file with custom formatting for the node data
+    pub fn to_tsv<P, F>(&self, path: P, data_format: F) -> Result<(), Box<dyn std::error::Error>> 
+    where 
+        F: Fn(&Node<'_, K, D>) -> String,
+        P: AsRef<Path> + Display,
+    { 
+        let mut writer = BufWriter::new(File::create(path)?);
+
+        // different format if stranded vs unstranded
+        if self.base.stranded {
+            writeln!(writer, "node id\tleft neighbors\tright neighbors\tsequence\tdata")?;
+        } else {
+            writeln!(writer, "node id\tleft neighbors\tleft nb incoming dirs\tright neighbors\tright nb incoming dirs\tsequence\tdata")?;
+        }
+            
+        for i in 0..self.len() {
+            self.node_to_tsv(&mut writer, i, &data_format)?
+        }
+        
+        Ok(())
+    }
+
     pub fn to_json_rest<W: Write, F: Fn(&D) -> Value>(
         &self,
         fmt_func: F,
@@ -1393,7 +1440,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
 
-    pub fn iter_components(&self) -> IterComponents<K, D> {
+    pub fn iter_components(&'_ self) -> IterComponents<'_, K, D> {
         let mut visited: Vec<bool> = Vec::with_capacity(self.len());
         let pos = 0;
 
@@ -2393,7 +2440,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
             data_info
         ), wrap);
 
-        format!("[style=filled, {color}, label=\"{label}\"]")
+        format!("[{color}, label=\"{label}\"]")
     }
 }
 
@@ -2613,9 +2660,9 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::BufReader};
+    use std::{fs::{remove_file, File}, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress}, filter::filter_kmers, kmer::{Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsSumData, Translator}, Exts};
+    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer16, Kmer22, Kmer6}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna, Exts};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -2656,20 +2703,20 @@ mod test {
 
     #[test]
     fn test_iter_edges() {
-        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}, Exts};
+        use crate::{compression::uncompressed_graph, filter::filter_kmers, reads::{Reads, ReadsPaired}, summarizer::{SampleInfo, SummaryConfig, TagsData}};
 
         let read1 = "CAGCATCGATGCGACGAGCGCTCGCATCGA".as_bytes();
         let read2 = "ACGATCGTACGTAGCTAGCTGACTGAGC".as_bytes();
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
-        reads.add_from_bytes(read1, Exts::empty(), 0u8);
-        reads.add_from_bytes(read2, Exts::empty(), 1);
+        reads.add_from_bytes(read1, None, 0u8);
+        reads.add_from_bytes(read2, None, 1);
 
         let reads_paired = ReadsPaired::Unpaired { reads };
 
-        let sample_info = SampleInfo::new(0b1, 0b10, 1, 1, vec![12, 12]);
+        let sample_info = SampleInfo::new(0b1, 0b10, vec![12, 12]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = uncompressed_graph(&kmers, true).finish();
 
@@ -2709,6 +2756,8 @@ mod test {
     #[test]
     fn test_remove_ladders() {
         let print = false; 
+        let c_csv = if print { Some("c_ladders.csv") } else { None };
+        let uc_csv = if print { Some("uc_ladders.csv") } else { None };
 
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
@@ -2720,34 +2769,34 @@ mod test {
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
-            reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
+            reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
 
         for _i in 0..2 {
-            reads.add_from_bytes(incorrect, Exts::empty(), IDTag::new(1, 1)); // should be removed
+            reads.add_from_bytes(incorrect, None, IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..15 {
-            reads.add_from_bytes(incorrec2, Exts::empty(), IDTag::new(2, 2)); // should be removed
+            reads.add_from_bytes(incorrec2, None, IDTag::new(2, 2)); // should be removed
         }
 
         for _i in 0..25 {
-            reads.add_from_bytes(incorrec3, Exts::empty(), IDTag::new(3, 3)); // should be removed
+            reads.add_from_bytes(incorrec3, None, IDTag::new(3, 3)); // should be removed
         }
 
         for _i in 0..30 {
-            reads.add_from_bytes(incorrec4, Exts::empty(), IDTag::new(4, 4)); // should be removed
+            reads.add_from_bytes(incorrec4, None, IDTag::new(4, 4)); // should be removed
         }
 
 
         for _i in 0..1 {
-            reads.add_from_bytes(insertion, Exts::empty(), IDTag::new(1, 3)); // should not be removed
+            reads.add_from_bytes(insertion, None, IDTag::new(1, 3)); // should not be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 0b111110, 1, 5, vec![1000, 10, 20, 20, 20, 20]);
+        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -2764,7 +2813,7 @@ mod test {
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders(10, 10., Some("uc.csv")).unwrap();
+        unc_graph.remove_ladders(10, 10., uc_csv).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
@@ -2783,7 +2832,7 @@ mod test {
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders(10, 10., Some("c.csv")).unwrap();
+        c_graph.remove_ladders(10, 10., c_csv).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
@@ -2792,6 +2841,8 @@ mod test {
     fn test_remove_tips() {
 
         let print = false;
+        let c_csv = if print { Some("c_tips.csv") } else { None };
+        let uc_csv = if print { Some("uc_tips.csv") } else { None };
 
         let     correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect_r = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTAACGTGAC".as_bytes();
@@ -2801,21 +2852,21 @@ mod test {
 
         let mut reads = Reads::new(crate::reads::Strandedness::Forward);
         for _i in 0..1000 {
-            reads.add_from_bytes(correct, Exts::empty(), IDTag::new(0, 0));
+            reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect_r, Exts::empty(), IDTag::new(1, 1)); // should be removed
+            reads.add_from_bytes(incorrect_r, None, IDTag::new(1, 1)); // should be removed
         }
 
         for _i in 0..10 {
-            reads.add_from_bytes(incorrect_l, Exts::empty(), IDTag::new(2, 2)); // should be removed
+            reads.add_from_bytes(incorrect_l, None, IDTag::new(2, 2)); // should be removed
         }
 
         let seqs = ReadsPaired::Unpaired { reads };
-        let sample_info = SampleInfo::new(1, 6, 1, 2, vec![1000, 10, 20]);
+        let sample_info = SampleInfo::new(1, 6, vec![1000, 10, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1, false);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -2834,7 +2885,7 @@ mod test {
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
-        unc_graph.remove_tips(10, 10., Some("uc.csv")).unwrap();
+        unc_graph.remove_tips(10, 10., uc_csv).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
@@ -2855,10 +2906,47 @@ mod test {
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
-        c_graph.remove_tips(10, 10., Some("c.csv")).unwrap();
+        c_graph.remove_tips(10, 10., c_csv).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
+    }
+
+    #[test]
+    fn test_to_tsv() {
+        let reads_us = Reads::from_vmer_vec(
+            (0..10).map(|i| (DnaString::from_bytes(&random_dna(100)), Exts::empty(), i as u8)).collect::<Vec<_>>(), 
+            crate::reads::Strandedness::Unstranded
+        );
+
+        let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
+
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
+
+        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
+
+        graph.to_tsv("test_graph_unstranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
+
+
+        let reads_us = Reads::from_vmer_vec(
+            (0..10).map(|i| (DnaString::from_bytes(&random_dna(100)), Exts::empty(), i as u8)).collect::<Vec<_>>(), 
+            crate::reads::Strandedness::Forward
+        );
+
+        let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
+
+        let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
+
+        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();
+
+        graph.to_tsv("test_graph_stranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
+    
+        remove_file("test_graph_unstranded.tsv").unwrap();
+        remove_file("test_graph_stranded.tsv").unwrap();
     }
 }
 

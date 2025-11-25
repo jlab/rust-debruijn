@@ -159,7 +159,7 @@ pub trait Mer: Sized + fmt::Debug {
     fn rc(&self) -> Self;
 
     /// Iterate over the bases in the sequence
-    fn iter(&self) -> MerIter<Self> {
+    fn iter(&'_ self) -> MerIter<'_, Self> {
         MerIter {
             sequence: self,
             i: 0,
@@ -355,6 +355,15 @@ pub trait Kmer: Mer + Sized + Copy + PartialEq + PartialOrd + Eq + Ord + Hash {
         }
 
         r
+    }
+
+    fn has_low_complexity(&self) -> bool {
+        let a = Self::from_u64(0);
+        let c = Self::from_u64((0..(Self::k()*2)).filter(|&x| (x % 2 == 0) | (x == 0)).map(|x| 2usize.pow(x as u32)).sum::<usize>() as u64);
+        let g = Self::from_u64((0..(Self::k()*2)).filter(|&x| x % 2 != 0).map(|x| 2u64.pow(x as u32)).sum::<u64>());
+        let t = Self::from_u64(2u64.pow((Self::k()*2) as u32) - 1);
+
+        (self == &a) | (self == &c) | (self == &g) | (self == &t)
     }
 }
 
@@ -1005,11 +1014,41 @@ impl Tags {
     pub fn bit_and_dist(&self, marker: Marker) -> usize {
         (self.val & marker).count_ones() as usize
     }
+
+    /// get an iterator over the tags in the [`Tags`]
+    pub fn iter(&self) -> TagsIterator {
+        TagsIterator::new(*self)
+    }
 }
 
 impl fmt::Debug for Tags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.to_tag_vec())
+    }
+}
+
+pub struct TagsIterator {
+    tags: Tags,
+    i: Tag
+}
+
+impl TagsIterator  {
+    fn new(tags: Tags) -> TagsIterator {
+        TagsIterator {tags, i: 0}
+    }
+}
+
+impl Iterator for TagsIterator {
+    type Item = Tag;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.i as usize == mem::size_of::<Tags>()*8 { return None }
+            let result = self.tags.val % 2 != 0;
+            self.tags.val >>= 1;
+            self.i += 1;
+            if result { return Some(self.i - 1); }
+        }
     }
 }
 
@@ -1276,7 +1315,7 @@ pub struct Label {
 mod tests {
     use bimap::BiMap;
 
-    use crate::{summarizer::{Marker, Tag, Translator}, Dir, EdgeMult, Exts, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
+    use crate::{kmer::{Kmer17, Kmer4}, summarizer::{Marker, Tag, Translator}, Dir, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
 
     #[test]
     fn test_dir_index() {
@@ -1414,6 +1453,45 @@ mod tests {
         let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
         print!("{}", TagsFormatter::new(tags, &translator));
 
+    }
+
+    #[test]
+    fn test_iter_tags() {
+        let tags = Tags::from_tag_vec(vec![0, 1, 4, 12, 32, 63]);
+        for tag in tags.iter() {
+            println!("tag: {tag}")
+        }
+    }
+
+    #[test]
+    fn test_kmer_complexity() {
+        let kmer = Kmer4::empty();
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer4::from_ascii("TTTTTTTT".as_bytes());
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer4::from_ascii("CCCCCCCC".as_bytes());
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer4::from_ascii("GGGGGGGG".as_bytes());
+        assert!(kmer.has_low_complexity());
+
+        let kmer = Kmer4::from_ascii("ACGATCGA".as_bytes());
+        assert!(!kmer.has_low_complexity());
+        let kmer = Kmer4::from_ascii("AGCAGCTC".as_bytes());
+        assert!(!kmer.has_low_complexity());
+
+        let kmer = Kmer17::empty();
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer17::from_ascii("TTTTTTTTTTTTTTTTT".as_bytes());
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer17::from_ascii("CCCCCCCCCCCCCCCCC".as_bytes());
+        assert!(kmer.has_low_complexity());
+        let kmer = Kmer17::from_ascii("GGGGGGGGGGGGGGGGG".as_bytes());
+        assert!(kmer.has_low_complexity());
+
+        let kmer = Kmer17::from_ascii("ACGATCGAGACTGACTG".as_bytes());
+        assert!(!kmer.has_low_complexity());
+        let kmer = Kmer17::from_ascii("AGCAGCTCAGCTAGCTG".as_bytes());
+        assert!(!kmer.has_low_complexity());
     }
 }
 
