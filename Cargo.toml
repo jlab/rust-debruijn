@@ -29,6 +29,7 @@ colored = "3.0.0"
 textwrap = "0.16.2"
 bio = "2.3.0"
 rand = "0.5"
+rusqlite = {version = "0.37.0", features = ["bundled"]}
 
 [dev-dependencies]
 pretty_assertions = "1.3"

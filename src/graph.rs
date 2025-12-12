@@ -13,6 +13,7 @@ use log::warn;
 use log::{debug, trace};
 use rayon::prelude::*;
 use rayon::current_num_threads;
+use rusqlite::Connection;
 use serde_derive::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Borrow;
@@ -43,6 +44,10 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::reads::NodeReadsPaired;
+use crate::reads::ReadEnd;
+use crate::reads::ReadNodesPaired;
+use crate::reads::ReadsPaired;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -749,6 +754,67 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let boxed_transcripts = node_transcript_ids.into_iter().map(|vec| vec.into()).collect();
 
         Ok(boxed_transcripts)
+    }
+
+    // graph has to be uncompressed, else some sequences might not be found
+    pub fn map_reads<RD: Clone + Copy>(&self, reads: ReadsPaired<RD>) -> Result<(Vec<ReadNodesPaired>, Vec<NodeReadsPaired>), String> {
+        // return err if not stranded
+        if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
+
+        let n_read_pairs = reads.n_read_pairs();
+
+        // TODO !!!! add memory management
+
+        // TODO implement for other read types
+        // -> for unpaired still map but no paired
+        let paired_reads = match reads {
+            ReadsPaired::Empty => None,
+            ReadsPaired::Unpaired { reads: _ } => None,
+            ReadsPaired::Paired { paired1, paired2 } => Some((paired1, paired2)),
+            ReadsPaired::Combined { paired1, paired2, unpaired: _ } => Some((paired1, paired2)),
+        };
+        
+        let Some((paired1, paired2)) = paired_reads else { return Err("reads have to be paired".to_string());};
+
+        // build both directions bc multiple connections in both directions
+        let mut nodes_per_read = Vec::new(); // index is read ID
+        let mut reads_per_node = vec![NodeReadsPaired::default(); self.len()]; // TODO watch memory!!!
+
+        // iterate over read pairs
+        for read_id in 0..n_read_pairs {
+            // storage for nodes
+            let mut read_nodes = ReadNodesPaired::default();
+
+            // get read sequence for R1 read and iterate over k-mers
+            for (pos, kmer) in paired1.get_read(read_id).unwrap().seq().iter_kmers::<K>().enumerate() {
+                // look for node, side should be irrelevant if uncompressed and stranded
+                if let Some(node) = self.search_kmer(kmer, Dir::Left) {
+                    // add node to reads
+                    read_nodes.add(node, pos as u8, ReadEnd::R1);
+
+                    // add read to node
+                    reads_per_node[node].add(read_id, pos as u8, ReadEnd::R1);
+                }
+            }
+
+            // do same with r2
+            // get read sequence for R2 read and iterate over k-mers in seq
+            for (pos, kmer) in paired2.get_read(read_id).unwrap().seq().iter_kmers::<K>().enumerate() {
+                // look for node, side should be irrelevant if uncompressed and stranded
+                if let Some(node) = self.search_kmer(kmer, Dir::Left) {
+                    // add node to reads
+                    read_nodes.add(node, pos as u8, ReadEnd::R2);
+
+                    // add read to node
+                    reads_per_node[node].add(read_id, pos as u8, ReadEnd::R2);
+                }
+            }
+
+            // add nodes to main vec
+            nodes_per_read.push(read_nodes);
+        }
+
+        Ok((nodes_per_read, reads_per_node))
     }
 
     /// write a node to a dot file

@@ -19,6 +19,12 @@ pub enum Strandedness {
     Unstranded
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ReadEnd {
+    R1,
+    R2
+}
+
 /// a sequencing read and additional information
 #[derive(Debug, PartialEq, )]
 pub struct Read<D> {
@@ -871,6 +877,47 @@ pub enum ReadDatas {
     Tag,
     IDTag
 }
+
+/// storage for which nodes two paired reads map to
+#[derive(Debug, Clone, Default)]
+pub struct ReadNodesPaired {
+    r1_nodes: Vec<usize>,
+    r1_node_positions: Vec<u8>, // reads are currently not expected to be longher than 256 bp
+    r2_nodes: Vec<usize>,
+    r2_node_positions: Vec<u8>,
+    
+} 
+
+impl ReadNodesPaired {
+    pub fn add(&mut self, node: usize, pos: u8, read_end: ReadEnd) {
+        match read_end {
+            ReadEnd::R1 => {
+                self.r1_nodes.push(node);
+                self.r1_node_positions.push(pos);
+            }
+            ReadEnd::R2 => {
+                self.r2_nodes.push(node);
+                self.r2_node_positions.push(pos);
+            }
+        }
+    }
+}
+/// storage for which reads (read pairs) map to a node
+#[derive(Debug, Clone)]
+#[derive(Default)]
+pub struct NodeReadsPaired {
+    reads: Vec<usize>,
+    positions: Vec<(u8, ReadEnd)>, // reads are currently not expected to be longher than 256 bp
+}
+
+impl NodeReadsPaired {
+    pub fn add(&mut self, read: usize, pos: u8, read_end: ReadEnd) {
+        self.reads.push(read);
+        self.positions.push((pos, read_end));
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time};
