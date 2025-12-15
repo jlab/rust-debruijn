@@ -933,6 +933,7 @@ impl NodeReadsPaired {
     }
 }
 
+#[derive(Debug)]
 pub struct MappedReads {
     nodes_per_read: Vec<ReadNodesPaired>, 
     reads_per_node: Vec<NodeReadsPaired>

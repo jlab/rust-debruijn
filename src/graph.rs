@@ -758,7 +758,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     // graph has to be uncompressed, else mapping will be incomplete
-    pub fn map_reads<RD: Clone + Copy>(&self, reads: ReadsPaired<RD>) -> Result<(Vec<ReadNodesPaired>, Vec<NodeReadsPaired>), String> {
+    pub fn map_reads<RD: Clone + Copy>(&self, reads: &ReadsPaired<RD>) -> Result<MappedReads, String> {
         // return err if not stranded
         if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
 
@@ -801,8 +801,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             // do same with r2
             // get read sequence for R2 read and iterate over k-mers in seq
             for (pos, kmer) in paired2.get_read(read_id).unwrap().seq().iter_kmers::<K>().enumerate() {
-                // look for node, side should be irrelevant if uncompressed and stranded
-                if let Some(node) = self.search_kmer(kmer, Dir::Left) {
+                // look for node, side should be irrelevant if uncompressed and stranded, use RC of kmer
+                if let Some(node) = self.search_kmer(kmer.rc(), Dir::Left) {
                     // add node to reads
                     read_nodes.add(node, pos as u8, ReadEnd::R2);
 
@@ -815,7 +815,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             nodes_per_read.push(read_nodes);
         }
 
-        Ok((nodes_per_read, reads_per_node))
+        Ok(MappedReads::new(nodes_per_read, reads_per_node))
     }
 
     pub fn iter_paired_read_components<'a, 'b: 'a>(&'b self, mapped_reads: &'a MappedReads) -> IterReadComponents<'a, K, D> {
@@ -2831,11 +2831,41 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::{remove_file, File}, io::BufReader};
 
-    use crate::{colors::Colors, compression::{compress_kmers_with_hash, uncompressed_graph, CheckCompress, ScmapCompress}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer16, Kmer22, Kmer6}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna, Exts};
+    use crate::{Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::{SerGraph, SerKmers, SerReads}, summarizer::{ID, IDData, IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
 
+
+
+    // cargo run --features marbel -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
+    #[cfg(not(feature = "sample128"))]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum.graph.dbg";
+    #[cfg(not(feature = "sample128"))]
+    const TEST_KMERS: &str = "test_data/marbel_100_sum.kmers.dbg";
+    #[cfg(not(feature = "sample128"))]
+    const TEST_READS: &str = "test_data/marbel_100_sum.reads.dbg";
+
+    // cargo run --features sample128 --features marbel -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum_128 --checkpoint -k 22
+    #[cfg(feature = "sample128")]
+    const TEST_GRAPH: &str = "test_data/marbel_100_sum_128.graph.dbg";
+    #[cfg(feature = "sample128")]
+    const TEST_KMERS: &str = "test_data/marbel_100_sum_128.kmers.dbg";
+    #[cfg(feature = "sample128")]
+    const TEST_READS: &str = "test_data/marbel_100_sum_128.reads.dbg";
+
+
+    // cargo run --features marbel -- -c ../marbel_datasets/sim_reads_100.csv -s id --stranded -o ../rust-debruijn/test_data/marbel_100_id_uc_k22 --checkpoint -k 22 --uncompressed
+    #[cfg(not(feature = "id4b"))]
+    const TEST_UC_GRAPH: &str = "test_data/marbel_100_id_uc_k22.graph.dbg";
+    #[cfg(not(feature = "id4b"))]
+    const TEST_UC_READS: &str = "test_data/marbel_100_id_uc_k22.reads.dbg";
+
+    // cargo run --features marbel --features id4b -- -c ../marbel_datasets/sim_reads_100.csv -s id --stranded -o ../rust-debruijn/test_data/marbel_100_id_uc_k22 --checkpoint -k 22 --uncompressed
+    #[cfg(feature = "id4b")]
+    const TEST_UC_GRAPH: &str = "test_data/test_data/marbel_100_id_uc_k22_id4b.graph.dbg";
+    #[cfg(feature = "id4b")]
+    const TEST_UC_READS: &str = "test_data/test_data/marbel_100_id_uc_k22_id4b.reads.dbg";
 
     #[test]
     #[cfg(not(feature = "sample128"))]
@@ -2900,18 +2930,10 @@ mod test {
         assert_eq!(check_edges, edges);
     }
 
-    // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
-    #[cfg(not(feature = "sample128"))]
-    const TEST_GRAPH: &str = "test_data/marbel_100_sum.kmers.dbg";
-
-    // cargo run --features sample128 -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum_128 --checkpoint -k 22
-    #[cfg(feature = "sample128")]
-    const TEST_GRAPH: &str = "test_data/marbel_100_sum_128.kmers.dbg";
-
     #[test]
     fn test_map_transcripts() {
         // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
-        let graph_path = TEST_GRAPH;
+        let graph_path = TEST_KMERS;
         let t_ref_path = "test_data/marbel_100_tr_ref.fasta";
         let (kmers, mut translator, _) = SerKmers::<Kmer22, u32>::deserialize_from(graph_path).dissolve();
 
@@ -3079,6 +3101,24 @@ mod test {
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
+    }
+
+
+    #[test]
+    fn test_paired_read_components() {
+        let reads = SerReads::<ID>::deserialize_from(TEST_UC_READS);
+        println!("reads: {}", reads.reads());
+        let graph = SerGraph::<Kmer22, IDData>::deserialize_from(TEST_UC_GRAPH);
+   
+        let comps = graph.graph().iter_components().collect::<Vec<_>>();
+
+        let mapped_reads = graph.graph().map_reads(reads.reads()).unwrap();
+        let read_comps = graph.graph().iter_paired_read_components(&mapped_reads).collect::<Vec<_>>();
+
+        assert_eq!(vec![11385, 1274, 5863, 1379, 645, 312, 639, 496], comps.iter().map(|comp| comp.len()).collect::<Vec<_>>());
+        assert_eq!(vec![11881, 1274, 5863, 1379, 645, 312, 639], read_comps.iter().map(|comp| comp.len()).collect::<Vec<_>>());
+        assert_eq!(comps.len(), 8);
+        assert_eq!(read_comps.len(), 7);
     }
 
     #[test]
