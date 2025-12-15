@@ -889,6 +889,7 @@ pub struct ReadNodesPaired {
 } 
 
 impl ReadNodesPaired {
+    /// add node
     pub fn add(&mut self, node: usize, pos: u8, read_end: ReadEnd) {
         match read_end {
             ReadEnd::R1 => {
@@ -900,6 +901,17 @@ impl ReadNodesPaired {
                 self.r2_node_positions.push(pos);
             }
         }
+    }
+
+    /// get the nodes a read pair mapped to
+    /// 
+    /// nodes might appear twice if, for some reason, both reads mapped to it
+    pub fn nodes(&self) -> Vec<usize> {
+        let mut nodes = Vec::new();
+        nodes.extend_from_slice(&self.r1_nodes);
+        nodes.extend_from_slice(&self.r2_nodes);
+
+        nodes
     }
 }
 /// storage for which reads (read pairs) map to a node
@@ -914,6 +926,36 @@ impl NodeReadsPaired {
     pub fn add(&mut self, read: usize, pos: u8, read_end: ReadEnd) {
         self.reads.push(read);
         self.positions.push((pos, read_end));
+    }
+
+    pub fn reads(&self) -> &[usize] {
+        &self.reads
+    }
+}
+
+pub struct MappedReads {
+    nodes_per_read: Vec<ReadNodesPaired>, 
+    reads_per_node: Vec<NodeReadsPaired>
+}
+
+impl MappedReads {
+    pub fn new(nodes_per_read: Vec<ReadNodesPaired>, reads_per_node: Vec<NodeReadsPaired>) -> MappedReads {
+        MappedReads {
+            nodes_per_read,
+            reads_per_node
+        }
+    }
+
+    /// get the reads that mapped to a node
+    pub fn reads_by_node(&self, node_id: usize) -> &[usize] {
+        self.reads_per_node[node_id].reads()
+    }
+
+    /// get the nodes a read pair mapped to
+    /// 
+    /// nodes might appear twice if, for some reason, both reads mapped to it
+    pub fn nodes_by_read(&self, read_id: usize) ->  Vec<usize> {
+        self.nodes_per_read[read_id].nodes()
     }
 }
 

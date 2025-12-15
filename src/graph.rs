@@ -44,6 +44,7 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::reads::MappedReads;
 use crate::reads::NodeReadsPaired;
 use crate::reads::ReadEnd;
 use crate::reads::ReadNodesPaired;
@@ -756,7 +757,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(boxed_transcripts)
     }
 
-    // graph has to be uncompressed, else some sequences might not be found
+    // graph has to be uncompressed, else mapping will be incomplete
     pub fn map_reads<RD: Clone + Copy>(&self, reads: ReadsPaired<RD>) -> Result<(Vec<ReadNodesPaired>, Vec<NodeReadsPaired>), String> {
         // return err if not stranded
         if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
@@ -816,6 +817,83 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         Ok((nodes_per_read, reads_per_node))
     }
+
+    pub fn iter_paired_read_components<'a, 'b: 'a>(&'b self, mapped_reads: &'a MappedReads) -> IterReadComponents<'a, K, D> {
+        let mut visited = Vec::with_capacity(self.len());
+        let pos = 0;
+
+        for _i in 0..self.len() {
+            visited.push(false);
+        }
+
+        IterReadComponents {
+            graph: self,
+            visited,
+            pos,
+            mapped_reads
+        }
+    }
+
+    pub fn paired_read_components(
+        &self, 
+        mapped_reads: &MappedReads
+    ) -> Vec<Vec<usize>> {
+        let mut components = Vec::with_capacity(self.len());
+        let mut visited = Vec::with_capacity(self.len());
+
+        for _i in 0..self.len() {
+            visited.push(false);
+        }
+
+        for i in 0..self.len() {
+            if !visited[i] {
+                let comp = self.paired_read_component(&mut visited, i, mapped_reads);
+                components.push(comp);
+            }
+        }
+
+        components
+    }
+
+    pub fn paired_read_component(
+        &self, 
+        visited: &mut [bool], 
+        i: usize,
+        mapped_reads: &MappedReads
+    
+    ) -> Vec<usize> {
+        let mut nodes: Vec<usize> = Vec::new();
+        let mut comp: Vec<usize> = Vec::new();
+
+        nodes.push(i);
+
+        while let Some(current_node) = nodes.pop() {
+            if !visited[current_node] { 
+                comp.push(current_node);
+                visited[current_node] = true;
+
+                // find reads mapped to current node
+                let reads = mapped_reads.reads_by_node(current_node);
+
+                // find all other nodes connected to this read pair
+                let mut connected_nodes = Vec::new();
+                for read_id in reads {
+                    let mut nodes = mapped_reads.nodes_by_read(*read_id);
+                    connected_nodes.append(&mut nodes);
+                }
+
+                for new_node in connected_nodes.into_iter() {
+                    if !visited[new_node] {
+                        nodes.push(new_node);
+                    }
+                }
+            }
+        }
+        comp
+    }
+
+
+
 
     /// write a node to a dot file
     /// 
@@ -1580,24 +1658,24 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     fn component_i<'a>(&'a self, visited: &'a mut [bool], i: usize) -> Vec<usize> {
-        let mut edges: Vec<usize> = Vec::new();
+        let mut nodes: Vec<usize> = Vec::new();
         let mut comp: Vec<usize> = Vec::new();
 
-        edges.push(i);
+        nodes.push(i);
 
-        while let Some(current_edge) = edges.pop() {
-            if !visited[current_edge] { 
-                comp.push(current_edge);
-                visited[current_edge] = true;
+        while let Some(current_node) = nodes.pop() {
+            if !visited[current_node] { 
+                comp.push(current_node);
+                visited[current_node] = true;
 
-                let mut l_edges = self.find_edges(current_edge, Dir::Left);
-                let mut r_edges = self.find_edges(current_edge, Dir::Right);
+                let mut l_edges = self.find_edges(current_node, Dir::Left);
+                let mut r_edges = self.find_edges(current_node, Dir::Right);
 
                 l_edges.append(&mut r_edges);
 
-                for (_, new_edge, _, _) in l_edges.into_iter() {
-                    if !visited[new_edge] {
-                        edges.push(new_edge);
+                for (_, new_node, _, _) in l_edges.into_iter() {
+                    if !visited[new_node] {
+                        nodes.push(new_node);
                     }
                 }
             }
@@ -2526,6 +2604,31 @@ where
             self.data()
         )
     }
+}
+
+pub struct IterReadComponents<'a, K: Kmer, D> {
+    graph: &'a DebruijnGraph<K, D>,
+    visited: Vec<bool>,
+    pos: usize,
+    mapped_reads: &'a MappedReads
+}
+
+impl<K: Kmer, D: Debug> Iterator for IterReadComponents<'_, K, D> {
+    type Item = Vec<usize>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.pos < self.graph.len() {
+            if !self.visited[self.pos] {
+                let comp = self.graph.paired_read_component(&mut self.visited, self.pos, self.mapped_reads);
+                self.pos += 1;
+                return Some(comp)
+            } else {
+                self.pos += 1;
+            }
+        }
+        assert!(self.visited.iter().map(|x| *x as usize).sum::<usize>() == self.graph.len());
+        None
+    }
+    
 }
 
 pub struct IterComponents<'a, K: Kmer, D> {
