@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map};
 use std::mem::take;
 use std::ops::Range;
 use bimap::BiMap;
@@ -882,15 +882,15 @@ pub enum ReadDatas {
 #[derive(Debug, Clone, Default)]
 pub struct ReadNodesPaired {
     r1_nodes: Vec<usize>,
-    r1_node_positions: Vec<u8>, // reads are currently not expected to be longher than 256 bp
+    r1_node_positions: Vec<u16>,
     r2_nodes: Vec<usize>,
-    r2_node_positions: Vec<u8>,
+    r2_node_positions: Vec<u16>,
     
 } 
 
 impl ReadNodesPaired {
     /// add node
-    pub fn add(&mut self, node: usize, pos: u8, read_end: ReadEnd) {
+    pub fn add(&mut self, node: usize, pos: u16, read_end: ReadEnd) {
         match read_end {
             ReadEnd::R1 => {
                 self.r1_nodes.push(node);
@@ -918,18 +918,52 @@ impl ReadNodesPaired {
 #[derive(Debug, Clone)]
 #[derive(Default)]
 pub struct NodeReadsPaired {
-    reads: Vec<usize>,
-    positions: Vec<(u8, ReadEnd)>, // reads are currently not expected to be longher than 256 bp
+    storage: HashMap<usize, (Option<(u16)>, Option<u16>)>,
 }
 
 impl NodeReadsPaired {
-    pub fn add(&mut self, read: usize, pos: u8, read_end: ReadEnd) {
-        self.reads.push(read);
-        self.positions.push((pos, read_end));
+    pub fn add(&mut self, read: usize, pos: u16, read_end: ReadEnd) {
+        if let Some((r1_pos, r2_pos)) = self.storage.get_mut(&read) {
+            match read_end {
+                ReadEnd::R1 => {
+                    if let Some(p1) = r1_pos {
+                        panic!("read was mapped to the same node multiple times")
+                    } else {
+                        *r1_pos = Some(pos)
+                    }
+                }
+                ReadEnd::R2 =>  {
+                    if let Some(p2) = r2_pos {
+                        panic!("read was mapped to the same node multiple times")
+                    } else {
+                        *r2_pos = Some(pos)
+                    }
+                }
+            }
+        } else {
+            match read_end {
+                ReadEnd::R1 => self.storage.insert(read, (Some(pos), None)),
+                ReadEnd::R2 => self.storage.insert(read, (None, Some(pos))),
+            };
+        }
     }
 
-    pub fn reads(&self) -> &[usize] {
-        &self.reads
+    pub fn reads(&self) -> Vec<&usize> {
+        self.storage.keys().collect::<Vec<_>>()
+    }
+
+    pub fn iter(&self) -> Box<hash_map::Iter<'_, usize, (Option<u16>, Option<u16>)>> {
+        Box::new(self.storage.iter())
+    }
+
+    pub fn iter_r1(&self) -> Box<dyn Iterator<Item = (usize, u16)> + '_> {
+        let iterator = self.storage.iter().filter(|(_r, (r1, _r2))| r1.is_some()).map(|(read, (r1, _r2))| (*read, *r1.as_ref().unwrap()));
+        Box::new(iterator)
+    }
+
+    pub fn iter_r2(&self) -> Box<dyn Iterator<Item = (usize, u16)> + '_> {
+        let iterator = self.storage.iter().filter(|(_r, (_r1, r2))| r2.is_some()).map(|(read, (_r1, r2))| (*read, *r2.as_ref().unwrap()));
+        Box::new(iterator)
     }
 }
 
@@ -948,8 +982,13 @@ impl MappedReads {
     }
 
     /// get the reads that mapped to a node
-    pub fn reads_by_node(&self, node_id: usize) -> &[usize] {
+    pub fn reads_by_node(&self, node_id: usize) -> Vec<&usize> {
         self.reads_per_node[node_id].reads()
+    }
+
+    /// get the reads with the read positions
+    pub fn node_reads_paired(&self, node_id: usize) -> &NodeReadsPaired {
+        &self.reads_per_node[node_id]
     }
 
     /// get the nodes a read pair mapped to

@@ -791,10 +791,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 // look for node, side should be irrelevant if uncompressed and stranded
                 if let Some(node) = self.search_kmer(kmer, Dir::Left) {
                     // add node to reads
-                    read_nodes.add(node, pos as u8, ReadEnd::R1);
+                    read_nodes.add(node, pos as u16, ReadEnd::R1);
 
                     // add read to node
-                    reads_per_node[node].add(read_id, pos as u8, ReadEnd::R1);
+                    reads_per_node[node].add(read_id, pos as u16, ReadEnd::R1);
                 }
             }
 
@@ -804,10 +804,10 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                 // look for node, side should be irrelevant if uncompressed and stranded, use RC of kmer
                 if let Some(node) = self.search_kmer(kmer.rc(), Dir::Left) {
                     // add node to reads
-                    read_nodes.add(node, pos as u8, ReadEnd::R2);
+                    read_nodes.add(node, pos as u16, ReadEnd::R2);
 
                     // add read to node
-                    reads_per_node[node].add(read_id, pos as u8, ReadEnd::R2);
+                    reads_per_node[node].add(read_id, pos as u16, ReadEnd::R2);
                 }
             }
 
@@ -2829,9 +2829,11 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::{remove_file, File}, io::BufReader};
+    use std::{collections::HashSet, fmt::Debug, fs::{File, remove_file}, io::BufReader};
 
-    use crate::{Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::{SerGraph, SerKmers, SerReads}, summarizer::{ID, IDData, IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use itertools::Itertools;
+
+    use crate::{Exts, Kmer, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_graph, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{MappedReads, Reads, ReadsPaired}, serde::{SerGraph, SerKmers, SerReads}, summarizer::{ID, IDData, IDMapEMData, IDSumData, IDTag, SampleInfo, SummaryConfig, Tag, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -3103,22 +3105,152 @@ mod test {
 
     }
 
+    fn find_paths<K: Kmer, D: Clone + Debug>(graph: &DebruijnGraph<K, D>) -> Vec<Vec<usize>> {
+        let mut visited_nodes = vec![false; graph.len()];
+
+        let mut paths = Vec::new();
+
+        for node_id in 0..graph.len() {
+            if !visited_nodes[node_id] {
+                // node has not been visitited -> we visit now
+
+                let mut path = Vec::new();
+                path.push(node_id);
+
+                // look to left of node
+                let mut current_node = node_id;
+                loop {
+                    visited_nodes[current_node] = true;
+                    let l_edges = graph.get_node(current_node).l_edges();
+                    if l_edges.is_empty() {
+                        // path ends, this is final node
+                        break
+                    } else if l_edges.len() == 1 {
+                        // node has one node to the left
+                        let (_, next_node, _, _) = l_edges[0];
+                        // if next node has only one neighbor to the right, continue path
+                        if graph.get_node(next_node).r_edges().len() == 1 {
+                            // insert next node before current node
+                            path.insert(0, next_node);
+                            visited_nodes[next_node] = true;
+                            current_node = next_node
+                        } else {
+                            // next node has multiple neighbors in our direction
+                            break
+                        }
+
+                        // TODO check if we need to watch for cycles
+                    } else {
+                        // path splits up, this is final node
+                        break
+                    }
+                }
+
+                // look to right of node
+                // re-start at first node_id
+                let mut current_node = node_id;
+                loop {
+                    let r_edges = graph.get_node(current_node).r_edges();
+                    if r_edges.is_empty() {
+                        // path ends, this is final node
+                        break
+                    } else if r_edges.len() == 1 {
+                        // node has one node to the left
+                        let (_, next_node, _, _) = r_edges[0];
+                        // if next node has only one neighbor to the left, continue path
+                        if graph.get_node(next_node).l_edges().len() == 1 {
+                            // insert next node after current node
+                            path.push(next_node);
+                            visited_nodes[next_node] = true;
+                            current_node = next_node
+                        } else {
+                            // next node has multiple neighbors in our direction
+                            break
+                        }
+
+                        // TODO check if we need to watch for cycles
+                    } else {
+                        // path splits up, this is final node
+                        break
+                    }
+                }
+                
+                paths.push(path);
+            }
+        }
+
+        paths
+    }
+
+    fn insert_sizes<K: Kmer>(paths: &[Vec<usize>], mapped_reads: &MappedReads) -> Vec<usize> {
+        // sort the paths by length
+        let paths_by_len = paths.iter().sorted_by(|path1, path2| path1.len().cmp(&path2.len())).rev().collect::<Vec<_>>();
+        
+        // get the longest x paths
+        let longest_paths = if paths_by_len.len() > 100 {
+            &paths_by_len[0..100]
+        } else {
+            &paths_by_len // TODO maybe use all paths?
+        };
+
+
+        // we now have x longest paths
+        // find insert sizes between r1 and r2
+
+        let mut insert_sizes = Vec::new();
+        let mut visited_reads = HashSet::new();
+        // look at the longest paths and find insert sizes
+        for path in longest_paths {
+            
+            // look at each node in the path
+            for node_id in path.iter() {
+
+                // try to find the r2 read for each r1 read mapped to the node
+                for (r1_read, r1_pos) in mapped_reads.node_reads_paired(*node_id).iter_r1().filter(|(read, _pos)| !visited_reads.contains(read)) {
+                    
+                    // check all other nodes from the back for the r2 read
+                    'find_r2: for (node_index_in_path, node_from_back) in path.iter().enumerate().rev()  {
+                        for (r2_read, r2_pos) in mapped_reads.node_reads_paired(*node_from_back).iter_r2().filter(|(read, _pos)| !visited_reads.contains(read)) {
+                            if r2_read == r1_read {
+                                // we found the r2 read, calculate insert size
+                                let insert_size = node_index_in_path + r1_pos as usize + r2_pos as usize + K::k();
+                                insert_sizes.push(insert_size);
+                                break 'find_r2;
+                            }
+                        }
+                    }
+                }
+
+                // insert all reads in visited node into visited reads
+                for (r1_read, _r1_pos) in mapped_reads.node_reads_paired(*node_id).iter_r1() {
+                    visited_reads.insert(r1_read);
+                }
+            }
+        }
+
+        insert_sizes
+    }
 
     #[test]
     fn test_paired_read_components() {
         let reads = SerReads::<ID>::deserialize_from(TEST_UC_READS);
-        println!("reads: {}", reads.reads());
-        let graph = SerGraph::<Kmer22, IDData>::deserialize_from(TEST_UC_GRAPH);
+        let (graph, _config, _translator) = SerGraph::<Kmer22, IDData>::deserialize_from(TEST_UC_GRAPH).dissolve();
    
-        let comps = graph.graph().iter_components().collect::<Vec<_>>();
+        let comps = graph.iter_components().collect::<Vec<_>>();
 
-        let mapped_reads = graph.graph().map_reads(reads.reads()).unwrap();
-        let read_comps = graph.graph().iter_paired_read_components(&mapped_reads).collect::<Vec<_>>();
+        let mapped_reads = graph.map_reads(reads.reads()).unwrap();
+        let read_comps = graph.iter_paired_read_components(&mapped_reads).collect::<Vec<_>>();
 
         assert_eq!(vec![11385, 1274, 5863, 1379, 645, 312, 639, 496], comps.iter().map(|comp| comp.len()).collect::<Vec<_>>());
         assert_eq!(vec![11881, 1274, 5863, 1379, 645, 312, 639], read_comps.iter().map(|comp| comp.len()).collect::<Vec<_>>());
         assert_eq!(comps.len(), 8);
         assert_eq!(read_comps.len(), 7);
+
+        // find paths in graph
+        let paths = find_paths(&graph);
+        let insert_sizes = insert_sizes::<Kmer22>(&paths, &mapped_reads);
+
+        println!("insert sizes: {:?}", insert_sizes);
     }
 
     #[test]
