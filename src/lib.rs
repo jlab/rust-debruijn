@@ -1311,6 +1311,84 @@ pub struct Label {
     sample_label: String
 }
 
+/// category for the 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BaseQuality {
+    NoCall,
+    Marginal,
+    Medium,
+    High
+}
+
+impl BaseQuality {
+    fn from_u64(quality: u64) -> BaseQuality {
+        match quality {
+            0 => Self::NoCall,
+            1 => Self::Marginal,
+            2 => Self::Medium,
+            3 => Self::High,
+            _ => panic!("invalid base quality value")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct QualityBins {
+    marginal_top_cutoff: u8,
+    high_bottom_cutoff: u8,
+}
+
+impl Default for QualityBins  {
+    fn default() -> Self {
+        Self { marginal_top_cutoff: 15, high_bottom_cutoff: 30 }
+    }
+}
+
+impl QualityBins {
+    fn new(marginal_top_cutoff: u8, high_bottom_cutoff: u8) -> QualityBins {
+        Self { marginal_top_cutoff, high_bottom_cutoff }
+    }
+
+    fn base_quality(&self, score: u8) -> BaseQuality {
+        if score <= 2 {
+            BaseQuality::NoCall
+        } else if score < self.marginal_top_cutoff {
+            BaseQuality::Marginal
+        } else if score > self.high_bottom_cutoff {
+            BaseQuality::High
+        } else {
+            BaseQuality::Medium
+        }
+    }
+
+    fn base_quality_from_ascii_bytes(&self, char: u8) -> BaseQuality {
+        let score = char - 33;
+        self.base_quality(score)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
+pub struct QualityVec {
+    storage: Vec<BaseQuality>
+}
+
+impl QualityVec {
+    fn from_vec(quality_vec: Vec<BaseQuality>) -> QualityVec {
+        QualityVec { storage: quality_vec }
+    }
+
+    fn from_ascii_bytes(quality_scores: &[u8], quality_bins: QualityBins) -> QualityVec {
+        let mut vec = Vec::new();
+        for score in quality_scores {
+            vec.push(quality_bins.base_quality_from_ascii_bytes(*score));
+        }
+
+        QualityVec { storage: vec }
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use bimap::BiMap;

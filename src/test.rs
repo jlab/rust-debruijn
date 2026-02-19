@@ -556,8 +556,8 @@ mod tests {
 
             for _i in 0..5 {
                 let read = DnaString::from_bytes(&c);
-                clean_seqs.add_read(read.clone(), None, rng.gen_range(0, 10) as u8);
-                all_seqs.add_read(read, None, rng.gen_range(0, 10) as u8);
+                clean_seqs.add_read(read.clone(), None, rng.gen_range(0, 10) as u8, None);
+                all_seqs.add_read(read, None, rng.gen_range(0, 10) as u8, None);
             }
 
             let junk = random_dna(5);
@@ -565,8 +565,8 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8, None);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8, None);
         }
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
