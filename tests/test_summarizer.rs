@@ -1,11 +1,11 @@
 
 use bimap::BiHashMap;
-use debruijn::{kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, IDData, IDEMData, IDMapEMData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator, ID}, EdgeMult, Exts, Kmer, Tags};
+use debruijn::{EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, summarizer::{self, GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a Translator ) 
     -> (Option<usize>, Option<Tags>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String, Summarizers)
 where 
-    F: Iterator<Item = (K, Exts, DI)>,
+    F: Iterator<Item = KmerDataItem<K, DI>>,
 {
     let (valid, _, mut data) = SD::summarize(items, config);
 
@@ -118,27 +118,27 @@ fn test_summary_data() {
     let translator = Translator::new(id_translator, tag_translator);
 
     let input_tags = [
-        (Kmer8::from_u64(12), Exts::new(1), 0u8),
-        (Kmer8::from_u64(12), Exts::new(1), 1u8),
-        (Kmer8::from_u64(12), Exts::new(1), 2u8),
-        (Kmer8::from_u64(12), Exts::new(1), 3u8),
-        (Kmer8::from_u64(12), Exts::new(1), 7u8),
-        (Kmer8::from_u64(12), Exts::new(1), 8u8),           
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0u8, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1u8, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2u8, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3u8, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7u8, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8u8, None),           
     ];
 
     let input_ids = [
-        (Kmer8::from_u64(12), Exts::new(1), 0 as ID),
-        (Kmer8::from_u64(12), Exts::new(1), 1 as ID),
-        (Kmer8::from_u64(12), Exts::new(1), 2 as ID),
-        (Kmer8::from_u64(12), Exts::new(1), 3 as ID),
-        (Kmer8::from_u64(12), Exts::new(1), 7 as ID),
-        (Kmer8::from_u64(12), Exts::new(1), 8 as ID),           
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0 as ID, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1 as ID, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2 as ID, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3 as ID, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7 as ID, None),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8 as ID, None),   
     ];
 
     let input_id_tags = input_tags
         .iter()
         .zip(&input_ids)
-        .map(|((kmer, exts, tag), (_, _, id))| (*kmer, *exts, IDTag::new(*id, *tag)))
+        .map(|(tags_item, ids_item)| KmerDataItem::new(tags_item.kmer, tags_item.exts, IDTag::new(ids_item.data, tags_item.data), tags_item.quality))
         .collect::<Vec<_>>();
 
     println!("kmer: {:?}", Kmer8::from_u64(12));

@@ -22,6 +22,7 @@ use log::warn;
 use rayon::current_num_threads;
 use rayon::prelude::*;
 
+use crate::KmerDataItem;
 use crate::reads::Read;
 use crate::reads::ReadsPaired;
 use crate::reads::Strandedness;
@@ -382,11 +383,11 @@ DI: Clone + Copy + Send + Sync
             // fill buckets with kmers
             for ref read in seqs.iter_partial(range.clone())
             {
-                for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
+                for (kmer, exts, quality) in read.iter_kmer_exts_quality::<K>() {
                     // if needed, flip kmer and exts
                     // check if bucket is in current range and if so, push kmer to bucket
                     if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
-                        kmer_buckets1d[bucket].push((min_kmer, flip_exts, read.data()));
+                        kmer_buckets1d[bucket].push(KmerDataItem::new(min_kmer, flip_exts, read.data(), quality));
                     }
                 }
 
@@ -424,9 +425,9 @@ DI: Clone + Copy + Send + Sync
         // parallel start
         // summarize kmers in buckets      
         new_buckets.into_par_iter().for_each(|mut kmer_vec| {
-            kmer_vec.sort_by_key(|elt| elt.0);
+            kmer_vec.sort_by_key(|elt| elt.kmer);
 
-            let size = kmer_vec.iter().chunk_by(|elt| elt.0).into_iter().count();
+            let size = kmer_vec.iter().chunk_by(|elt| elt.kmer).into_iter().count();
 
             let mut all_kmers = Vec::with_capacity(size);
             let mut valid_kmers = Vec::with_capacity(size);
@@ -434,7 +435,7 @@ DI: Clone + Copy + Send + Sync
             let mut valid_data = Vec::with_capacity(size);
 
 
-            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt| elt.0).into_iter() {
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt| elt.kmer).into_iter() {
                 let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, summariy_config);
                 if report_all_kmers {
                     all_kmers.push(kmer);
@@ -687,11 +688,11 @@ where
         for ref read in seqs.iter().progress_with(pb)             
         {
             // iterate trough all kmers in seq
-            for (kmer, exts) in read.seq().iter_kmer_exts::<K>(read.exts()) {
+            for (kmer, exts, quality) in read.iter_kmer_exts_quality::<K>() {
                 // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
                 if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {
-                    kmer_buckets[bucket].push((min_kmer, flip_exts, read.data()));
+                    kmer_buckets[bucket].push(KmerDataItem::new(min_kmer, flip_exts, read.data(), quality));
                 }
             }
         }
@@ -707,11 +708,11 @@ where
 
         for mut kmer_vec in kmer_buckets.into_iter().progress_with(pb) {
             //debug!("kmers in this bucket: {}", kmer_vec.len());
-            kmer_vec.sort_by_key(|elt| elt.0);
+            kmer_vec.sort_by_key(|elt| elt.kmer);
 
             
             // predict amount of unique k-mers found in this bucket
-            let size = kmer_vec.iter().chunk_by(|elt| elt.0).into_iter().count();
+            let size = kmer_vec.iter().chunk_by(|elt| elt.kmer).into_iter().count();
 
             // only works perfectly if min k-mer count is 1, else this might reserve too much 
             // still better than doubling the vector
@@ -727,7 +728,7 @@ where
 
 
             // group the tuples by the k-mers and iterate over the groups
-            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt: &(K, Exts, DI)| elt.0).into_iter() {
+            for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt| elt.kmer).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
                 let (is_valid, exts, summary_data) = SD::summarize(kmer_obs_iter, summary_config);
                 if report_all_kmers {

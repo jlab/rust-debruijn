@@ -33,6 +33,7 @@ use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::Range;
 
@@ -460,6 +461,36 @@ pub trait Vmer: Mer + PartialEq + Eq {
             pos: K::k(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KmerDataItem<K: Kmer, DI> {
+    pub kmer: K,
+    pub exts: Exts,
+    pub data: DI,
+    pub quality: Option<BaseQuality>
+}
+
+impl<K: Kmer, DI> KmerDataItem<K, DI> {
+    pub fn new(kmer: K, exts: Exts, data: DI, quality: Option<BaseQuality>) -> KmerDataItem<K, DI> {
+        KmerDataItem { kmer, exts, data, quality }
+    }
+
+/*     fn kmer(&self) -> K {
+        self.kmer
+    }
+
+    fn exts(&self) -> Exts {
+        self.exts
+    }
+
+    fn data(&self) -> DI {
+        self.data
+    }
+
+    fn quality(&self) -> Option<BaseQuality> {
+        self.quality
+    } */
 }
 
 /// A newtype wrapper around a `Vec<u8>` with implementations
@@ -1330,6 +1361,26 @@ impl BaseQuality {
             _ => panic!("invalid base quality value")
         }
     }
+
+    fn as_char(&self) -> char {
+        match self {
+            Self::NoCall => '#',
+            Self::Marginal => '-',
+            Self::Medium => ';',
+            Self::High => 'C',
+        }
+    }
+}
+
+impl fmt::Display for BaseQuality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoCall => write!(f, "no call"),
+            Self::Marginal => write!(f, "marginal"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1345,7 +1396,7 @@ impl Default for QualityBins  {
 }
 
 impl QualityBins {
-    fn new(marginal_top_cutoff: u8, high_bottom_cutoff: u8) -> QualityBins {
+    pub fn new(marginal_top_cutoff: u8, high_bottom_cutoff: u8) -> QualityBins {
         Self { marginal_top_cutoff, high_bottom_cutoff }
     }
 
@@ -1367,7 +1418,7 @@ impl QualityBins {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
 pub struct QualityVec {
     storage: Vec<BaseQuality>
 }
@@ -1384,6 +1435,55 @@ impl QualityVec {
         }
 
         QualityVec { storage: vec }
+    }
+
+    fn iter_k_lowest_q<K: Kmer>(&'_ self) -> KLowestQualityIter<'_, K> {
+        KLowestQualityIter { 
+            quality_vec: self, 
+            start_pos: 0, 
+            phantom_data: PhantomData,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.storage.len()
+    }
+}
+
+impl fmt::Debug for QualityVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for q in self.storage.iter() {
+            write!(f, "{}", q.as_char())?;
+        }
+
+        Ok(())
+    }
+}
+
+pub struct KLowestQualityIter<'a, K: Kmer> {
+    quality_vec: &'a QualityVec,
+    start_pos: usize,
+    phantom_data: PhantomData<K>
+}
+
+impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
+    type Item = BaseQuality;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let end_pos = self.start_pos + K::k();
+        if end_pos <= self.quality_vec.len() {
+            let range = self.start_pos..end_pos;
+
+            let quality = self.quality_vec.storage[range]
+                .iter()
+                .min()
+                .expect("missing base quality");
+
+            self.start_pos += 1;
+            Some(*quality)
+        } else {
+            None
+        }
     }
 }
 

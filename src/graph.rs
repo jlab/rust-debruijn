@@ -38,11 +38,13 @@ use serde_json::Value;
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
+use crate::BaseQuality;
 use crate::bits_to_base;
 use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
+use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1600,7 +1602,133 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
-    /// remove simple ladder structures and bubbles caused by 1-base sequencing errors from the graph
+    pub fn remove_ladders_qualityb<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
+    where
+        SD: SummaryData<DI>
+    {
+        // check we do indeed have quality and graph is stranded
+        if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
+        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
+
+        let min_path = 2 * K::k() - 1;
+        let max_path = 3 * K::k() - 1;
+
+        // iterate over nodes
+        for node_id in 0..self.len() {
+            // check if node has multile outs to the right, at least one with bad quality and one with good quality
+            let node_r_edges = self.get_node(node_id).r_edges();
+
+            let good_neighbors = node_r_edges.iter()
+                .map(|(_, target_id, _, _)| *target_id)
+                .filter(|target_id| self.get_node(*target_id)
+                    .data()
+                    .quality()
+                    .unwrap() >= min_quality
+                ).collect::<Vec<_>>();
+
+            let bad_neighbors = node_r_edges.iter()
+                .map(|(_, target_id, _, _)| *target_id)
+                .filter(|target_id| self.get_node(*target_id)
+                    .data()
+                    .quality()
+                    .unwrap() < min_quality
+                ).collect::<Vec<_>>();
+
+            if good_neighbors.is_empty() | bad_neighbors.is_empty() { continue; }
+
+            // follow the bad quality paths until we reach nodes with high quality again (or max search radius)
+            let mut possible_paths = Vec::new();
+
+            for bn in bad_neighbors {
+                let mut current_node_id = bn;
+                let mut path_groups = vec![vec![node_id]];
+                let mut path_length = K::k() - 1;
+
+                loop {
+                    // check if path has reached max length -> interrupt
+                    if path_length > max_path {
+                        break;
+                    }
+
+                    let current_node = self.get_node(current_node_id);
+
+                    // add current node length to path
+                    path_length += current_node.len() - K::k() + 1;
+                    // add current node to path
+                    let path_index = path_groups.len() - 1;
+                    path_groups[path_index].push(current_node_id);
+
+
+                    // check if we have met end criterium -> save path
+                    if (current_node.data().quality().unwrap() >= min_quality) & (path_length >= min_path) {
+                        possible_paths.push(path_groups);
+                        break;
+                    }
+
+                    // we have not met the conditions and keep moving
+
+                    //let in_edges = current_node.l_edges();
+                    let out_edges = current_node.r_edges();
+
+                    // find next node
+                    if out_edges.len() != 1 {
+                        // currently too complicated
+                        // maybe add tip removal here
+                        break;
+                    }
+
+                    let (_, next_node_id, _, _) = out_edges[0];
+                    current_node_id = next_node_id;
+                }
+            }
+
+            let possible_targets = possible_paths.iter().map(|p| p.last().unwrap().last().unwrap()).collect::<Vec<_>>();
+            let mut confirmed_targets = Vec::new();
+            // follow the good quality paths until we reach a possible target node (or max search radius)
+            // if we reached a target node, send bad path to be removed from graph
+            for gn in good_neighbors {
+                let mut path_length = K::k() - 1;
+                let mut current_node_id = gn;
+
+                loop {
+                    // check if we have exceeded the search radius
+                    if path_length > max_path {
+                        break;
+                    }
+
+                    // add current node length to path length
+                    let current_node = self.get_node(current_node_id);
+                    path_length += current_node.len() - K::k() + 1;
+
+                    // check if we have found a target
+                    if possible_targets.contains(&&current_node_id) {
+                        confirmed_targets.push(current_node_id);
+                        break;
+                    }
+
+                    // look for next node
+                    let out_edges = current_node.r_edges();
+
+                    if out_edges.len() != 1 {
+                        // currently too complicated
+                        // future: use node with highest quality? go multiple paths? (no) use read mapping?
+                        break;
+                    }
+
+                    let (_, next_node_id, _, _) = out_edges[0];
+                    current_node_id = next_node_id;
+                    
+                }
+            }
+
+
+        }
+
+
+        Ok(())
+    }
+
+    /// remove simple ladder structures (bubbles) caused by 1-base sequencing errors from the graph
     /// 
     /// graph must contain edge mults and be stranded
     /// this function will likely leave tips on the graph, so it is recommended to run
@@ -2755,7 +2883,7 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
-        let print = false; 
+        let print = true; 
         let c_csv = if print { Some("c_ladders.csv") } else { None };
         let uc_csv = if print { Some("uc_ladders.csv") } else { None };
 

@@ -10,7 +10,7 @@ use std::hash::Hash;
 use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::summarizer::{IDTag, Tag, ID};
-use crate::{BaseQuality, Exts, QualityBins, QualityVec, Vmer, base_to_bits, base_to_bits_checked};
+use crate::{BaseQuality, Exts, Kmer, QualityBins, QualityVec, Vmer, base_to_bits, base_to_bits_checked};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
 pub enum Strandedness {
@@ -53,6 +53,23 @@ impl<D: Clone + Copy> Read<D> {
     /// the strandedness of the `Read`
     pub fn stranded(&self) -> Strandedness {
         self.strand
+    }
+
+    pub fn iter_kmer_exts_quality<'a, K: Kmer + 'a>(&'a self) -> Box<dyn Iterator<Item = (K, Exts, Option<BaseQuality>)> + 'a> {
+        if let Some(quality) = self.quality.as_ref() {
+            Box::new(self.seq()
+                .iter_kmer_exts::<K>(self.exts)
+                .zip(quality
+                    .iter_k_lowest_q::<K>()
+                    .map(Some)
+                )
+                .map(|((kmer, exts), quality)| (kmer, exts, quality))
+            )
+        } else {
+            Box::new(self.seq()
+                .iter_kmer_exts::<K>(self.exts)
+                .map(|(kmer, exts)| (kmer, exts, None)))
+        }
     }
 }
 
@@ -1228,19 +1245,19 @@ mod tests {
         let unpaired = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), up.clone()));
         assert_eq!(ReadsPaired::Unpaired { reads: up.clone() }, unpaired);
         println!("exts up {:?}", unpaired);
-        assert_eq!(unpaired.mem(), 148);
+        assert_eq!(unpaired.mem(), 172);
         assert_eq!(unpaired.n_reads(), 2);
         assert_eq!(unpaired.iterable(), vec![&up]);
       
         let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
         assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
-        assert_eq!(paired.mem(), 376);
+        assert_eq!(paired.mem(), 424);
         assert_eq!(paired.n_reads(), 8);
         assert_eq!(paired.iterable(), vec![&p1, &p2]);
 
         let combined = ReadsPaired::from_reads((p1.clone(), p2.clone(), up.clone()));
         assert_eq!(ReadsPaired::Combined { paired1: p1.clone(), paired2: p2.clone(), unpaired: up.clone() }, combined);
-        assert_eq!(combined.mem(), 524);
+        assert_eq!(combined.mem(), 596);
         assert_eq!(combined.n_reads(), 10);
         assert_eq!(combined.iterable(), vec![&p1, &p2, &up]);
 
