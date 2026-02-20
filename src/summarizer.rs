@@ -2302,11 +2302,11 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("IDs: {}, mapped IDs: {}, edge coverage: {}, quality: {}", 
+        format!("IDs: {}, mapped IDs: {}, quality: {}, edge coverage: {}", 
             ids_format, 
             map_ids_format,
+            self.quality,
             self.edge_mults,
-            self.quality
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
 
@@ -2314,9 +2314,10 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("IDs: {}, mapped IDs: {}, edge coverage: {:?}", 
+        format!("IDs: {}, mapped IDs: {}, quality: {}, edge coverage: {:?}", 
             ids_format, 
             map_ids_format,
+            self.quality,
             self.edge_mults
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
