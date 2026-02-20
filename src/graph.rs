@@ -1721,6 +1721,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
 
+            for path_group in possible_paths {
+                let target = path_group.last().unwrap().last().unwrap();
+
+                if confirmed_targets.contains(target) {
+                    for path in path_group {
+                        if self.remove_path(path, Dir::Right).is_err() {
+                            warn!("lq ladder path could not be removed")
+                        }
+                    }
+                }
+            }
+
 
         }
 
