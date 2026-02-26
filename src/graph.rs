@@ -1734,15 +1734,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         println!("dead end");
                         break;
                     } else {
-                        // choose the lowest low quality path
+                        // choose the lowest quality path
 
                         let worst_neighbor = out_edges.iter()
                             .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
                                 .data()
                                 .quality()
                                 .unwrap()))
-                            .filter(|(_target_id, quality)|  *quality < min_quality
-                            ).min_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
+                            .min_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
 
                         if let Some((worst_nb_id, _)) = worst_neighbor {
                             worst_nb_id
@@ -1801,8 +1800,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
                                 .data()
                                 .quality()
-                                .unwrap())
-                            ).max_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
+                                .unwrap()))
+                            .max_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
                         if let Some((best_nb_id, _)) = good_neighbors {
                             best_nb_id
                         } else {
