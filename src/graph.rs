@@ -1801,15 +1801,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // future: use node with highest quality? go multiple paths? (no) use read mapping?
                         
                         let good_neighbors = out_edges.iter()
-                            .map(|(_, target_id, _, _)| *target_id)
-                            .filter(|target_id| self.get_node(*target_id)
+                            .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
                                 .data()
                                 .quality()
-                                .unwrap() >= min_quality
-                            ).collect::<Vec<_>>();
+                                .unwrap())
+                            )
+                            .filter(|(_target_id, quality)| *quality >= min_quality
+                            ).max_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
                         
-                        if good_neighbors.len() == 1 {
-                            good_neighbors[0]
+                        if let Some((best_nb_id, _)) = good_neighbors {
+                            best_nb_id
                         } else {
                             println!("too complicated");
                             break;
