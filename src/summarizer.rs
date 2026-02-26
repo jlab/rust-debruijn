@@ -2368,6 +2368,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
     fn join_test(&self, other: &Self) -> bool {
         self.ids == other.ids 
         && self.map_ids == other.map_ids
+        && self.quality == other.quality
     }
 
     fn valid(&self, _: &SummaryConfig) -> bool { true }
