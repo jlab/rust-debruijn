@@ -1601,7 +1601,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
-    pub fn remove_ladders_qualityb<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
+    pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
@@ -1615,7 +1615,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
             let in_dir = out_dir.flip();
-            println!("starting node: {node_id}");
 
             // check if node has multile outs to the right, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
@@ -1649,14 +1648,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 let mut state = LadderState::Singular;
                 let mut q_state_high = false;
-            
-                println!("following bad path from {bn}");
 
                 loop {
-                    println!("current node: {current_node_id}");
                     // check if path has reached max length -> interrupt
                     if path_length > max_path {
-                        println!("path too long");
                         break;
                     }
 
@@ -1686,7 +1681,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         match state {
                             LadderState::Singular => {
                                 state = LadderState::Double;
-                                println!("switching to double on node {current_node_id}");
                             }
                             LadderState::Double => () // ignore
                         };
@@ -1705,14 +1699,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             LadderState::Singular => (), // ignore
                             LadderState::Double => {
                                 state = LadderState::Singular;
-                                println!("switching to singular on node {current_node_id}");
                                 path_groups.push(vec![current_node_id]); // start new path group
                             }
                         }
                     }
-
-                    println!("path groups: {:?}", path_groups);
-
 
                     // check if we have met end criterium -> save path
                     let quality_req =  current_node.data().quality().unwrap() >= min_quality;
@@ -1722,11 +1712,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     if quality_req & len_req {
                         possible_paths.push(path_groups);
-                        println!("path saved");
                         break;
                     } else if is_tip {
                         tips.push(path_groups);
-                        println!("path saved as tip");
                         break;
                     }
 
@@ -1737,9 +1725,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let (_, next_node_id, _, _) = out_edges[0];
                         next_node_id
                     } else if out_edges.is_empty() {
-                        // dead end -> tip?
-                        // TODO
-                        println!("dead end");
+                        // dead end which has not qualified as tip
                         break;
                     } else {
                         // choose the lowest quality path
@@ -1754,7 +1740,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         if let Some((worst_nb_id, _)) = worst_neighbor {
                             worst_nb_id
                         } else {
-                            println!("too complicated");
                             break;
                         }
                     };
@@ -1771,12 +1756,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut path_length = K::k() - 1;
                 let mut current_node_id = gn;
 
-                println!("following good path from {gn}");
-
                 loop {
                     // check if we have exceeded the search radius
                     if path_length > max_path {
-                        println!("path too long");
                         break;
                     }
 
@@ -1787,7 +1769,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // check if we have found a target
                     if possible_targets.contains(&&current_node_id) {
                         confirmed_targets.push(current_node_id);
-                        println!("{current_node_id} confirmed as target");
                         break;
                     }
 
@@ -1799,7 +1780,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         next_node_id
                     } else if out_edges.is_empty() {
                         // dead end, break
-                        println!("dead end");
                         break;
                     } else {
                         // use node with highest quality
@@ -1813,7 +1793,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         if let Some((best_nb_id, _)) = good_neighbors {
                             best_nb_id
                         } else {
-                            println!("too complicated?");
                             break;
                         }
                     };
@@ -3069,10 +3048,13 @@ mod test {
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        //let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders_qualityb(BaseQuality::Medium).unwrap();
+        let n_edges = unc_graph.iter_edges().count();
+        unc_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
+        let n_edges_af = unc_graph.iter_edges().count();
+        assert_eq!(n_edges, n_edges_af + 90);
+
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
         let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
@@ -3093,11 +3075,12 @@ mod test {
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        //let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders_qualityb(BaseQuality::Medium).unwrap();
+        let n_edges = c_graph.iter_edges().count();
+        c_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
-    
+        let n_edges_af = c_graph.iter_edges().count();
+        assert_eq!(n_edges, n_edges_af + 15);
     }
 
     #[test]
