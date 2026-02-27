@@ -1601,6 +1601,58 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    /// if a node has a connection to a high quality node and low quality nodes 
+    /// in the same direction, remove the connections to the low quality ndoes
+    pub fn remove_lq_splits<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
+    where 
+        SD: SummaryData<DI>
+    {
+        // check we do indeed have quality and graph is stranded
+        if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
+        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
+
+        // iterate over all nodes and look in both directions if there is a low quality node splitting off
+        for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
+            let out_edges = self.get_node(node_id).edges(out_dir);
+
+            // check for split
+            if out_edges.len() < 2 {
+                // no split, move on
+                continue;
+            }
+
+            // get qualities 
+            let nb_qualities = out_edges
+                .iter()
+                .map(|(_, nb_id, _, _)| (*nb_id, self
+                    .get_node(*nb_id)
+                    .data()
+                    .quality()
+                    .unwrap()
+                )).collect::<Vec<_>>();
+
+            // check for good neighbor
+            let has_good_nb = nb_qualities.iter()
+                .any(|(_, quality)| *quality >= min_quality);
+
+            if !has_good_nb {
+                // split but no good path, move on
+                continue;
+            }
+
+            // remove split with low quality
+            for (nb_id, _) in nb_qualities.iter().filter(|(_, quality)| *quality < min_quality ) {
+                let path = vec![node_id, *nb_id];
+                if self.remove_path(path, out_dir).is_err() {
+                    warn!("lq tip path could not be removed")
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`
     pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
     where
         SD: SummaryData<DI>
@@ -2983,11 +3035,7 @@ mod test {
         assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 10720);
     }
 
-    #[test]
-    fn test_remove_lq_ladders() {
-        let print = false;
-
-        type K = Kmer16;
+    fn build_reads_quality_test() -> ReadsPaired<IDTag> {
         let correct1 = "CGATGCTGCTGATGCTGAGTCTGACGTATGCGATCGATCGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTAGCTAGCTACGTGCTAGCTACTAGCACTGATGC";
         let qu_corr1 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         let incorrect1 =                                     "CGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTGGCTAGCTACGTGCTAGCTA";
@@ -3023,7 +3071,82 @@ mod test {
         reads.add_read(DnaString::from_acgt_bytes(incorrect5_tip.as_bytes()), None, IDTag::new(7, 1), Some(qu_incorr5_tip.as_bytes()));
 
 
-        let seqs = ReadsPaired::Unpaired { reads };
+        ReadsPaired::Unpaired { reads }
+    }
+
+    #[test]
+    fn test_remove_lq_splits() {
+        let print = false;
+
+        type K = Kmer16;
+
+        let seqs = build_reads_quality_test();
+        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
+        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
+
+
+        // make uncompressed graph
+        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+
+        // add "mapped" ids to graph
+        for i in 0..unc_graph.len() {
+            let data = unc_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&1) {
+                    data.set_mapped_ids(vec![1].into());
+                }
+                else if ids.contains(&2) {
+                    data.set_mapped_ids(vec![2].into());
+                }
+            }
+        }
+
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
+
+        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let n_edges = unc_graph.iter_edges().count();
+        unc_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
+        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+    
+        let n_edges_af = unc_graph.iter_edges().count();
+        assert_eq!(n_edges, n_edges_af + 11);
+
+        // make compressed graph
+        let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
+        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+    
+         // add "mapped" ids to graph
+        for i in 0..c_graph.len() {
+            let data = c_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&1) {
+                    data.set_mapped_ids(vec![1].into());
+                }
+                else if ids.contains(&2) {
+                    data.set_mapped_ids(vec![2].into());
+                }
+            }
+        }
+
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
+
+        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let n_edges = c_graph.iter_edges().count();
+        c_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
+        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+    
+        let n_edges_af = c_graph.iter_edges().count();
+        assert_eq!(n_edges, n_edges_af + 11);
+    }
+
+    #[test]
+    fn test_remove_lq_ladders_tips() {
+        let print = false;
+
+        type K = Kmer16;
+
+        let seqs = build_reads_quality_test();
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
