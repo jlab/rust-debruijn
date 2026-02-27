@@ -44,7 +44,6 @@ use crate::colors::ColorMode;
 use crate::colors::Colors;
 use crate::compression::CompressionSpec;
 use crate::dna_string::{DnaString, DnaStringSlice, PackedDnaStringSet};
-use crate::graph;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
 use crate::summarizer::Translator;
@@ -1614,13 +1613,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         let max_path = 4 * K::k() - 1;
 
         // iterate over nodes
-        for node_id in 0..self.len() {
+        for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
+            let in_dir = out_dir.flip();
             println!("starting node: {node_id}");
 
             // check if node has multile outs to the right, at least one with bad quality and one with good quality
-            let node_r_edges = self.get_node(node_id).r_edges();
+            let node_out_edges = self.get_node(node_id).edges(out_dir);
 
-            let good_neighbors = node_r_edges.iter()
+            let good_neighbors = node_out_edges.iter()
                 .map(|(_, target_id, _, _)| *target_id)
                 .filter(|target_id| self.get_node(*target_id)
                     .data()
@@ -1628,7 +1628,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     .unwrap() >= min_quality
                 ).collect::<Vec<_>>();
 
-            let bad_neighbors = node_r_edges.iter()
+            let bad_neighbors = node_out_edges.iter()
                 .map(|(_, target_id, _, _)| *target_id)
                 .filter(|target_id| self.get_node(*target_id)
                     .data()
@@ -1640,6 +1640,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // follow the bad quality paths until we reach nodes with high quality again (or max search radius)
             let mut possible_paths = Vec::new();
+            let mut tips = Vec::new();
 
             for bn in bad_neighbors {
                 let mut current_node_id = bn;
@@ -1660,6 +1661,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     }
 
                     let current_node = self.get_node(current_node_id);
+                    let out_edges = current_node.edges(out_dir);
 
                     // add current node length to path
                     path_length += current_node.len() - K::k() + 1;
@@ -1674,7 +1676,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // check if we increase ladder state
                     let q_increase = (current_node.data().quality().unwrap() >= min_quality) & !q_state_high;
-                    let mult_increase = (current_node.l_edges().len() > 1);
+                    let mult_increase = current_node.edges(in_dir).len() > 1;
                     
                     if q_increase {
                         q_state_high = true
@@ -1692,7 +1694,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // check if we decrease ladder state
                     let q_decrease = (current_node.data().quality().unwrap() < min_quality) & q_state_high;
-                    let mult_decrease = current_node.r_edges().len() > 1;
+                    let mult_decrease = out_edges.len() > 1;
 
                     if q_decrease {
                         q_state_high = false;
@@ -1713,16 +1715,22 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
 
                     // check if we have met end criterium -> save path
-                    if (current_node.data().quality().unwrap() >= min_quality) & (path_length >= min_path) {
+                    let quality_req =  current_node.data().quality().unwrap() >= min_quality;
+                    let len_req = path_length >= min_path;
+                    // path is a simple tip -> save as tip
+                    let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
+
+                    if quality_req & len_req {
                         possible_paths.push(path_groups);
                         println!("path saved");
+                        break;
+                    } else if is_tip {
+                        tips.push(path_groups);
+                        println!("path saved as tip");
                         break;
                     }
 
                     // we have not met the conditions and keep moving
-
-                    //let in_edges = current_node.l_edges();
-                    let out_edges = current_node.r_edges();
 
                     // find next node
                     let next_node_id = if out_edges.len() == 1 {
@@ -1784,7 +1792,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     }
 
                     // look for next node
-                    let out_edges = current_node.r_edges();
+                    let out_edges = current_node.edges(out_dir);
 
                     let next_node_id = if out_edges.len() == 1 {
                         let (_, next_node_id, _, _) = out_edges[0];
@@ -1814,15 +1822,25 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
 
+            // check if we have found end nodes of possible paths by following good quality paths
+            // if so, remove path
             for path_group in possible_paths {
                 let target = path_group.last().unwrap().last().unwrap();
 
                 if confirmed_targets.contains(target) {
                     for path in path_group {
-                        if self.remove_path(path, Dir::Right).is_err() {
+                        if self.remove_path(path, out_dir).is_err() {
                             warn!("lq ladder path could not be removed")
                         }
                     }
+                }
+            }
+
+            // remove tip paths
+            for path_group in tips {
+                let path = path_group.into_iter().next().expect("empty tip path found");
+                if self.remove_path(path, out_dir).is_err() {
+                    warn!("lq tip path could not be removed")
                 }
             }
 
@@ -2895,7 +2913,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::{fs::{remove_file, File}, io::BufReader};
 
-    use crate::{BaseQuality, Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{ID, IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use super::DebruijnGraph;
     use crate::{summarizer::SummaryData, Dir, BUF};
@@ -3005,6 +3023,10 @@ mod test {
         let incorrect4_ins =                 "GACGTATGCGATCGATCGACGATCGTACTAGCTGACTTGTGCAGCTAGCTGACTGAT";
         let qu_incorr4_ins =                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCC";
 
+        let incorrect5_tip =                                                             "AGCTGACTGATCGTAGCTAGCTACGTGCTAGCTACTATCACTGATGC";
+        let qu_incorr5_tip =                                                             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCC";
+
+
         let mut reads = Reads::new_with_quality(crate::reads::Strandedness::Forward);
 
         for _i in 0..20 {
@@ -3019,6 +3041,7 @@ mod test {
         reads.add_read(DnaString::from_acgt_bytes(incorrect2.as_bytes()), None, IDTag::new(4, 1), Some(qu_incorr2.as_bytes()));
         reads.add_read(DnaString::from_acgt_bytes(incorrect3.as_bytes()), None, IDTag::new(5, 1), Some(qu_incorr3.as_bytes()));
         reads.add_read(DnaString::from_acgt_bytes(incorrect4_ins.as_bytes()), None, IDTag::new(6, 1), Some(qu_incorr4_ins.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(incorrect5_tip.as_bytes()), None, IDTag::new(7, 1), Some(qu_incorr5_tip.as_bytes()));
 
 
         let seqs = ReadsPaired::Unpaired { reads };
@@ -3043,7 +3066,7 @@ mod test {
             }
         }
 
-        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 6 });
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         //let n_edges = unc_graph.iter_edges().count();
@@ -3067,7 +3090,7 @@ mod test {
             }
         }
 
-        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 6 });
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         //let n_edges = c_graph.iter_edges().count();
