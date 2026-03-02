@@ -153,7 +153,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{GroupFrac, SampleInfo, SummaryConfig, TagsCountsEMData, TagsCountsSumData, TagsSumData};
+    use crate::summarizer::{SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, TagsSumData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -235,20 +235,22 @@ mod tests {
     }
 
     fn simplify_from_kmers<K: Kmer + Send + Sync>(mut contigs: Vec<Vec<u8>>, stranded: bool) {
-        let seqs: Vec<(DnaBytes, Exts, ())> = contigs
+        let seqs: Vec<(DnaBytes, Exts, Tag)> = contigs
             .drain(..)
-            .map(|x| (DnaBytes(x), Exts::empty(), ()))
+            .map(|x| (DnaBytes(x), Exts::empty(), 1))
             .collect();
 
 
         let sample_info = SampleInfo::new(0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
+
+        let strandedness = if stranded { Strandedness::Unstranded } else { Strandedness::Forward };
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, strandedness) },
             &config,
-            stranded,
+            false,
             4.,
             true,
         );
@@ -363,7 +365,7 @@ mod tests {
         assert_eq!(kmer_set, msp_kmers);
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -470,7 +472,7 @@ mod tests {
         let mut shard_asms = Vec::new();
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info.clone()).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
 
 
@@ -570,7 +572,7 @@ mod tests {
         }
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(2, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info.clone()).with_min_kmer_obs(2).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -757,7 +759,7 @@ mod tests {
         let reads = Reads::from_vmer_vec(fastq, Strandedness::Unstranded);
 
         let sample_info = SampleInfo::new(0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &crate::reads::ReadsPaired::Unpaired { reads }, 

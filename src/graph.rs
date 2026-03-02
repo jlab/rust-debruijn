@@ -2997,7 +2997,7 @@ mod test {
         let reads_paired = ReadsPaired::Unpaired { reads };
 
         let sample_info = SampleInfo::new(0b1, 0b10, vec![12, 12]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = uncompressed_graph(&kmers, true).finish();
@@ -3082,7 +3082,7 @@ mod test {
 
         let seqs = build_reads_quality_test();
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
@@ -3148,7 +3148,7 @@ mod test {
 
         let seqs = build_reads_quality_test();
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
@@ -3248,7 +3248,7 @@ mod test {
 
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
@@ -3318,7 +3318,7 @@ mod test {
 
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 6, vec![1000, 10, 20]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.03, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
@@ -3375,7 +3375,7 @@ mod test {
         let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
 
         let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
@@ -3391,7 +3391,7 @@ mod test {
         let reads_paired = ReadsPaired::Unpaired { reads: reads_us };
 
         let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        let summary_config = SummaryConfig::new(1, None, crate::summarizer::GroupFrac::None, 0.3, sample_info, None, crate::summarizer::StatTest::WelchsTTest);
+        let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();

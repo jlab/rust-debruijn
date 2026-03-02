@@ -179,7 +179,7 @@ fn test_colors_mapped_ids() {
     let reads = ReadsPaired::Unpaired { reads };
 
     let sample_info = SampleInfo::new(0b1, 0b0, vec![2]);
-    let summary_config = SummaryConfig::new(1, None, debruijn::summarizer::GroupFrac::None, 0.3, sample_info, None, debruijn::summarizer::StatTest::WelchsTTest);
+    let summary_config = SummaryConfig::new(sample_info);
     let (kmers, _) = filter_kmers::<IDMapEMData, Kmer8, _>(&reads, &summary_config, false, 1., false);
     let mut graph = uncompressed_graph(&kmers, true).finish();
 

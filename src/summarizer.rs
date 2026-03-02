@@ -135,6 +135,7 @@ pub struct SummaryConfig {
     max_p: Option<f32>,
     stat_test: StatTest,
     stat_test_changed: bool,
+    min_quality: BaseQuality,
 }
 
 impl SummaryConfig {
@@ -150,17 +151,50 @@ impl SummaryConfig {
     /// * `max_p`: a maximum p-value which will be used for filtering if applicable
     /// * `stat_test`: a [`StatTest`], determining which statistical test will be used
     ///   for calculation of p-values
-    pub fn new(min_kmer_obs: usize, significant: Option<u32>, group_frac: GroupFrac, frac_cutoff: f32, sample_info: SampleInfo, max_p: Option<f32>, stat_test: StatTest) -> Self {
-        SummaryConfig { min_kmer_obs, significant, group_frac, frac_cutoff, sample_info, max_p, stat_test, stat_test_changed: false }
+    pub fn new(sample_info: SampleInfo) -> Self {
+        SummaryConfig::empty().with_sample_info(sample_info)
     }
 
     /// make an empty `SummaryConfig`
     pub fn empty() -> Self {
-        SummaryConfig { min_kmer_obs: 0, significant: None, group_frac: GroupFrac::None, frac_cutoff: 0., sample_info: SampleInfo::empty(), max_p: None, stat_test: StatTest::StudentsTTest, stat_test_changed: false }
+        SummaryConfig { 
+            min_kmer_obs: 0, 
+            significant: None, 
+            group_frac: GroupFrac::None, 
+            frac_cutoff: 0., 
+            sample_info: SampleInfo::empty(), 
+            max_p: None, 
+            stat_test: StatTest::WelchsTTest, 
+            stat_test_changed: false,
+            min_quality: BaseQuality::NoCall 
+        }
+    }
+
+    pub fn with_min_kmer_obs(&self, min_kmer_obs: usize) -> Self {
+        let mut config = self.clone();
+        config.min_kmer_obs = min_kmer_obs;
+        config
     }
 
     pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
         self.min_kmer_obs = min_kmer_obs;
+    }
+
+    pub fn with_significant(&self, significant_digits: Option<u32>) -> Self {
+        let mut config = self.clone();
+        config.significant = significant_digits;
+        config
+    }
+
+    pub fn set_significant(&mut self, significant_digits: Option<u32>) {
+        self.significant = significant_digits;
+    }
+
+    pub fn with_group_frac(&self, group_frac: GroupFrac, frac_cutoff: f32) -> Self {
+        let mut config = self.clone();
+        config.group_frac = group_frac;
+        config.frac_cutoff = frac_cutoff;
+        config
     }
 
     pub fn set_group_frac(&mut self, group_frac: GroupFrac, frac_cutoff: f32) {
@@ -168,13 +202,41 @@ impl SummaryConfig {
         self.frac_cutoff = frac_cutoff;
     }
 
+    fn with_sample_info(&mut self, sample_info: SampleInfo) -> Self {
+        let mut config = self.clone();
+        config.sample_info = sample_info;
+        config
+    }
+
+    pub fn  with_max_p(&self, max_p: Option<f32>) -> Self {
+        let mut config = self.clone();
+        config.max_p = max_p;
+        config
+    }
+
     pub fn  set_max_p(&mut self, max_p: Option<f32>) {
         self.max_p = max_p;
+    }
+
+    pub fn with_stat_test(&self, stat_test: StatTest) -> Self {
+        let mut config = self.clone();
+        config.stat_test = stat_test;
+        config
     }
 
     pub fn set_stat_test(&mut self, stat_test: StatTest) {
         if stat_test != self.stat_test { self.stat_test_changed = true }
         self.stat_test = stat_test;
+    }
+
+    pub fn with_min_quality(&self, min_quality: BaseQuality) -> Self {
+        let mut config = self.clone();
+        config.min_quality = min_quality;
+        config
+    }
+
+    pub fn set_min_quality(&mut self, min_quality: BaseQuality) {
+        self.min_quality = min_quality;
     }
 
     /// get the binary encoded group affiliation of tags
@@ -305,34 +367,13 @@ fn tag_counter(out_data: &[Tag]) -> Vec<u32> {
     tag_counts
 }
 
-/// summarize the k-mers, exts and labels
-fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32) {
-    let mut all_exts = Exts::empty();
-
-    let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
-
-    let mut nobs = 0;
-    for item in items {
-        out_data.push(item.data); 
-        all_exts = all_exts.add(item.exts);
-        nobs += 1;
-    }
-
-    out_data.sort();
-
-    let tag_counts = tag_counter(&out_data);
-
-    out_data.dedup();
-
-    (all_exts, out_data, tag_counts, nobs)
-}
-
 /// summarize the k-mers, exts and labels, also include an [`EdgeMult`]
-fn summarize_with_em<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, EdgeMult) {
+fn summarize_tags<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, EdgeMult, Option<BaseQuality>) {
     let mut all_exts = Exts::empty();
 
     let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
     let mut edge_mults = EdgeMult::new();
+    let mut highest_quality = None;
 
     let mut nobs = 0;
     for item in items {
@@ -340,6 +381,14 @@ fn summarize_with_em<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F
         all_exts = all_exts.add(item.exts);
         edge_mults.add_exts(item.exts);
         nobs += 1;
+
+        if let Some(q) = item.quality {
+            if let Some(hq) = highest_quality {
+                if q > hq { highest_quality = Some(q) }
+            } else {
+                highest_quality = Some(q)
+            }
+        }
     }
 
     assert_eq!(all_exts, edge_mults.exts());
@@ -350,38 +399,11 @@ fn summarize_with_em<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F
 
     out_data.dedup();
 
-    (all_exts, out_data, tag_counts, nobs, edge_mults)
+    (all_exts, out_data, tag_counts, nobs, edge_mults, highest_quality)
 }
 
 /// summarize the k-mers, exts and labels
-fn summarize_with_ids<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>) {
-    let mut all_exts = Exts::empty();
-
-    let mut out_data = Vec::with_capacity(items.size_hint().0);
-    let mut ids = Vec::new();
-
-    let mut nobs = 0;
-    for item in items {
-        out_data.push(item.data.tag); 
-        ids.push(item.data.id);
-        all_exts = all_exts.add(item.exts);
-        nobs += 1;
-    }
-
-    out_data.sort();
-    ids.sort();
-
-    let tag_counts = tag_counter(&out_data);
-
-    out_data.dedup();
-    ids.dedup();
-    ids.shrink_to_fit();
-
-    (all_exts, out_data, tag_counts, nobs, ids)
-}
-
-/// summarize the k-mers, exts and labels
-fn summarize_with_ids_em<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>, EdgeMult, Option<BaseQuality>) {
+fn summarize_tags_ids<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F) -> (Exts, Vec<Tag>, Vec<u32>, u32, Vec<ID>, EdgeMult, Option<BaseQuality>) {
     let mut all_exts = Exts::empty();
 
     let mut out_data = Vec::with_capacity(items.size_hint().0);
@@ -719,7 +741,7 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
 // TODO: move SummaryData::print functionality to Display trait?
 
 /// Number of observations for the k-mer
-impl<DI> SummaryData<DI> for u32 {
+impl SummaryData<Tag> for u32 {
     fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         format!("sum: {}", self).replace("\"", "\'")
     }
@@ -766,20 +788,22 @@ impl<DI> SummaryData<DI> for u32 {
         *self >= config.min_kmer_obs as u32
     }
 
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, DI>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
-        let mut count = 0u32;
-        for item in items {
-            count = count.saturating_add(1);
-            all_exts = all_exts.add(item.exts);
-        }
+    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let count = match config.significant {
-            Some(digits) => round_digits(count, digits),
-            None => count  
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
+
+        let tags = Tags::from_tag_vec(out_data);
+
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
+
+        let sum = match config.significant {
+            Some(digits) => round_digits(sum, digits),
+            None => sum  
         };
 
-        (count as usize >= config.min_kmer_obs, all_exts, count)
+        (valid, all_exts, sum)
     }
 
     fn summarizer() -> Summarizers {
@@ -845,22 +869,16 @@ impl SummaryData<Tag> for Vec<Tag> {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let mut out_data = Vec::with_capacity(items.size_hint().0);
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
-        let mut nobs = 0i32;
-        for item in items {
-            out_data.push(item.data);
-            all_exts = all_exts.add(item.exts);
-            nobs += 1;
-        }
+        let tags = Tags::from_tag_vec(out_data.clone());
 
-        out_data.sort();
-        out_data.dedup();
-        out_data.shrink_to_fit();
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
         
-        (nobs as usize >= config.min_kmer_obs, all_exts, out_data)
+        (valid, all_exts, out_data)
     }
 
     fn summarizer() -> Summarizers {
@@ -1095,23 +1113,16 @@ impl SummaryData<Tag> for TagsData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
-
-        let mut sum = 0u32;
-        for item in items {
-            out_data.push(item.data); 
-            all_exts = all_exts.add(item.exts);
-            sum += 1;
-        }
-
-        out_data.sort();
-        out_data.dedup();
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let tags = Tags::from_tag_vec(out_data);
+
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
         
-        (valid_counts(tags, Some(sum), config), all_exts, TagsData { tags })
+        (valid, all_exts, TagsData { tags })
     }
 
     fn summarizer() -> Summarizers {
@@ -1184,23 +1195,21 @@ impl SummaryData<Tag> for TagsSumData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let mut out_data: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
-
-        let mut sum = 0u32;
-        for item in items {
-            out_data.push(item.data); 
-            all_exts = all_exts.add(item.exts);
-            sum += 1;
-        }
-
-        out_data.sort();
-        out_data.dedup();
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let tags = Tags::from_tag_vec(out_data);
+
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
+
+        let sum = match config.significant {
+            Some(digits) => round_digits(sum, digits),
+            None => sum  
+        };
         
-        (valid_counts(tags, Some(sum), config), all_exts, TagsSumData { tags, sum })
+        (valid, all_exts, TagsSumData { tags, sum })
     }
 
     fn summarizer() -> Summarizers {
@@ -1305,14 +1314,17 @@ impl SummaryData<Tag> for TagsCountsSumData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum) = summarize(items);
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);     
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsSumData { tags, counts, sum }) 
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
+
+        (valid, all_exts, TagsCountsSumData { tags, counts, sum })
     }
 
     fn summarizer() -> Summarizers {
@@ -1423,14 +1435,17 @@ impl SummaryData<Tag> for TagsCountsData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum) = summarize(items);
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsData { tags, counts }) 
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
+
+        (valid && valid_p, all_exts, TagsCountsData { tags, counts }) 
     }
 
     fn summarizer() -> Summarizers {
@@ -1541,15 +1556,17 @@ impl SummaryData<Tag> for TagsCountsPData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum) = summarize(items);
+        let (all_exts, out_data, tag_counts, sum, _, quality) = summarize_tags(items);
 
-        // caluclate p-value
         let p_value = p_value(&out_data, &tag_counts, config).unwrap();
+
+        let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
 
         (valid, all_exts, TagsCountsPData { tags, counts, p_value }) 
     }
@@ -1669,14 +1686,17 @@ impl SummaryData<Tag> for TagsCountsEMData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, edge_mults) = summarize_with_em(items);
+        let (all_exts, out_data, tag_counts, sum, edge_mults, quality) = summarize_tags(items);
 
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, TagsCountsEMData { tags, counts, edge_mults }) 
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
+
+        (valid, all_exts, TagsCountsEMData { tags, counts, edge_mults }) 
     }
 
     fn summarizer() -> Summarizers {
@@ -1796,15 +1816,18 @@ impl SummaryData<Tag> for TagsCountsPEMData{
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, edge_mults) = summarize_with_em(items);
+        let (all_exts, out_data, tag_counts, sum, edge_mults, quality) = summarize_tags(items);
 
         // caluclate p-value with chosen test
-        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+        let p_value = p_value(&out_data, &tag_counts, config).unwrap();
+
+        let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;         
 
         (valid, all_exts, TagsCountsPEMData { tags, counts, p_value, edge_mults }) 
     }
@@ -1924,15 +1947,21 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, ids) = summarize_with_ids(items);
+        let (all_exts, out_data, tag_counts, sum, ids, _, quality) = summarize_tags_ids(items);
 
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+        // caluclate p-value with chosen test
+        let p_value = p_value(&out_data, &tag_counts, config).unwrap();
+
+        let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
         let ids: Box<[ID]> = ids.into();
 
-        (valid_counts(tags, Some(sum), config) && valid_p, all_exts, IDTagsCountsData { tags, counts, ids }) 
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;     
+
+        (valid, all_exts, IDTagsCountsData { tags, counts, ids }) 
     }
 
     fn summarizer() -> Summarizers {
@@ -2078,16 +2107,19 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, _) = summarize_with_ids_em(items);
+        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, quality) = summarize_tags_ids(items);
 
         // caluclate p-value with chosen test
-        let p_value = p_value(&out_data, &tag_counts, config).unwrap();         
+        let p_value = p_value(&out_data, &tag_counts, config).unwrap();
 
-        let counts = tag_counts.into();
-        let ids = ids.into();
+        let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
+
+        let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
+        let ids: Box<[ID]> = ids.into();
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p(PInfo::PValue { p: p_value }, config);
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;  
 
         (valid, all_exts, IDTagsCountsPEMData { tags, counts, p_value, ids, edge_mults }) 
     }
@@ -2169,15 +2201,16 @@ impl SummaryData<IDTag> for IDEMData{
     fn valid(&self, _: &SummaryConfig) -> bool { true }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, _) = summarize_with_ids_em(items);
+        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, quality) = summarize_tags_ids(items);
 
         // caluclate p-value with chosen test, valid if not enough samples
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);           
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality  } else { true };
 
         let ids = ids.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p;
+        let valid = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
 
         (valid, all_exts, IDEMData { ids, edge_mults }) 
     }
@@ -2268,15 +2301,16 @@ impl SummaryData<IDTag> for IDMapEMData{
     fn valid(&self, _: &SummaryConfig) -> bool { true }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, _) = summarize_with_ids_em(items);
+        let (all_exts, out_data, tag_counts, sum, ids, edge_mults, quality) = summarize_tags_ids(items);
 
         // caluclate p-value with chosen test
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality  } else { true };            
 
         let ids = ids.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p;
+        let valid = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
 
         (valid, all_exts, IDMapEMData { ids, map_ids: Vec::new().into(), edge_mults }) 
     }
@@ -2371,7 +2405,9 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         && self.quality == other.quality
     }
 
-    fn valid(&self, _: &SummaryConfig) -> bool { true }
+    fn valid(&self, config: &SummaryConfig) -> bool { 
+        self.quality >= config.min_quality
+    }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let (all_exts, 
@@ -2379,17 +2415,19 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
             tag_counts, 
             sum, ids, 
             edge_mults, 
-            highest_quality) = summarize_with_ids_em(items);
+            quality) = summarize_tags_ids(items);
 
         // caluclate p-value with chosen test
-        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);            
+        let valid_p = valid_p(PInfo::Calculate { out_data: &out_data, tag_counts: &tag_counts}, config);
+        let valid_q = if let Some(q) = quality { q >= config.min_quality  } else { true };
+            
 
         let ids = ids.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid = valid_counts(tags, Some(sum), config) && valid_p;
+        let valid = valid_counts(tags, Some(sum), config) && valid_p && valid_q;
 
-        let quality = highest_quality.expect("missing quality score - required for summarizer");
+        let quality = quality.expect("missing quality score - required for summarizer");
 
         (valid, all_exts, IDMapEMQualityData { ids, map_ids: Vec::new().into(), edge_mults, quality }) 
     }
@@ -2402,7 +2440,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains how many times the k-mer was observed in each group
+/// Contains how many times the k-mer was observed in each group, only validates count
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupCountData {
     group1: u32,
@@ -2503,7 +2541,7 @@ impl SummaryData<Tag> for GroupCountData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the relative number of observations for the k-mer (in percent) 
-/// in group 1 and the absolute overall count 
+/// in group 1 and the absolute overall count, only validates count
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelCountData {
     percent: u32,
@@ -2625,7 +2663,8 @@ mod test {
     
 
     use bimap::BiMap;
-    use crate::{clean_graph::CleanGraph, compression::{ compress_graph, ScmapCompress}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer16, Kmer8}, summarizer::{self, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test, GroupFrac, NotEnoughSamplesError, SampleInfo, SummaryData, Translator, ID}, Exts, Tags};
+    use crate::{Tags, clean_graph::CleanGraph, compression::{ ScmapCompress, compress_graph}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer8, Kmer16}, summarizer::{self, ID, NotEnoughSamplesError, SampleInfo, SummaryData, Translator, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test}};
+    use crate::Exts;
 
     use super::{log2_fold_change, round_digits, SummaryConfig, TagsCountsSumData};
 
@@ -2639,10 +2678,11 @@ mod test {
 
         let sample_kmers = vec![1; 12];
         let sample_info = SampleInfo::new(31, 4064, sample_kmers);
-        let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
-        let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
-        let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
 
+        let summary_config_w = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::WelchsTTest);
+        let summary_config_t = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::StudentsTTest);
+        let summary_config_u = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::UTest);
+        
         let out_data = [0, 1, 2, 3, 4, 8];
         let tag_counts = vec![1; 6];
         
@@ -2665,9 +2705,9 @@ mod test {
         let sample_kmers = vec![12, 3345, 3478, 87, 1, 2, 666, 98111, 23982938, 555, 122, 7238];
 
         let sample_info = SampleInfo::new(31, 4064, sample_kmers);
-        let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
-        let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
-        let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
+        let summary_config_w = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::WelchsTTest);
+        let summary_config_t = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::StudentsTTest);
+        let summary_config_u = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::UTest);
 
         let out_data = [0, 1, 7, 8, 9, 10];
         let tag_counts = vec![1; 6];
@@ -2696,9 +2736,9 @@ mod test {
 
         let sample_kmers = vec![3, 3, 3];
         let sample_info = SampleInfo::new(0b100, 0b11, sample_kmers);
-        let summary_config_w = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
-        let summary_config_t = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::StudentsTTest);
-        let summary_config_u = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::UTest);
+        let summary_config_w = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::WelchsTTest);
+        let summary_config_t = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::StudentsTTest);
+        let summary_config_u = SummaryConfig::new(sample_info.clone()).with_stat_test(summarizer::StatTest::UTest);
 
         let out_data = [0, 1, 2];
         let tag_counts = vec![2, 3, 1];
@@ -2718,8 +2758,8 @@ mod test {
     fn test_valid_p() {
         let sample_kmers = vec![1; 12];
         let sample_info = SampleInfo::new(31, 4064, sample_kmers);
-        let summary_config_m = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
-        let summary_config_p = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), Some(0.05), summarizer::StatTest::WelchsTTest);
+        let summary_config_m = SummaryConfig::new(sample_info.clone()).with_max_p(None);
+        let summary_config_p = SummaryConfig::new(sample_info.clone()).with_max_p(Some(0.05));
 
         let out_data = [0, 1, 2, 3, 4, 8];  // p should be 0.001
         let tag_counts = vec![1; 6];
@@ -2762,7 +2802,7 @@ mod test {
 
         let sample_kmers = vec![123, 234, 12334, 34, 1232, 123, 123, 34];
         let sample_info = SampleInfo::new(0b00100101, 0b11011010, sample_kmers);
-        let config = SummaryConfig::new(3, None, GroupFrac::None, 0.33,  sample_info, None, summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(summarizer::StatTest::StudentsTTest);
 
         let censor_nodes = CleanGraph::new(|node: &Node<'_, Kmer8, TagsCountsSumData>| !node.data().valid(&config))
                     .find_bad_nodes(&graph);
