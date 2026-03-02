@@ -29,6 +29,7 @@
 //! which expects bases encoded as the ASCII letters A,C,G,T.
 
 use bimap::BiMap;
+use clap::ValueEnum;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
@@ -1343,7 +1344,8 @@ pub struct Label {
 }
 
 /// category for the 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
 pub enum BaseQuality {
     NoCall,
     Marginal,
