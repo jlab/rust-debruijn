@@ -1860,8 +1860,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 if confirmed_targets.contains(target) {
                     for path in path_group {
-                        if self.remove_path(path, out_dir).is_err() {
-                            warn!("lq ladder path could not be removed")
+                        if self.remove_path(path.clone(), out_dir).is_err() {
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
                 }
@@ -1870,8 +1870,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove tip paths
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
-                if self.remove_path(path, out_dir).is_err() {
-                    warn!("lq tip path could not be removed")
+                if self.remove_path(path.clone(), out_dir).is_err() {
+                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
 
