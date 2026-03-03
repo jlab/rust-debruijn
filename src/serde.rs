@@ -112,18 +112,23 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
     }
 
     /// deserialize a [`SerKmers`]
-    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerKmers<K, SD> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug, DI>(path: P) -> SerKmers<K, SD> 
     where
         K: DeserializeOwned,
-        SD: DeserializeOwned
+        SD: DeserializeOwned + SummaryData<DI>
     {
         let file = File::open(&path).expect("error opening file with serialized k-mers");
         let reader = BufReader::new(file);
 
-        match bincode::deserialize_from(reader) {
-            Ok(ser_reads) => ser_reads,
+        let ser_kmers: SerKmers<K, SD> = match bincode::deserialize_from(reader) {
+            Ok(ser_kmers) => ser_kmers,
             Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
-        }
+        };
+
+        assert_eq!(ser_kmers.parameters().0, K::k(), "deserialized k-kmers do not match expected k");
+        assert_eq!(ser_kmers.parameters().1, SD::summarizer(), "deserialized k-mers do not match expected summarizer");
+
+        ser_kmers
     }
 
     /// get a reference of the underlying [`BoomHashMap2<K, Exts, SD>`]
@@ -188,18 +193,23 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
     }
 
     /// deserialize a [`SerGraph`]
-    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerGraph<K, SD>  
+    pub fn deserialize_from<P: AsRef<Path> + Debug, DI>(path: P) -> SerGraph<K, SD>  
     where 
         K: DeserializeOwned,
-        SD: DeserializeOwned
+        SD: DeserializeOwned + SummaryData<DI>
     {
         let file = File::open(&path).expect("error opening file with a serialized graph");
         let reader = BufReader::new(file);
 
-        match bincode::deserialize_from(reader) {
-            Ok(ser_reads) => ser_reads,
+        let ser_graph: SerGraph<K, SD> = match bincode::deserialize_from(reader) {
+            Ok(ser_graph) => ser_graph,
             Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters. \n File: {:?}", err, path)
-        }
+        };
+
+        assert_eq!(ser_graph.parameters().0, K::k(), "deserialized k-kmers do not match expected k");
+        assert_eq!(ser_graph.parameters().1, SD::summarizer(), "deserialized k-mers do not match expected summarizer");
+
+        ser_graph
     }
 
     /// get a reference of the underlying [`DebruijnGraph<K, SD>`]
@@ -231,7 +241,7 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, Summarizers, ID}};
+    use crate::{kmer::{Kmer16, Kmer18, Kmer20}, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{ID, IDSumData, Summarizers}};
 
     use super::SerReads;
 

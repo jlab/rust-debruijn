@@ -244,7 +244,7 @@ mod tests {
         let sample_info = SampleInfo::new(0, 0, Vec::new());
         let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
-        let strandedness = if stranded { Strandedness::Unstranded } else { Strandedness::Forward };
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -257,7 +257,7 @@ mod tests {
 
         let spec =
             SimpleCompress::new(|d1: u32, d2: &u32| (d1 + *d2) % 65535);
-        let from_kmers = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers, true, false).finish();
+        let from_kmers = compress_kmers_with_hash::<K, u32, _, _>(stranded, &spec, &valid_kmers, true, false).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);

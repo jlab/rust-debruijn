@@ -1822,12 +1822,12 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         let p_value = p_value(&out_data, &tag_counts, config).unwrap();
 
         let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
-        let valid_q = if let Some(q) = quality { q >= config.min_quality } else {true };
+        let valid_q = if let Some(q) = quality { q >= config.min_quality } else { true };
 
         let counts: Box<[u32]> = tag_counts.into();
         let tags = Tags::from_tag_vec(out_data);
 
-        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;         
+        let valid  = valid_counts(tags, Some(sum), config) && valid_p && valid_q;  
 
         (valid, all_exts, TagsCountsPEMData { tags, counts, p_value, edge_mults }) 
     }
@@ -2659,11 +2659,10 @@ pub enum Summarizers {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::BufReader};
     
 
     use bimap::BiMap;
-    use crate::{Tags, clean_graph::CleanGraph, compression::{ ScmapCompress, compress_graph}, dna_string::DnaString, graph::{BaseGraph, DebruijnGraph, Node}, kmer::{Kmer8, Kmer16}, summarizer::{self, ID, NotEnoughSamplesError, SampleInfo, SummaryData, Translator, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test}};
+    use crate::{Tags, clean_graph::CleanGraph, compression::{ ScmapCompress, compress_graph}, dna_string::DnaString, graph::{BaseGraph, Node}, kmer::Kmer8, summarizer::{self, ID, NotEnoughSamplesError, SampleInfo, SummaryData, Translator, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test}};
     use crate::Exts;
 
     use super::{log2_fold_change, round_digits, SummaryConfig, TagsCountsSumData};
@@ -2781,7 +2780,7 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_data_valid() {
-        use crate::BUF;
+        use crate::{kmer::Kmer16, serde::SerGraph};
 
         let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
 
@@ -2813,21 +2812,20 @@ mod test {
 
         // larger test
 
-        let reader = BufReader::with_capacity(BUF, File::open("test_data/400.graph.dbg").unwrap());
-        let (graph, _, mut config): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, SummaryConfig) = bincode::deserialize_from(reader)
-            .expect("error deserializing graph, hashed labels, and config");
+        let ser_graph: SerGraph<Kmer16, TagsCountsSumData> = SerGraph::deserialize_from("test_data/400.graph.dbg");
+        let (graph, _translator, mut config) = ser_graph.dissolve();
 
         config.set_min_kmer_obs(3);
 
         let node38 = graph.get_node(38);
         assert!(!node38.data().valid(&config));
 
-        let bad_nodes = graph.find_bad_nodes(|node: &Node<'_, Kmer16, TagsCountsSumData>| node.data().valid(&config));
-        let bad_node_correct = vec![0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 51,
-            52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 69, 71, 72, 73, 74, 76, 77, 78, 80, 82, 83, 84, 85, 
-            86, 87, 89, 90, 94, 95, 98, 99, 100, 101, 102, 103, 104, 105, 107, 109, 111, 114, 116, 117, 118, 120, 122, 
-            126, 127, 131, 135, 136, 138, 141, 143, 144];
+        let bad_nodes = graph.find_bad_nodes(|node| node.data().valid(&config));
+        let bad_node_correct = vec![0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21,
+            22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 
+            51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 69, 71, 72, 73, 74, 76, 77, 78, 80, 82, 83, 84, 
+            85, 86, 87, 89, 90, 94, 95, 98, 99, 100, 101, 102, 103, 104, 105, 107, 109, 111, 114, 116, 117, 118, 120, 
+            122, 126, 127, 131, 135, 136, 138, 141, 143, 144];
         assert_eq!(bad_nodes, bad_node_correct);
         let _filtered_graph = compress_graph(false, &ScmapCompress::new(), graph, Some(bad_nodes));
 

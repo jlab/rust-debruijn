@@ -1662,7 +1662,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
-        let max_path = 4 * K::k() - 1;
+        //let max_path = 4 * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1703,9 +1703,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if path has reached max length -> interrupt
-                    if path_length > max_path {
+                    /* if path_length > max_path {
                         break;
-                    }
+                    } */
 
                     let current_node = self.get_node(current_node_id);
                     let out_edges = current_node.edges(out_dir);
@@ -1810,9 +1810,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if we have exceeded the search radius
-                    if path_length > max_path {
+                    /* if path_length > max_path {
                         break;
-                    }
+                    } */
 
                     // add current node length to path length
                     let current_node = self.get_node(current_node_id);
@@ -2942,23 +2942,24 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::{remove_file, File}, io::BufReader};
+    use std::fs::remove_file;
 
     use crate::{BaseQuality, Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
-    use super::DebruijnGraph;
-    use crate::{summarizer::SummaryData, Dir, BUF};
+    use crate::{summarizer::SummaryData, Dir};
 
 
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
 
-        let path = "test_data/400.graph.dbg";
-        let file = BufReader::with_capacity(BUF, File::open(path).unwrap());
+        // cargo run -- -i data/test_400.fastq.gz -o ../rust-debruijn/test_data/400 -s tags-counts-sum -k 18 -t t
 
-        let (graph, _, _): (DebruijnGraph<Kmer16, TagsCountsSumData>, Vec<String>, crate::summarizer::SummaryConfig) = 
-            bincode::deserialize_from(file).expect("error deserializing graph");
+        use crate::{kmer::Kmer16, serde::SerGraph};
+        let path = "test_data/400.graph.dbg";
+
+        let ser_graph: SerGraph<Kmer16, TagsCountsSumData> = SerGraph::deserialize_from(path);
+        let graph = ser_graph.graph();
 
         let components = graph.iter_components();
 
@@ -3208,7 +3209,7 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
-        let print = true; 
+        let print = false; 
         let c_csv = if print { Some("c_ladders.csv") } else { None };
         let uc_csv = if print { Some("uc_ladders.csv") } else { None };
 

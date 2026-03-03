@@ -225,17 +225,12 @@ where I: Iterator<Item = (usize, usize)>
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
-/// let summary_config = SummaryConfig::new(
-///     3,
-///     None,
-///     GroupFrac::One,
-///     0.33333,
-///     sample_info,
-///     None,
-///     StatTest::StudentsTTest,
-/// );
+/// let summary_config = SummaryConfig::new(sample_info)
+///     .with_min_kmer_obs(3)
+///     .with_group_frac(GroupFrac::One, 0.333)
+///     .with_stat_test(StatTest::StudentsTTest);
 ///    
-/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData, u8>(
+/// let (hashed_kmers, _) = filter_kmers_parallel::<Kmer16, TagsCountsData, _>(
 ///     &ReadsPaired::Unpaired { reads: seqs },
 ///     &summary_config,
 ///     false,
@@ -576,15 +571,11 @@ DI: Clone + Copy + Send + Sync
 ///     vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],
 /// );
 ///     
-/// let summary_config = SummaryConfig::new(
-///     3,
-///     None,
-///     GroupFrac::One,
-///     0.33333,
-///     sample_info,
-///     None,
-///     StatTest::StudentsTTest,
-/// );
+/// let summary_config = SummaryConfig::new(sample_info)
+///     .with_min_kmer_obs(3)
+///     .with_group_frac(GroupFrac::One, 0.333)
+///     .with_stat_test(StatTest::StudentsTTest);
+///
 ///    
 /// let (hashed_kmers, _) = filter_kmers::<TagsCountsData, Kmer16, _>(
 ///     &ReadsPaired::Unpaired { reads: seqs },

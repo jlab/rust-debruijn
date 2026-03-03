@@ -111,6 +111,7 @@ fn test_summary_data() {
     let sample_kmers = vec![2834, 2343, 12, 1234, 345345, 122, 234, 23455, 231, 2, 3564, 12344, 34555];
     let sample_info = SampleInfo::new(marker0, marker1, sample_kmers);
     let summary_config = SummaryConfig::new(sample_info.clone());
+    println!("summary config: {:?}", summary_config);
     let mut tag_translator = BiHashMap::new();
     (0..15).for_each(|i| { tag_translator.insert(format!("{i}"), i as u8); } );
     let mut id_translator = BiHashMap::new();
@@ -258,7 +259,7 @@ fn test_summary_data() {
         "relative amount group 1: 66\ncount both: 6".to_string(), "relative amount group 1: 66, count both: 6".to_string(), Summarizers::RelCount));
 
     // test with different group frax settings
-    let summary_config = SummaryConfig::new(sample_info.clone());
+    let summary_config = SummaryConfig::new(sample_info.clone()).with_group_frac(debruijn::summarizer::GroupFrac::One, 0.33);
     let data = test_summarize::<TagsCountsPEMData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, tags, MEM[10], p_value, fold_change, sample_count, None, edge_mults.clone(), true,  
         "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
@@ -266,7 +267,7 @@ fn test_summary_data() {
         Summarizers::TagsCountsPEM
     )); 
 
-    let summary_config = SummaryConfig::new(sample_info.clone());
+    let summary_config = SummaryConfig::new(sample_info.clone()).with_group_frac(debruijn::summarizer::GroupFrac::Both, 0.33);
     let data = test_summarize::<TagsCountsPEMData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, tags, MEM[10], p_value, fold_change, sample_count, None, edge_mults.clone(), false,  
         "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
@@ -274,7 +275,7 @@ fn test_summary_data() {
         Summarizers::TagsCountsPEM
     )); 
 
-    let summary_config = SummaryConfig::new(sample_info.clone()).with_max_p(Some(0.05));
+    let summary_config = SummaryConfig::new(sample_info.clone()).with_max_p(Some(0.05)).with_group_frac(debruijn::summarizer::GroupFrac::One, 0.33);
     let data = test_summarize::<TagsCountsPEMData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
     assert_eq!(data, (count, tags, MEM[10], p_value, fold_change, sample_count, None, edge_mults.clone(), false,  
         "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
