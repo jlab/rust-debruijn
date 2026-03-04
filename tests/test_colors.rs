@@ -46,8 +46,8 @@ fn test_colors() {
     let node = graph_tcpem.get_node(node_id);
     println!("{:?}", node.data());
     assert_eq!("[style=filled, color=black, penwidth=10, fillcolor=\"0.1132268 0.5 1\", fontcolor=black, label=\"id: 456, len: 17, exts: T|T, seq:\nCGCTGTTGTTCGATGAT\nsamples              - counts\nC_H200               - 1\nC_H300               - 1\nC_H500               - 1\nC_H600               - 1\nP_T100               - 1\nP_T200               - 1\nP_T300               - 1\nP_T400               - 1\nsum: 8, p-value: 0.14767084, log2(fold\nchange): -1.4249998, edge coverage:\nA: 0 | 0\nC: 0 | 0\nG: 0 | 0\nT: 8 | 4\n\"]", node.node_dot_default(&colors, &config_tcpem, &translator, true, false));
-    assert_eq!("[color=red, penwidth=9.740156, label=\"T: 4\"]", node.edge_dot_default(&colors, 3, debruijn::Dir::Right, true));
-    assert_eq!("[color=blue, penwidth=13.110233, label=\"T: 8\"]", node.edge_dot_default(&colors, 3, debruijn::Dir::Left, true));
+    assert_eq!("[color=red, penwidth=9.740156, label=\"T: 4\", weight=4]", node.edge_dot_default(&colors, 3, debruijn::Dir::Right, true));
+    assert_eq!("[color=blue, penwidth=13.110233, label=\"T: 8\", weight=8]", node.edge_dot_default(&colors, 3, debruijn::Dir::Left, true));
 
 
     // test with color mode SampleGroups

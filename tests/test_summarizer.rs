@@ -1,9 +1,9 @@
 
 use bimap::BiHashMap;
-use debruijn::{EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, summarizer::{GroupCountData, ID, IDData, IDEMData, IDMapEMData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, summarizer::{GroupCountData, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTag, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 fn test_summarize<'a, SD: SummaryData<DI>, F, K: Kmer, DI>(items: F, config: &'a SummaryConfig, translator: &'a Translator ) 
-    -> (Option<usize>, Option<Tags>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String, Summarizers)
+    -> (Option<usize>, Option<Tags>, usize, Option<f32>, Option<f32>, Option<usize>, Option<Vec<ID>>, Option<EdgeMult>, bool, String, String, Summarizers,)
 where 
     F: Iterator<Item = KmerDataItem<K, DI>>,
 {
@@ -119,21 +119,21 @@ fn test_summary_data() {
     let translator = Translator::new(id_translator, tag_translator);
 
     let input_tags = [
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0u8, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1u8, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2u8, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3u8, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7u8, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8u8, None),           
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0u8, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1u8, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2u8, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3u8, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7u8, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8u8, Some(debruijn::BaseQuality::Medium)),           
     ];
 
     let input_ids = [
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0 as ID, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1 as ID, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2 as ID, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3 as ID, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7 as ID, None),
-        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8 as ID, None),   
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 0 as ID, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 1 as ID, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 2 as ID, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 3 as ID, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 7 as ID, Some(debruijn::BaseQuality::Medium)),
+        KmerDataItem::new(Kmer8::from_u64(12), Exts::new(1), 8 as ID, Some(debruijn::BaseQuality::Medium)),   
     ];
 
     let input_id_tags = input_tags
@@ -243,11 +243,18 @@ fn test_summary_data() {
         Summarizers::IDEM)
     );
 
-    let data = test_summarize::<IDMapEMData, _, _, _>(input_id_tags.into_iter(), &summary_config, &translator);
+    let data = test_summarize::<IDMapEMData, _, _, _>(input_id_tags.clone().into_iter(), &summary_config, &translator);
     assert_eq!(data, (None, None, MEM[1] + 8*4 + 2*8, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
         "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
         "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(), 
         Summarizers::IDMapEM)
+    );
+
+    let data = test_summarize::<IDMapEMQualityData, _, _, _>(input_id_tags.clone().into_iter(), &summary_config, &translator);
+    assert_eq!(data, (None, None, MEM[1] + 8*4 + 2*8 + 8, None, None, None, Some(vec![0, 1, 2, 3, 7, 8]), edge_mults.clone(), true, 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: [], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(), 
+        Summarizers::IDMapEMQuality)
     );
 
     let data = test_summarize::<GroupCountData, _, _, _>(input_tags.into_iter(), &summary_config, &translator);
