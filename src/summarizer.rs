@@ -701,8 +701,10 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
     /// format the noda data 
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// format the noda data in one line
+    /// format the noda data in for json
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
+    /// format the noda data in one line
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags(&self) -> Option<Tags>;
     /// get the size of the structure, including contents of boxed slices
@@ -743,11 +745,15 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
 /// Number of observations for the k-mer
 impl SummaryData<Tag> for u32 {
     fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        format!("sum: {}", self).replace("\"", "\'")
+        format!("sum: {}", self)
     }
 
     fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        format!("sum: {}", self).replace("\"", "\'")
+        format!("sum: {}", self)
+    }
+
+    fn print_json(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"sum\": {}", self)
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -830,6 +836,22 @@ impl SummaryData<Tag> for Vec<Tag> {
         self.print(translator, config, None)
     }
 
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        if let Some(tag_translator) = translator.tag_translator() {
+            let samples = self
+                .iter()
+                .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
+                .collect::<Vec<_>>();
+            format!("\"samples\": {}", 
+                format!("{:?}", samples).replace("\"", "")
+            )
+        } else {
+            format!("\"samples\": {}", 
+                format!("{:?}", self).replace("\"", "")
+            )
+        } 
+    }
+
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
@@ -902,6 +924,10 @@ impl SummaryData<ID> for IDData {
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         // print is only one line anyways
         self.print(translator, config, id_group_translator)
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", "")) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -983,6 +1009,10 @@ impl SummaryData<ID> for IDSumData {
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         // print is only one line anyways
         self.print(translator, config, id_group_translator)
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"ids \": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", ""), self.sum) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1069,7 +1099,16 @@ impl SummaryData<Tag> for TagsData {
         } else {
             format!("samples: {:?}", self.tags.to_tag_vec())
         }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
 
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "")
+        } else {
+            format!("{:?}", self.tags.to_tag_vec()).replace("\"", "")
+        }; // rempve " to avoid conflicts in json file
+
+        format!("\"samples\": {labels}")
     }
 
     fn tags(&self) -> Option<Tags> { 
@@ -1150,6 +1189,16 @@ impl SummaryData<Tag> for TagsSumData {
         } else {
             format!("samples: {:?}, sum: {}", self.tags.to_tag_vec(), self.sum)
         }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "")
+        } else {
+            format!("{:?}", self.tags.to_tag_vec()).replace("\"", "")
+        }; // rempve " to avoid conflicts in json file
+
+        format!("\"samples\": {labels}, \"sum\": {}", self.sum)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1259,6 +1308,26 @@ impl SummaryData<Tag> for TagsCountsSumData {
         } else {
             format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_tag_vec(), self.counts, self.sum, p, fc)
         }.replace("\"", "\'")
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum, self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1380,6 +1449,26 @@ impl SummaryData<Tag> for TagsCountsData {
         } else {
             format!("samples: {:?}, counts: {:?}, sum: {}{}{}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc)
         }.replace("\"", "\'")
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1504,6 +1593,26 @@ impl SummaryData<Tag> for TagsCountsPData {
         }.replace("\"", "\'")
     }
 
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+    }
+
     fn tags(&self) -> Option<Tags> {
         Some(self.tags)
     }
@@ -1625,6 +1734,26 @@ impl SummaryData<Tag> for TagsCountsEMData {
         } else {
             format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc, self.edge_mults)
         }.replace("\"", "\'")
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1754,6 +1883,26 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         } else {
             format!("samples: {:?}, counts: {:?}, sum: {}{}{}, edge coverage: {:?}", self.tags.to_tag_vec(), self.counts, self.sum(), p, fc, self.edge_mults)
         }.replace("\"", "\'")    
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1890,6 +2039,28 @@ impl SummaryData<IDTag> for IDTagsCountsData {
 
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         format!("IDs: {}, samples: {}, counts: {:?}, sum: {}{}{}", ids_format, tags_format, self.counts, self.sum(), p, fc).replace("\"", "\'")
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        let ids = id_format(&self.ids, translator, id_group_translator);
+
+        format!("\"ids \": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2041,7 +2212,28 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
             fc, 
             self.edge_mults
         ).replace("\"", "\'")
+    }
 
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        }.replace("\"", "");
+
+        let ids = id_format(&self.ids, translator, id_group_translator);
+
+        format!("\"ids \": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2158,6 +2350,10 @@ impl SummaryData<IDTag> for IDEMData{
 
     }
 
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", "")) // rempve " to avoid conflicts in json file
+    }
+
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
@@ -2251,6 +2447,13 @@ impl SummaryData<IDTag> for IDMapEMData{
             map_ids_format,
             self.edge_mults
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let ids_format = id_format(&self.ids, translator, id_group_translator).replace("\"", "");
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator).replace("\"", "");
+
+        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}", ) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2354,6 +2557,13 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
             self.quality,
             self.edge_mults
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let ids_format = id_format(&self.ids, translator, id_group_translator).replace("\"", "");
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator).replace("\"", "");
+
+        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"quality\": {:?}", self.quality) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2463,6 +2673,10 @@ impl SummaryData<Tag> for GroupCountData {
         format!("count 1: {}, count 2: {}", self.group1, self.group2)
     }
 
+    fn print_json(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"count1\": {}, \"count2\": {}", self.group1, self.group2)
+    }
+
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
@@ -2555,6 +2769,10 @@ impl SummaryData<Tag> for RelCountData {
 
     fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
+    }
+
+    fn print_json(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        format!("\"rel_count_1\": {}, \"sum\": {}", self.percent, self.count)
     }
 
     fn tags(&self) -> Option<Tags> { None }

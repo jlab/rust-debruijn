@@ -8,6 +8,7 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
+use itertools::chain;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -29,6 +30,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::usize;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -1292,6 +1294,69 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writer: &mut W,
     ) {
         self.to_json_rest(fmt_func, writer, None);
+    }
+
+    pub fn iter_optional_partial<'a>(&self, partial_nodes: &'a Option<std::vec::Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
+        if let Some(partial) = partial_nodes {
+            Box::new(partial.into_iter().copied())
+        } else {
+            Box::new(0..self.len())
+        }
+    }
+
+    /// write the graph or parts of the graph to a json file to view in 3d
+    pub fn to_json_3d<P, FN, FE>(&self, 
+        path: P, 
+        node_properties: &FN, 
+        edge_properties: &FE, 
+        partial_nodes: &'_ Option<Vec<usize>>
+    ) -> Result<(), Box<dyn std::error::Error>> 
+        where 
+        P: AsRef<Path>,
+        FN: Fn(&Node<K, D>) -> String,
+        FE: Fn(&Node<K, D>, usize, u8, Dir, bool) -> String,
+    {
+        let mut writer = BufWriter::new(File::create(path)?);
+
+        writeln!(writer, "{{")?;
+        writeln!(writer, "\t\"nodes\": [")?;
+
+        // write nodes to json
+
+        for node_id in self.iter_optional_partial(partial_nodes) {
+            let node = self.get_node(node_id);
+            let node_fmt = node_properties(&node);
+
+            writeln!(writer, "\t\t{{ {node_fmt} }},")?;
+        }
+
+        writeln!(writer, "\t],")?;
+        writeln!(writer, "\t\"links\": [,")?;
+
+        // write links to json
+
+        for node_id in self.iter_optional_partial(partial_nodes) {
+            let node = self.get_node(node_id);
+            // write edges to the right
+            for (base, target_id, dir, flipped) in node.r_edges() {
+                let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+            }
+
+            // if stranded, continue, else also look at left edges
+            if self.base.stranded { continue; }
+
+            // write edges to the right
+            for (base, target_id, dir, flipped) in node.l_edges() {
+                let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+            }
+        }
+
+        writeln!(writer, "\t]")?;
+        writeln!(writer, "}}")?;
+
+        Ok(())
     }
 
     /// Print a text representation of the graph.
@@ -2707,7 +2772,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
-        let color = colors.node_color(self.data(), config, outline);
+        let color = colors.node_color_dot(self.data(), config, outline);
         let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
 
         let data_info = self.data().print(translator, config, translate_id_groups);
@@ -2723,6 +2788,75 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
         ), wrap);
 
         format!("[{color}, label=\"{label}\"]")
+    }
+
+    // get the default properties for json edges
+    pub fn edge_json_default<DI>(&self, target_node_id: usize, base: u8, incoming_dir: Dir, flipped: bool) -> String 
+    where SD: SummaryData<DI>
+    {
+        // set color based on dir
+        let dir = match incoming_dir {
+            Dir::Right => 0,
+            Dir::Left => 1
+        };
+
+        // get base in other dir
+        let target_node = self.graph.get_node(target_node_id);
+        let nb_base = if self.graph.base.stranded {
+            // only look at right edges
+            let Some(nb_base) = target_node.r_edges().iter().filter_map(|(b, id, _in_dir, _flip)|
+                if *id == self.node_id {
+                    Some(*b)
+                } else { None }
+            ).next() else { panic!("missing neighbor") };
+            nb_base
+        } else {
+            // look at edges in either direction
+            let Some(nb_base) = target_node.r_edges().iter().chain(target_node.l_edges().iter()).filter_map(|(b, id, _in_dir, _flip)|
+                if *id == self.node_id {
+                    Some(*b)
+                } else { None }
+            ).next() else { panic!("missing neighbor") };
+            nb_base
+        };
+        
+        let value = if let Some(em) = self.data().edge_mults() {
+            
+            let dir = if flipped { 
+                incoming_dir 
+            } else {
+                incoming_dir.flip()
+            };
+
+            let count = em.edge_mult(base, dir);
+
+            format!(", \"value\": {count}")
+        } else {
+            String::from("")
+        };
+
+        format!("\"source\": {}, \"target\": {target_node_id}, \"source_b\": {}, \"target_b\": {}, \"dir\": {dir}{value}",
+            self.node_id,
+            bits_to_base(base),
+            bits_to_base(nb_base),
+        )
+    }
+
+    /// get default properties for json nodes, based on node data
+    pub fn node_json_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, translate_id_groups: bool) -> String
+    where SD: SummaryData<DI>
+    {
+        // set hue based on node data
+        let hue = colors.hue_json(self.data(), config);
+        let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
+
+        let data_info = self.data().print_json(translator, config, translate_id_groups);
+
+        format!("\"id\": {}, \"len\": {}, \"seq\": {}, \"hue\": {hue}, {data_info}",
+            self.node_id,
+            self.len(),
+            self.sequence(),
+        )
     }
 }
 
