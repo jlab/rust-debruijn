@@ -1296,11 +1296,12 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         self.to_json_rest(fmt_func, writer, None);
     }
 
-    pub fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
+    // iterate over graph or parial node IDs while leaving out the last node
+    fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
         if let Some(partial) = partial_nodes {
-            Box::new(partial.iter().copied())
+            Box::new(partial[..(partial.len()-1)].iter().copied())
         } else {
-            Box::new(0..self.len())
+            Box::new(0..(self.len()-1))
         }
     }
 
@@ -1330,8 +1331,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             writeln!(writer, "\t\t{{ {node_fmt} }},")?;
         }
 
+        // do last node separately because of comma
+        let last_node_id = match partial_nodes {
+            Some(partial) => partial.len() - 1,
+            None => self.len() - 1
+        };
+
+        let last_node = self.get_node(last_node_id);
+        let last_node_fmt = node_properties(&last_node);
+
+        writeln!(writer, "\t\t{{ {last_node_fmt} }}")?;
+
         writeln!(writer, "\t],")?;
-        writeln!(writer, "\t\"links\": [,")?;
+        writeln!(writer, "\t\"links\": [")?;
 
         // write links to json
 
@@ -1350,6 +1362,22 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             for (base, target_id, dir, flipped) in node.l_edges() {
                 let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
                 writeln!(writer, "\t\t{{ {edge_fmt} }},")?;
+            }
+        }
+
+        // eges for last node without comma
+        // write edges to the right
+        for (base, target_id, dir, flipped) in last_node.r_edges() {
+            let edge_fmt = edge_properties(&last_node, target_id, base, dir, flipped);
+            writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+        }
+
+        // if not stranded also look at left edges
+        if !self.base.stranded { 
+            // write edges to the right
+            for (base, target_id, dir, flipped) in last_node.l_edges() {
+                let edge_fmt = edge_properties(&last_node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
             }
         }
 

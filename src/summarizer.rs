@@ -923,7 +923,7 @@ impl SummaryData<ID> for IDData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1008,7 +1008,7 @@ impl SummaryData<ID> for IDSumData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2056,7 +2056,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
-        format!("\"ids \": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2229,7 +2229,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
-        format!("\"ids \": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2347,7 +2347,7 @@ impl SummaryData<IDTag> for IDEMData{
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2451,7 +2451,7 @@ impl SummaryData<IDTag> for IDMapEMData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}", ) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}", ) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2563,7 +2563,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": \"{}\"", self.quality) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": \"{}\"", self.quality) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
