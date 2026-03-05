@@ -842,13 +842,9 @@ impl SummaryData<Tag> for Vec<Tag> {
                 .iter()
                 .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
                 .collect::<Vec<_>>();
-            format!("\"samples\": {}", 
-                format!("{:?}", samples)
-            )
+            format!("\"samples\": {:?}", samples)
         } else {
-            format!("\"samples\": {}", 
-                format!("{:?}", self)
-            )
+            format!("\"samples\": {:?}", self)
         } 
     }
 

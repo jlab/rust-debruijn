@@ -1340,7 +1340,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             // write edges to the right
             for (base, target_id, dir, flipped) in node.r_edges() {
                 let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
-                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+                writeln!(writer, "\t\t{{ {edge_fmt} }},")?;
             }
 
             // if stranded, continue, else also look at left edges
@@ -1349,7 +1349,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             // write edges to the right
             for (base, target_id, dir, flipped) in node.l_edges() {
                 let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
-                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+                writeln!(writer, "\t\t{{ {edge_fmt} }},")?;
             }
         }
 
