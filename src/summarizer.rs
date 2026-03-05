@@ -843,11 +843,11 @@ impl SummaryData<Tag> for Vec<Tag> {
                 .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
                 .collect::<Vec<_>>();
             format!("\"samples\": {}", 
-                format!("{:?}", samples).replace("\"", "")
+                format!("{:?}", samples)
             )
         } else {
             format!("\"samples\": {}", 
-                format!("{:?}", self).replace("\"", "")
+                format!("{:?}", self)
             )
         } 
     }
@@ -927,7 +927,7 @@ impl SummaryData<ID> for IDData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", "")) // rempve " to avoid conflicts in json file
+        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1012,7 +1012,7 @@ impl SummaryData<ID> for IDSumData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", ""), self.sum) // rempve " to avoid conflicts in json file
+        format!("\"ids \": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1103,9 +1103,9 @@ impl SummaryData<Tag> for TagsData {
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let labels = if let Some(tag_translator) = translator.tag_translator() {
-            format!("{:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "")
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
-            format!("{:?}", self.tags.to_tag_vec()).replace("\"", "")
+            format!("{:?}", self.tags.to_tag_vec())
         }; // rempve " to avoid conflicts in json file
 
         format!("\"samples\": {labels}")
@@ -1193,9 +1193,9 @@ impl SummaryData<Tag> for TagsSumData {
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let labels = if let Some(tag_translator) = translator.tag_translator() {
-            format!("{:?}", self.tags.to_string_vec(tag_translator)).replace("\"", "")
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
-            format!("{:?}", self.tags.to_tag_vec()).replace("\"", "")
+            format!("{:?}", self.tags.to_tag_vec())
         }; // rempve " to avoid conflicts in json file
 
         format!("\"samples\": {labels}, \"sum\": {}", self.sum)
@@ -1325,7 +1325,7 @@ impl SummaryData<Tag> for TagsCountsSumData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum, self.counts)
     }
@@ -1466,7 +1466,7 @@ impl SummaryData<Tag> for TagsCountsData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
@@ -1608,7 +1608,7 @@ impl SummaryData<Tag> for TagsCountsPData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
@@ -1751,7 +1751,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
@@ -1900,7 +1900,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
     }
@@ -2056,7 +2056,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
@@ -2229,7 +2229,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }.replace("\"", "");
+        };
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
@@ -2351,7 +2351,7 @@ impl SummaryData<IDTag> for IDEMData{
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator).replace("\"", "")) // rempve " to avoid conflicts in json file
+        format!("\"ids \": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2450,10 +2450,12 @@ impl SummaryData<IDTag> for IDMapEMData{
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        let ids_format = id_format(&self.ids, translator, id_group_translator).replace("\"", "");
-        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator).replace("\"", "");
+        let ids_format = id_format(&self.ids, translator, id_group_translator);
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}", ) // rempve " to avoid conflicts in json file
+        let has_mapped = !self.map_ids.is_empty() as usize;
+
+        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}", ) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2560,10 +2562,12 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        let ids_format = id_format(&self.ids, translator, id_group_translator).replace("\"", "");
-        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator).replace("\"", "");
+        let ids_format = id_format(&self.ids, translator, id_group_translator);
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"quality\": {:?}", self.quality) // rempve " to avoid conflicts in json file
+        let has_mapped = !self.map_ids.is_empty() as usize;
+
+        format!("\"ids \": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": \"{}\"", self.quality) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }

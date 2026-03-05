@@ -2835,7 +2835,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
             String::from("")
         };
 
-        format!("\"source\": {}, \"target\": {target_node_id}, \"source_b\": {}, \"target_b\": {}, \"dir\": {dir}{value}",
+        format!("\"source\": {}, \"target\": {target_node_id}, \"source_b\": \"{}\", \"target_b\": \"{}\", \"dir\": {dir}{value}",
             self.node_id,
             bits_to_base(base),
             bits_to_base(nb_base),
@@ -2852,7 +2852,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
 
         let data_info = self.data().print_json(translator, config, translate_id_groups);
 
-        format!("\"id\": {}, \"len\": {}, \"seq\": {}, \"hue\": {hue}, {data_info}",
+        format!("\"id\": {}, \"len\": {}, \"seq\": \"{}\", \"hue\": {hue}, {data_info}",
             self.node_id,
             self.len(),
             self.sequence(),
