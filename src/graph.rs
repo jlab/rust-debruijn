@@ -1296,9 +1296,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         self.to_json_rest(fmt_func, writer, None);
     }
 
-    pub fn iter_optional_partial<'a>(&self, partial_nodes: &'a Option<std::vec::Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
+    pub fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
         if let Some(partial) = partial_nodes {
-            Box::new(partial.into_iter().copied())
+            Box::new(partial.iter().copied())
         } else {
             Box::new(0..self.len())
         }
@@ -1309,7 +1309,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         path: P, 
         node_properties: &FN, 
         edge_properties: &FE, 
-        partial_nodes: &'_ Option<Vec<usize>>
+        partial_nodes: Option<&'_ Vec<usize>>
     ) -> Result<(), Box<dyn std::error::Error>> 
         where 
         P: AsRef<Path>,
@@ -2803,8 +2803,8 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
         // get base in other dir
         let target_node = self.graph.get_node(target_node_id);
         let nb_base = if self.graph.base.stranded {
-            // only look at right edges
-            let Some(nb_base) = target_node.r_edges().iter().filter_map(|(b, id, _in_dir, _flip)|
+            // only look at left edges of target node
+            let Some(nb_base) = target_node.l_edges().iter().filter_map(|(b, id, _in_dir, _flip)|
                 if *id == self.node_id {
                     Some(*b)
                 } else { None }
