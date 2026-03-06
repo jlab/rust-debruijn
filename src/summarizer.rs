@@ -2563,7 +2563,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": \"{}\"", self.quality) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.quality as u8) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
