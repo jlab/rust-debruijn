@@ -1333,7 +1333,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         // do last node separately because of comma
         let last_node_id = match partial_nodes {
-            Some(partial) => partial.len() - 1,
+            Some(partial) => *partial.last().expect("empty parial nodes vector"),
             None => self.len() - 1
         };
 
@@ -1366,6 +1366,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         }
 
         // eges for last node without comma
+        // FIXME only last edge should be without comma, not all edges from last node
         // write edges to the right
         for (base, target_id, dir, flipped) in last_node.r_edges() {
             let edge_fmt = edge_properties(&last_node, target_id, base, dir, flipped);
