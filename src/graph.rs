@@ -1797,9 +1797,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if path has reached max length -> interrupt
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     let current_node = self.get_node(current_node_id);
                     let out_edges = current_node.edges(out_dir);
@@ -1955,7 +1955,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if confirmed_targets.contains(target) {
                     for path in path_group {
                         if let Err(err) = self.remove_path(path.clone(), out_dir) {
-                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}\nerr: {err}", path)
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
                 }
@@ -1965,7 +1965,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
                 if let Err(err) = self.remove_path(path.clone(), out_dir) {
-                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}\nerr: {err}", path)
+                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
 
