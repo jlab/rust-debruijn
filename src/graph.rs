@@ -1756,7 +1756,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
-        //let max_path = 4 * K::k() - 1;
+        let max_path = 20 * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1904,9 +1904,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if we have exceeded the search radius
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     // add current node length to path length
                     let current_node = self.get_node(current_node_id);
