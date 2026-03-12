@@ -2859,7 +2859,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
 
             let count = em.edge_mult(base, dir);
 
-            format!(", \"value\": {count}")
+            format!(", \"strength\": {count}")
         } else {
             String::from("")
         };
