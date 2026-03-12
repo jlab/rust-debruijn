@@ -2998,7 +2998,7 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_data_valid() {
-        use crate::{kmer::Kmer16, serde::SerGraph};
+        use crate::{kmer::Kmer16, test::build_test_graph};
 
         let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
 
@@ -3030,20 +3030,16 @@ mod test {
 
         // larger test
 
-        let ser_graph: SerGraph<Kmer16, TagsCountsSumData> = SerGraph::deserialize_from("test_data/400.graph.dbg");
+        let (_, _, ser_graph) = build_test_graph::<Kmer16, TagsCountsSumData, _>();
         let (graph, _translator, mut config) = ser_graph.dissolve();
 
         config.set_min_kmer_obs(3);
 
-        let node38 = graph.get_node(38);
-        assert!(!node38.data().valid(&config));
+        let node3 = graph.get_node(3);
+        assert!(!node3.data().valid(&config));
 
         let bad_nodes = graph.find_bad_nodes(|node| node.data().valid(&config));
-        let bad_node_correct = vec![0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21,
-            22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 
-            51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 69, 71, 72, 73, 74, 76, 77, 78, 80, 82, 83, 84, 
-            85, 86, 87, 89, 90, 94, 95, 98, 99, 100, 101, 102, 103, 104, 105, 107, 109, 111, 114, 116, 117, 118, 120, 
-            122, 126, 127, 131, 135, 136, 138, 141, 143, 144];
+        let bad_node_correct = vec![3, 15, 20, 21, 23, 35, 36, 37, 40, 41, 46, 58, 61, 66, 67, 76, 77, 80, 89, 98, 99];
         assert_eq!(bad_nodes, bad_node_correct);
         let _filtered_graph = compress_graph(false, &ScmapCompress::new(), graph, Some(bad_nodes));
 
