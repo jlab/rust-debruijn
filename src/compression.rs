@@ -421,7 +421,7 @@ struct CompressFromHash<'a, 'b, K: 'a + Kmer, D: 'a + SummaryData<DI>, DI, S: Co
 }
 
 /// Compression of paths in Debruijn graph
-impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Sync> CompressFromHash<'_, '_, K, D, DI, S> {
+impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Sync> CompressFromHash<'_, '_, K, D, DI, S> {
     fn get_kmer_data(&self, kmer: &K) -> (&Exts, &D) {
         match self.index.get(kmer) {
             Some(data) => data,
@@ -688,7 +688,7 @@ impl<K: Kmer +  Send + Sync, D: Clone + Debug + Send + Sync + SummaryData<DI>, D
 
 /// Take a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
-pub fn compress_kmers_with_hash<K: Kmer + Send + Sync, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
+pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     index: &BoomHashMap2<K, Exts, D>,
@@ -703,7 +703,7 @@ pub fn compress_kmers_with_hash<K: Kmer + Send + Sync, D: Clone + Debug + Send +
 
 /// Take (make) a BoomHash Object and build a compressed DeBruijn graph.
 #[inline(never)]
-pub fn compress_kmers<K: Kmer + Send + Sync, D: Clone + Debug  + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
+pub fn compress_kmers<K: Kmer, D: Clone + Debug  + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     kmer_exts: &[(K, (Exts, D))],

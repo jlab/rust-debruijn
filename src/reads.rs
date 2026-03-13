@@ -877,6 +877,8 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 
 /// Trait for ReadData, [`ID`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
+    /// generate a read data from an ID and a tag
+    fn new(id: ID, tag: Tag) -> Self;
     /// geneate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
     /// if available, get a tag
@@ -886,6 +888,10 @@ pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Deb
 }
 
 impl ReadData for Tag {
+    fn new(_id: ID, tag: Tag) -> Self {
+        tag
+    }
+
     fn read_data(_: &mut BiMap<String, ID>, _: &[u8], tag: Tag) -> Self {
         tag
     }
@@ -900,6 +906,10 @@ impl ReadData for Tag {
 }
 
 impl ReadData for ID {
+    fn new(id: ID, _tag: Tag) -> Self {
+        id    
+    }
+
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], _: Tag) -> Self {
 
         // read name is e.g. "B7R87_RS28825_2_0/1" -> gene: "B7R87_RS28825"
@@ -942,6 +952,10 @@ impl ReadData for ID {
 }
 
 impl ReadData for IDTag {
+    fn new(id: ID, tag: Tag) -> Self {
+        Self::new(id, tag)
+    }
+
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self {
         let id = ID::read_data(gene_ids, read_name, tag);
         IDTag::new(id, tag)

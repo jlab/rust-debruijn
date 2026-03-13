@@ -8,6 +8,7 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
+use itertools::chain;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -29,6 +30,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::usize;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -1294,6 +1296,98 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         self.to_json_rest(fmt_func, writer, None);
     }
 
+    // iterate over graph or parial node IDs while leaving out the last node
+    fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
+        if let Some(partial) = partial_nodes {
+            Box::new(partial[..(partial.len()-1)].iter().copied())
+        } else {
+            Box::new(0..(self.len()-1))
+        }
+    }
+
+    /// write the graph or parts of the graph to a json file to view in 3d
+    pub fn to_json_3d<P, FN, FE>(&self, 
+        path: P, 
+        node_properties: &FN, 
+        edge_properties: &FE, 
+        partial_nodes: Option<&'_ Vec<usize>>
+    ) -> Result<(), Box<dyn std::error::Error>> 
+        where 
+        P: AsRef<Path>,
+        FN: Fn(&Node<K, D>) -> String,
+        FE: Fn(&Node<K, D>, usize, u8, Dir, bool) -> String,
+    {
+        let mut writer = BufWriter::new(File::create(path)?);
+
+        writeln!(writer, "{{")?;
+        writeln!(writer, "\t\"nodes\": [")?;
+
+        // write nodes to json
+
+        for node_id in self.iter_optional_partial(partial_nodes) {
+            let node = self.get_node(node_id);
+            let node_fmt = node_properties(&node);
+
+            writeln!(writer, "\t\t{{ {node_fmt} }},")?;
+        }
+
+        // do last node separately because of comma
+        let last_node_id = match partial_nodes {
+            Some(partial) => *partial.last().expect("empty parial nodes vector"),
+            None => self.len() - 1
+        };
+
+        let last_node = self.get_node(last_node_id);
+        let last_node_fmt = node_properties(&last_node);
+
+        writeln!(writer, "\t\t{{ {last_node_fmt} }}")?;
+
+        writeln!(writer, "\t],")?;
+        writeln!(writer, "\t\"links\": [")?;
+
+        // write links to json
+
+        for node_id in self.iter_optional_partial(partial_nodes) {
+            let node = self.get_node(node_id);
+            // write edges to the right
+            for (base, target_id, dir, flipped) in node.r_edges() {
+                let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }},")?;
+            }
+
+            // if stranded, continue, else also look at left edges
+            if self.base.stranded { continue; }
+
+            // write edges to the right
+            for (base, target_id, dir, flipped) in node.l_edges() {
+                let edge_fmt = edge_properties(&node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }},")?;
+            }
+        }
+
+        // eges for last node without comma
+        // FIXME only last edge should be without comma, not all edges from last node
+        // write edges to the right
+        for (base, target_id, dir, flipped) in last_node.r_edges() {
+            let edge_fmt = edge_properties(&last_node, target_id, base, dir, flipped);
+            writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+        }
+
+        // if not stranded also look at left edges
+        if !self.base.stranded { 
+            // write edges to the right
+            for (base, target_id, dir, flipped) in last_node.l_edges() {
+                let edge_fmt = edge_properties(&last_node, target_id, base, dir, flipped);
+                writeln!(writer, "\t\t{{ {edge_fmt} }}")?;
+            }
+        }
+
+        writeln!(writer, "\t]")?;
+        writeln!(writer, "}}")?;
+
+        Ok(())
+    }
+
     /// Print a text representation of the graph.
     pub fn print(&self) {
         println!("DebruijnGraph {{ len: {}, K: {} }} :", self.len(), K::k());
@@ -1653,7 +1747,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`
-    pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
+    pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
@@ -1662,7 +1756,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
-        //let max_path = 4 * K::k() - 1;
+        let max_path = max_path_fac * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1703,9 +1797,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if path has reached max length -> interrupt
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     let current_node = self.get_node(current_node_id);
                     let out_edges = current_node.edges(out_dir);
@@ -1810,9 +1904,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if we have exceeded the search radius
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     // add current node length to path length
                     let current_node = self.get_node(current_node_id);
@@ -1861,7 +1955,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if confirmed_targets.contains(target) {
                     for path in path_group {
                         if let Err(err) = self.remove_path(path.clone(), out_dir) {
-                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}\nerr: {err}", path)
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
                 }
@@ -1871,7 +1965,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
                 if let Err(err) = self.remove_path(path.clone(), out_dir) {
-                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}\nerr: {err}", path)
+                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
 
@@ -2707,7 +2801,7 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
     where SD: SummaryData<DI>
     {
         // set color based on labels/fold change/p-value
-        let color = colors.node_color(self.data(), config, outline);
+        let color = colors.node_color_dot(self.data(), config, outline);
         let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
 
         let data_info = self.data().print(translator, config, translate_id_groups);
@@ -2723,6 +2817,75 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
         ), wrap);
 
         format!("[{color}, label=\"{label}\"]")
+    }
+
+    // get the default properties for json edges
+    pub fn edge_json_default<DI>(&self, target_node_id: usize, base: u8, incoming_dir: Dir, flipped: bool) -> String 
+    where SD: SummaryData<DI>
+    {
+        // set color based on dir
+        let dir = match incoming_dir {
+            Dir::Right => 0,
+            Dir::Left => 1
+        };
+
+        // get base in other dir
+        let target_node = self.graph.get_node(target_node_id);
+        let nb_base = if self.graph.base.stranded {
+            // only look at left edges of target node
+            let Some(nb_base) = target_node.l_edges().iter().filter_map(|(b, id, _in_dir, _flip)|
+                if *id == self.node_id {
+                    Some(*b)
+                } else { None }
+            ).next() else { panic!("missing neighbor") };
+            nb_base
+        } else {
+            // look at edges in either direction
+            let Some(nb_base) = target_node.r_edges().iter().chain(target_node.l_edges().iter()).filter_map(|(b, id, _in_dir, _flip)|
+                if *id == self.node_id {
+                    Some(*b)
+                } else { None }
+            ).next() else { panic!("missing neighbor") };
+            nb_base
+        };
+        
+        let value = if let Some(em) = self.data().edge_mults() {
+            
+            let dir = if flipped { 
+                incoming_dir 
+            } else {
+                incoming_dir.flip()
+            };
+
+            let count = em.edge_mult(base, dir);
+
+            format!(", \"strength\": {count}")
+        } else {
+            String::from("")
+        };
+
+        format!("\"source\": {}, \"target\": {target_node_id}, \"source_b\": \"{}\", \"target_b\": \"{}\", \"dir\": {dir}{value}",
+            self.node_id,
+            bits_to_base(base),
+            bits_to_base(nb_base),
+        )
+    }
+
+    /// get default properties for json nodes, based on node data
+    pub fn node_json_default<DI>(&self, colors: &Colors<SD, DI>, config: &SummaryConfig, translator: &Translator, translate_id_groups: bool) -> String
+    where SD: SummaryData<DI>
+    {
+        // set hue based on node data
+        let hue = colors.hue_json(self.data(), config);
+        let translate_id_groups = if translate_id_groups { colors.id_group_ids() } else { None };
+
+        let data_info = self.data().print_json(translator, config, translate_id_groups);
+
+        format!("\"id\": {}, \"len\": {}, \"seq\": \"{}\", \"hue\": {hue}, {data_info}",
+            self.node_id,
+            self.len(),
+            self.sequence(),
+        )
     }
 }
 
@@ -2944,7 +3107,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -2952,24 +3115,17 @@ mod test {
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_components() {
+        use crate::{kmer::Kmer16, test::build_test_graph};
 
-        // cargo run -- -i data/test_400.fastq.gz -o ../rust-debruijn/test_data/400 -s tags-counts-sum -k 18 -t t
-
-        use crate::{kmer::Kmer16, serde::SerGraph};
-        let path = "test_data/400.graph.dbg";
-
-        let ser_graph: SerGraph<Kmer16, TagsCountsSumData> = SerGraph::deserialize_from(path);
+        let (_, _, ser_graph) = build_test_graph::<Kmer16, TagsCountsSumData, _>();
         let graph = ser_graph.graph();
 
         let components = graph.iter_components();
 
         let check_components = [
-            vec![3, 67, 130, 133, 59, 119, 97, 110, 68, 137, 29, 84, 131, 43, 30, 91, 14, 70, 79, 142, 136, 105, 103, 62, 
-                141, 104, 134, 88, 38, 81, 108, 92, 135, 96, 116, 121, 63, 124, 106, 129, 132, 126, 93, 109, 83, 112, 118, 
-                123, 125, 78, 122, 115, 75, 128, 140, 111, 26, 143, 113],
-            vec![41, 138, 100, 139, 86],
-            vec![53, 117, 127],
-            vec![69, 144, 77, 120, 114, 107, 101],
+            vec![0, 7, 43, 24, 47, 22, 37, 89, 25, 79, 63, 95, 64, 9, 96, 13, 11, 86, 74, 71, 92, 51, 94, 45, 12, 76, 21],
+            vec![1, 54, 44, 5, 57, 65, 84, 10, 58, 35, 42, 73, 30, 83, 77, 15, 80, 72, 81, 78, 67, 49, 69, 91, 2, 90, 33, 87, 55, 8, 17, 88, 31, 56, 52, 27, 4, 6, 99, 40, 93, 28, 26, 62, 59, 97, 82, 46],
+            vec![3, 41, 36, 34, 38, 85, 75, 19, 48, 16, 61, 66, 23, 20, 14, 18, 39, 29, 70, 32, 50, 53, 68, 60, 98],
         ];
 
         let mut counter = 0;
@@ -2981,7 +3137,11 @@ mod test {
                 counter += 1;
             }
         }
-        assert_eq!(vec![(139, Dir::Left)], graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true));
+
+        assert_eq!(
+            vec![(88, Dir::Left), (17, Dir::Left), (8, Dir::Left), (55, Dir::Left), (87, Dir::Left), (33, Dir::Left), (90, Dir::Left), (2, Dir::Left), (91, Dir::Left), (69, Dir::Left), (49, Dir::Left), (78, Dir::Left), (81, Dir::Left), (72, Dir::Left), (1, Dir::Left), (54, Dir::Left), (44, Dir::Left), (5, Dir::Left), (57, Dir::Left)], 
+            graph.max_path(|data| data.sum().unwrap_or(1) as f32, |_| true)
+        );
     }
 
     #[test]
@@ -3014,26 +3174,18 @@ mod test {
         assert_eq!(check_edges, edges);
     }
 
-    // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
-    #[cfg(not(feature = "sample128"))]
-    const TEST_GRAPH: &str = "test_data/marbel_100_sum.kmers.dbg";
-
-    // cargo run --features sample128 -- -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum_128 --checkpoint -k 22
-    #[cfg(feature = "sample128")]
-    const TEST_GRAPH: &str = "test_data/marbel_100_sum_128.kmers.dbg";
-
     #[test]
     fn test_map_transcripts() {
-        // dbg -c ../marbel_datasets/sim_reads_100.csv -s sum --stranded -o ../rust-debruijn/test_data/marbel_100_sum --checkpoint -k 22
-        let graph_path = TEST_GRAPH;
-        let t_ref_path = "test_data/marbel_100_tr_ref.fasta";
-        let (kmers, mut translator, _) = SerKmers::<Kmer22, u32>::deserialize_from(graph_path).dissolve();
+        let t_ref_path = "test_data/test_transcriptome_reference.fasta";
+        let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
+        let (kmers, mut translator, _) = ser_kmers.dissolve();
+
 
         let unc_graph = uncompressed_graph(&kmers, true).finish();
 
         let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
         assert_eq!(t_map.len(), unc_graph.len());
-        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 10720);
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
     }
 
     fn build_reads_quality_test() -> ReadsPaired<IDTag> {
@@ -3173,7 +3325,7 @@ mod test {
 
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
+        unc_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
@@ -3200,7 +3352,7 @@ mod test {
 
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
+        c_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
