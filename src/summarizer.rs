@@ -202,7 +202,7 @@ impl SummaryConfig {
         self.frac_cutoff = frac_cutoff;
     }
 
-    fn with_sample_info(&mut self, sample_info: SampleInfo) -> Self {
+    fn with_sample_info(self, sample_info: SampleInfo) -> Self {
         let mut config = self.clone();
         config.sample_info = sample_info;
         config
@@ -3101,5 +3101,31 @@ mod test {
         assert_eq!("[\"A\", \"B\", \"C\"]", id_format(&[0, 1, 2], &translator, None));
         assert_eq!("[0, 1]", id_format(&[0, 1, 5], &translator, Some(&id_gr_tr)));
         assert_eq!("[0, 1, 2]", id_format(&[0, 1, 2], &e_tr, None));
+    }
+
+    #[test]
+    fn test_summary_config() {
+        let sample_info = SampleInfo::new(0b11, 0b1100, vec![12, 12, 12, 12]);
+        let config1 = SummaryConfig::new(sample_info.clone())
+            .with_group_frac(summarizer::GroupFrac::One, 0.3)
+            .with_max_p(Some(0.3))
+            .with_min_kmer_obs(2)
+            .with_min_quality(crate::BaseQuality::Marginal)
+            .with_significant(Some(4))
+            .with_stat_test(summarizer::StatTest::StudentsTTest);
+
+        let config2 = SummaryConfig {
+            min_kmer_obs: 2,
+            significant: Some(4),
+            group_frac: summarizer::GroupFrac::One,
+            frac_cutoff: 0.3,
+            sample_info,
+            max_p: Some(0.3),
+            stat_test: summarizer::StatTest::StudentsTTest,
+            stat_test_changed: false,
+            min_quality: crate::BaseQuality::Marginal,
+        };
+
+        assert_eq!(config1, config2)
     }
 }

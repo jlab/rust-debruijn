@@ -130,6 +130,24 @@ fn test_colors() {
     remove_file("test_gfa_tags.gfa").unwrap();
     remove_file("test_gfa_parallel.gfa").unwrap();
     remove_file("test_gfa_partial.gfa").unwrap();
+
+    // write to json (3d)
+    graph.to_json_3d(
+        "test_json_partial.json", 
+        &|node| node.node_json_default(&colors, &config, &translator, false), 
+        &|node, target_id, base, dir, flipped| node.edge_json_default(target_id, base, dir, flipped),
+        Some(&vec![0, 1, 2, 3])
+    ).unwrap();
+
+    graph.to_json_3d(
+        "test_json.json", 
+        &|node| node.node_json_default(&colors, &config, &translator, false), 
+        &|node, target_id, base, dir, flipped| node.edge_json_default(target_id, base, dir, flipped),
+        None
+    ).unwrap();
+
+    remove_file("test_json.json").unwrap();
+    remove_file("test_json_partial.json").unwrap();
 }
 
 
