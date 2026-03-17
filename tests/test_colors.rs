@@ -28,7 +28,7 @@ fn test_colors() {
     assert_eq!("[color=blue, penwidth=17.366667, label=\"T: 7\", weight=7]", node.edge_dot_default(&colors, 3, debruijn::Dir::Left, true));
 
     // with json
-    assert_eq!("\"id\": 57, \"len\": 18, \"seq\": \"AGGCAGGACGCATTACTA\", \"hue\": 80, \"ids\": [\"gene2\", \"gene4\"], \"sum\": 8, \"samples\": [\"sample2\", \"sample4\"], \"counts\": [3, 5], \"p_value\": , p-value: 0.7896464, \"fold_change\": , log2(fold change): 0.7369656", node.node_json_default(&colors, &config, &translator, true));
+    assert_eq!("\"id\": 57, \"len\": 18, \"seq\": \"AGGCAGGACGCATTACTA\", \"hue\": 80, \"ids\": [\"gene2\", \"gene4\"], \"sum\": 8, \"samples\": [\"sample2\", \"sample4\"], \"counts\": [3, 5], \"p_value\": 0.7896464, \"fold_change\": 0.7369656", node.node_json_default(&colors, &config, &translator, true));
     assert_eq!("\"source\": 57, \"target\": 83, \"source_b\": \"T\", \"target_b\": \"G\", \"dir\": 0, \"strength\": 8", node.edge_json_default(83, 3, debruijn::Dir::Right, true));
 
     // test with color mode SampleGroups
@@ -48,7 +48,7 @@ fn test_colors() {
     assert_eq!("[style=filled, color=\"0 1 1\", fontcolor=black, label=\"id: 28, len: 27, exts: T|A, seq:\nTATATATCATTATTTTTTTCTATAAAA\nIDs: ['gene2'], samples              -\ncounts\nsample2              - 5\nsum: 5, p-value: 0.5, log2(fold change):\n-inf, edge coverage:\nA: 0 | 4\nC: 0 | 0\nG: 0 | 0\nT: 5 | 0\n\"]", node.node_dot_default(&colors, &config, &translator, false, false));
 
     // with json
-    assert_eq!("\"id\": 28, \"len\": 27, \"seq\": \"TATATATCATTATTTTTTTCTATAAAA\", \"hue\": 0, \"ids\": [\"gene2\"], \"sum\": 5, \"samples\": [\"sample2\"], \"counts\": [5], \"p_value\": , p-value: 0.5, \"fold_change\": , log2(fold change): -inf", node.node_json_default(&colors, &config, &translator, false));
+    assert_eq!("\"id\": 28, \"len\": 27, \"seq\": \"TATATATCATTATTTTTTTCTATAAAA\", \"hue\": 0, \"ids\": [\"gene2\"], \"sum\": 5, \"samples\": [\"sample2\"], \"counts\": [5], \"p_value\": 0.5, \"fold_change\": -inf", node.node_json_default(&colors, &config, &translator, false));
 
     // test with color mode IDs
 
@@ -71,7 +71,7 @@ fn test_colors() {
     assert_eq!("[shape=rectangle, style=striped, color=\"0.5 1 1\", fontcolor=black, label=\"id: 36, len: 20, exts: C|C, seq:\nTATATTACGCGATAAAGAGC\nIDs: ['gene3'], samples              -\ncounts\nsample3              - 6\nsum: 6, p-value: 0.5, log2(fold change):\ninf, edge coverage:\nA: 0 | 0\nC: 5 | 5\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors_ids, &config, &translator, false, false));
 
     // with json
-    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"sum\": 6, \"samples\": [\"sample3\"], \"counts\": [6], \"p_value\": , p-value: 0.5, \"fold_change\": , log2(fold change): inf", node.node_json_default(&colors, &config, &translator, false));
+    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"sum\": 6, \"samples\": [\"sample3\"], \"counts\": [6], \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors, &config, &translator, false));
 
     // test with color mode IDGroups
 
@@ -96,7 +96,7 @@ fn test_colors() {
     assert_eq!("[shape=rectangle, style=striped, color=\"0.2 1 1\", fontcolor=black, label=\"id: 36, len: 20, exts: C|C, seq:\nTATATTACGCGATAAAGAGC\nIDs: [1], samples              - counts\nsample3              - 6\nsum: 6, p-value: 0.5, log2(fold change):\ninf, edge coverage:\nA: 0 | 0\nC: 5 | 5\nG: 0 | 0\nT: 0 | 0\n\"]", node.node_dot_default(&colors_ids, &config, &translator, false, true));
 
     // with json
-    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"sum\": 6, \"samples\": [\"sample3\"], \"counts\": [6], \"p_value\": , p-value: 0.5, \"fold_change\": , log2(fold change): inf", node.node_json_default(&colors, &config, &translator, false));
+    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"sum\": 6, \"samples\": [\"sample3\"], \"counts\": [6], \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors, &config, &translator, false));
     
     // write node to dot
 
