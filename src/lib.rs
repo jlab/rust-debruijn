@@ -1056,6 +1056,11 @@ impl Tags {
     pub fn iter(&self) -> TagsIterator {
         TagsIterator::new(*self)
     }
+
+    /// get the memory of the [`Tags`] (depends on activated features)
+    pub fn mem(&self) -> usize {
+        mem::size_of::<Marker>()
+    }
 }
 
 impl fmt::Debug for Tags {

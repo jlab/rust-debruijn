@@ -848,7 +848,9 @@ impl SummaryData<Tag> for Vec<Tag> {
         } 
     }
 
-    fn tags(&self) -> Option<Tags> { None }
+    fn tags(&self) -> Option<Tags> { 
+        Some(Tags::from_tag_vec(self.clone()))
+    }
 
     fn mem(&self) -> usize {
         mem::size_of_val(&**self) + mem::size_of_val(self)
@@ -1308,12 +1310,12 @@ impl SummaryData<Tag> for TagsCountsSumData {
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -1323,7 +1325,7 @@ impl SummaryData<Tag> for TagsCountsSumData {
             format!("{:?}", self.tags.to_tag_vec())
         };
 
-        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum, self.counts)
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum, self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1449,12 +1451,12 @@ impl SummaryData<Tag> for TagsCountsData {
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -1464,7 +1466,7 @@ impl SummaryData<Tag> for TagsCountsData {
             format!("{:?}", self.tags.to_tag_vec())
         };
 
-        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1591,12 +1593,12 @@ impl SummaryData<Tag> for TagsCountsPData {
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -1606,7 +1608,7 @@ impl SummaryData<Tag> for TagsCountsPData {
             format!("{:?}", self.tags.to_tag_vec())
         };
 
-        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1734,12 +1736,12 @@ impl SummaryData<Tag> for TagsCountsEMData {
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -1749,7 +1751,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
             format!("{:?}", self.tags.to_tag_vec())
         };
 
-        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -1883,12 +1885,12 @@ impl SummaryData<Tag> for TagsCountsPEMData{
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -1898,7 +1900,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
             format!("{:?}", self.tags.to_tag_vec())
         };
 
-        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2039,12 +2041,12 @@ impl SummaryData<IDTag> for IDTagsCountsData {
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -2056,7 +2058,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
-        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2212,12 +2214,12 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
 
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
-            Some(p) => format!(", p-value: {}", p),
+            Some(p) => format!(", \"p_value\": {}", p),
             None => "".to_string()
         };
 
         let fc = match self.fold_change(config) {
-            Some(fc) => format!(", log2(fold change): {}", fc),
+            Some(fc) => format!(", \"fold_change\": {}", fc),
             None => "".to_string()
         };
 
@@ -2229,7 +2231,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
 
         let ids = id_format(&self.ids, translator, id_group_translator);
 
-        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}, \"p_value\": {p}, \"fold_change\": {fc}", self.sum(), self.counts)
+        format!("\"ids\": {ids}, \"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}", self.sum(), self.counts)
     }
 
     fn tags(&self) -> Option<Tags> {
@@ -2457,7 +2459,7 @@ impl SummaryData<IDTag> for IDMapEMData{
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids) + mem::size_of_val(&*self.map_ids)
     }
 
     fn sum(&self) -> Option<usize> { None }
@@ -2569,7 +2571,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
+        mem::size_of_val(self) + mem::size_of_val(&*self.ids) + mem::size_of_val(&*self.map_ids)
     }
 
     fn sum(&self) -> Option<usize> { None }
