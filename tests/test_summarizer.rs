@@ -269,7 +269,7 @@ fn test_summary_data() {
         print_ol: "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"sum\": 6".to_string(),
         tags,
-        mem: t_m + s_m,
+        mem: size_aligned(t_m + s_m, 0, t_m),
         sum,
         ids: None,
         p_value: None,
