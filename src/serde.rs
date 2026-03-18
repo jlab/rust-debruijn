@@ -241,7 +241,7 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{ID, IDSumData, Summarizers}, test::build_test_graph};
+    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, IDTag, Summarizers}, test::build_test_graph};
 
     use super::SerReads;
 
@@ -254,13 +254,13 @@ mod test {
         let all = ser_reads.dissolve();
         assert_eq!(cloned_ser_reads.reads(), &all.0);
         assert_eq!(cloned_ser_reads.translator(), &all.1);
-        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::ID);
+        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::IDTag);
 
         let ser_reads = SerReads::new(all.0, all.1);
         let ser_path = "test_data/new_ser_reads";
         ser_reads.serialize(ser_path);
 
-        let new_ser_reads: SerReads<ID> = SerReads::deserialize_from(ser_path);
+        let new_ser_reads: SerReads<IDTag> = SerReads::deserialize_from(ser_path);
         assert_eq!(ser_reads, new_ser_reads);
         remove_file(ser_path).unwrap();
     }

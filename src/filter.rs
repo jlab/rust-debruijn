@@ -717,7 +717,6 @@ where
                 all_kmers.reserve_exact(size);
             }
 
-
             // group the tuples by the k-mers and iterate over the groups
             for (kmer, kmer_obs_iter) in kmer_vec.into_iter().chunk_by(|elt| elt.kmer).into_iter() {
                 // summarize group with chosen summarizer and add result to vectors
