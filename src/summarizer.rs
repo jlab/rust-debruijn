@@ -2063,6 +2063,188 @@ impl SummaryData<Tag> for TagsCountsPEMData{
     }
 }
 
+// Implementation of [`SummaryData<Tag>`]
+/// 
+/// Contains the tags the k-mer was observed with, how many times it 
+/// was observed with each label, a p-value, and the edge multiplicites/coverage
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TagsCountsPEMQualityData {
+    tags: Tags,
+    counts: Box<[u32]>,
+    p_value: f32,
+    edge_mults: EdgeMult,
+    quality: BaseQuality,
+}
+
+impl TagsCountsPEMQualityData {
+    #[inline]
+    pub fn sum(&self) -> u32 {
+        self.counts.iter().sum::<u32>()
+    }
+}
+
+impl SummaryData<Tag> for TagsCountsPEMQualityData{
+    fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        format!("{}sum: {}{}{}, quality: {}, edge coverage: \n{}", 
+            TagsCountsFormatter::new(self.tags, &self.counts, translator), 
+            self.sum(), 
+            p, 
+            fc, 
+            self.quality, 
+            self.edge_mults
+        ).replace("\"", "\'")
+    }
+
+    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", p-value: {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", log2(fold change): {}", fc),
+            None => "".to_string()
+        };
+
+        if let Some(tag_translator) = translator.tag_translator() {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, quality: {}, edge coverage: {:?}", 
+                self.tags.to_string_vec(tag_translator), 
+                self.counts, self.sum(), 
+                p, 
+                fc, 
+                self.quality, 
+                self.edge_mults
+            )
+        } else {
+            format!("samples: {:?}, counts: {:?}, sum: {}{}{}, quality: {}, edge coverage: {:?}", 
+                self.tags.to_tag_vec(), 
+                self.counts, 
+                self.sum(), 
+                p, 
+                fc, 
+                self.quality, 
+                self.edge_mults
+            )
+        }.replace("\"", "\'")    
+    }
+
+    fn print_json(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let p = match self.p_value(config) {
+            Some(p) => format!(", \"p_value\": {}", p),
+            None => "".to_string()
+        };
+
+        let fc = match self.fold_change(config) {
+            Some(fc) => format!(", \"fold_change\": {}", fc),
+            None => "".to_string()
+        };
+
+        let labels = if let Some(tag_translator) = translator.tag_translator() {
+            format!("{:?}", self.tags.to_string_vec(tag_translator))
+        } else {
+            format!("{:?}", self.tags.to_tag_vec())
+        };
+
+        format!("\"sum\": {}, \"samples\": {labels}, \"counts\": {:?}{p}{fc}, \"quality\": {}", self.sum(), self.counts, self.quality as u8)
+    }
+
+    fn tags(&self) -> Option<Tags> {
+        Some(self.tags)
+    }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.counts)
+    }
+
+    fn sum(&self) -> Option<usize> {
+        Some(self.counts.iter().sum::<u32>() as usize)
+    }
+
+    fn ids(&self) -> Option<&[ID]> { None }
+
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
+        if config.stat_test_changed {
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+        } else {
+            Some(self.p_value)
+        } 
+    }
+
+    fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
+        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+    }
+
+    fn sample_count(&self) -> Option<usize> {
+        Some(self.counts.len())
+    }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
+    }
+
+    fn quality(&self) -> Option<BaseQuality> { 
+        Some(self.quality)
+    }
+
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
+
+    fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.counts == other.counts
+            && self.tags == other.tags
+            && self.p_value == other.p_value
+            && self.quality == other.quality
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool {
+        valid_counts(self.tags, Some(self.sum()), config) 
+            && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
+            && self.quality >= config.min_quality
+    }
+
+    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let summary = summarize_tags_edge_q(items, config);
+
+        // caluclate p-value with chosen test
+        let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
+        let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
+
+        let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+        let valid_q = quality >= config.min_quality;
+
+        let counts: Box<[u32]> = summary.tag_counts.into();
+        let tags = Tags::from_tag_vec(summary.tag_vec);
+
+        let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;  
+
+        (valid, summary.all_exts, TagsCountsPEMQualityData { tags, counts, p_value, edge_mults: summary.edge_mults, quality }) 
+    }
+
+    fn summarizer() -> Summarizers {
+        Summarizers::TagsCountsPEMQuality
+    }
+}
+
+
 /// Implementation of [`SummaryData<IDTag>`]
 /// 
 /// Contains the tags the k-mer was observed with and how many times it 
@@ -2702,17 +2884,17 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
-
+        
+        let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
+        
         // caluclate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };
+        let valid_q = quality >= config.min_quality;
 
         let ids = summary.id_vec.into();
         let tags = Tags::from_tag_vec(summary.tag_vec);
 
         let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-
-        let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
 
         (valid, summary.all_exts, IDMapEMQualityData { ids, map_ids: Vec::new().into(), edge_mults: summary.edge_mults, quality }) 
     }
@@ -2941,6 +3123,7 @@ pub enum Summarizers {
     TagsCountsP,
     TagsCountsEM,
     TagsCountsPEM,
+    TagsCountsPEMQuality,
     IDTagsCounts,
     IDTagsCountsPEM,
     IDEM,
@@ -2955,7 +3138,7 @@ mod test {
     
 
     use bimap::BiMap;
-    use crate::{Tags, clean_graph::CleanGraph, compression::{ CheckCompress, ScmapCompress, compress_graph, compress_kmers_with_hash}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, Node}, kmer::{Kmer8, Kmer16}, reads::{Reads, ReadsPaired}, summarizer::{self, ID, IDData, IDMapEMQualityData, IDTag, NotEnoughSamplesError, SampleInfo, SummaryData, TagsData, Translator, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test}};
+    use crate::{Tags, clean_graph::CleanGraph, compression::{ CheckCompress, ScmapCompress, compress_graph, compress_kmers_with_hash}, dna_string::DnaString, filter::filter_kmers, graph::{BaseGraph, Node}, kmer::{Kmer8, Kmer16}, reads::{Reads, ReadsPaired}, summarizer::{self, ID, IDData, IDTag, NotEnoughSamplesError, SampleInfo, SummaryData, TagsData, Translator, id_format, p_value, students_t_test, u_test, valid_p, welchs_t_test}};
     use crate::Exts;
 
     use super::{log2_fold_change, round_digits, SummaryConfig, TagsCountsSumData};

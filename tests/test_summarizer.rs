@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -111,7 +111,6 @@ fn test_summary_data() {
     // input
 
     let (input_tags, mut config, translator) = get_summary_input();
-    let (input_ids, _, _) = get_summary_input();
     let (input_id_tags, _, _) = get_summary_input();
 
     let sum = Some(input_tags.len());
@@ -142,7 +141,7 @@ fn test_summary_data() {
     let mi_m_h = 3 * mem::size_of::<ID>(); // ids, depend on feature
 
     let quality = Some(BaseQuality::Medium);
-    let q_m = 1; // BaseQuality
+    let q_m = 1; // BaseQuality (enum -> u8)
 
     let valid = true;
 
@@ -194,7 +193,7 @@ fn test_summary_data() {
 
     // IDData
 
-    let test_data = test_summarize::<IDData, Kmer8, _, _>(input_ids.into_iter(), &config, &translator);
+    let test_data = test_summarize::<IDData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
         print: "IDs: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "IDs: ['0', '1', '2', '3', '7', '8']".to_string(),
@@ -217,7 +216,7 @@ fn test_summary_data() {
 
     // IDSumData
 
-    let test_data = test_summarize::<IDSumData, Kmer8, _, _>(input_ids.into_iter(), &config, &translator);
+    let test_data = test_summarize::<IDSumData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
         print: "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(),
         print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(),
@@ -395,6 +394,29 @@ fn test_summary_data() {
         mapped_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsPEM,
+    };
+
+    assert_eq!(test_data, compare_data);
+
+    // TagsCountsPEMQualityData
+
+    let test_data = test_summarize::<TagsCountsPEMQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
+    let compare_data = SummaryTest {
+        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, quality: medium, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405, \"quality\": 2".to_string(),
+        tags,
+        mem: size_aligned(t_m + c_m_s + p_m + em_m + q_m, c_m_h, t_m),
+        sum,
+        ids: None,
+        p_value,
+        fold_change,
+        sample_count,
+        edge_mults:  edge_mults.clone(),
+        quality,
+        mapped_ids: None,
+        valid,
+        summarizer: Summarizers::TagsCountsPEMQuality,
     };
 
     assert_eq!(test_data, compare_data);
