@@ -124,7 +124,69 @@ impl Display for NotEnoughSamplesError {
     }
 }
 
-/// Configuration for summary processes
+/// Configuration for summary processes. It it used to filter the k-mers during
+/// and after graph construction and to make statistical analyses based on k-mer
+/// occurrence in the sample groups. 
+/// 
+/// For any statistical analyses regarding the sample groups, the `SummaryData` 
+/// requires a [`SampleInfo`].
+/// 
+/// The available options are:
+/// - filter the k-mers by 
+///     - their number of occurrences
+///     - their quality based on the phred scores from the reads
+///     - their p-values regarding sample groups
+///     - if they occurr in at least a specific fraction of one or both of
+///       the sample groups 
+/// - filter the k-mer occurrences by the quality - should this disconnect the 
+///   k-mer, alll occurrences will be used
+/// - set the number of occurrences which is stored with the k-mers to be rounded
+///   to a number of significant digits
+/// - choose a statistical test on which the p-value calculation is based, by default 
+///   this is set to Welch's t-test; Student's t-test and the Mann-Whitney U test 
+///   are also available
+/// 
+/// By default, all filter options are turned off.
+/// 
+/// ```
+/// use debruijn::summarizer::{GroupFrac, SummaryConfig, SampleInfo, StatTest};
+/// use debruijn::BaseQuality;
+/// 
+/// let sample_info = SampleInfo::new(0b1100, 0b0011, vec![100, 100, 100, 100]);
+/// let summary_config = SummaryConfig::new(sample_info.clone())
+///     .with_min_kmer_obs(2)
+///     .with_min_quality(BaseQuality::Medium)
+///     .with_max_p(Some(0.05)) // can also be none which can avoid p-value calculations and save time
+///     .with_group_frac(GroupFrac::One, 0.3);
+/// 
+/// let summary_config2 = SummaryConfig::new(sample_info.clone())
+///     .with_min_kmer_obs(4)
+///     .with_min_quality_for_edge(BaseQuality::Marginal);
+/// 
+/// let summary_config3 = SummaryConfig::new(sample_info)
+///     .with_significant(Some(5))
+///     .with_stat_test(StatTest::StudentsTTest);
+/// ```
+/// 
+/// To filter an already constructed graph, please use the original `SummaryConfig`
+/// and change the settings in plase with the `set_...` methods. This is so the program
+/// knows that some settings have been changed and corresponding values have
+/// to be re-calculated.
+/// 
+/// ```
+/// use debruijn::summarizer::{SummaryConfig, SampleInfo, StatTest};
+/// use debruijn::BaseQuality;
+/// 
+/// let sample_info = SampleInfo::new(0b1100, 0b0011, vec![100, 100, 100, 100]);
+/// let mut summary_config = SummaryConfig::new(sample_info);
+/// 
+/// // ... construct the graph
+/// 
+/// summary_config.set_max_p(Some(0.05));
+/// summary_config.set_stat_test(StatTest::StudentsTTest);
+/// 
+/// // ...
+/// ```
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
@@ -143,20 +205,14 @@ impl SummaryConfig {
     /// make a new `SummaryConfig`
     /// 
     /// arguments: 
-    /// * `min_kmer_obs`: minimum number of times a k-mer has to be observed in the reads to be valid
-    /// * `significant`: some summaries round numbers to a certain number of digits ([`u32`], counts in [`GroupCountData`] and [`RelCountData`])
-    /// * `group_frac`: a [`GroupFrac`] determining if the k-mers are going to be filtered out
-    ///   based on if they are observed in certain percentage of the samples of each group
-    /// * `frac_cutoff`: the cutoff for `group_frac`
-    /// * `sample_info`: a [`SampleInfo`] with information about the sample groups
-    /// * `max_p`: a maximum p-value which will be used for filtering if applicable
-    /// * `stat_test`: a [`StatTest`], determining which statistical test will be used
-    ///   for calculation of p-values
+    /// * `sample_info`: a [`SampleInfo`] with information about the sample groups,
+    ///   which is required for any statistical analysis
     pub fn new(sample_info: SampleInfo) -> Self {
         SummaryConfig::empty().with_sample_info(sample_info)
     }
 
-    /// make an empty `SummaryConfig`
+    /// make an empty `SummaryConfig`. A proper [`SampleInfo`] is required for any
+    /// statistical analysis regarding sample groups.
     pub fn empty() -> Self {
         SummaryConfig { 
             min_kmer_obs: 0, 
@@ -172,26 +228,37 @@ impl SummaryConfig {
         }
     }
 
+    /// produce a new `SummaryConfig` which will filter k-mers by their number 
+    /// of observations
     pub fn with_min_kmer_obs(&self, min_kmer_obs: usize) -> Self {
         let mut config = self.clone();
         config.min_kmer_obs = min_kmer_obs;
         config
     }
 
+    /// modify the number of k-mers observations required for each k-mer to be 
+    /// included in the graph
     pub fn set_min_kmer_obs(&mut self, min_kmer_obs: usize) {
         self.min_kmer_obs = min_kmer_obs;
     }
 
+    /// produce a new `SummaryConfig` which will round the number of observations
+    /// of the k-mer to `significant_digits`
     pub fn with_significant(&self, significant_digits: Option<u32>) -> Self {
         let mut config = self.clone();
         config.significant = significant_digits;
         config
     }
 
+    /// modify the number signigicant digits the number of observations stored 
+    /// with the k-mer will be rounded to
     pub fn set_significant(&mut self, significant_digits: Option<u32>) {
         self.significant = significant_digits;
     }
 
+    /// produce a new `SummaryConfig` which will require the k-mer to be ovserved
+    /// in at least a fraction of `frac_cutoff` of either one, both or none of the
+    /// sample groups
     pub fn with_group_frac(&self, group_frac: GroupFrac, frac_cutoff: f32) -> Self {
         let mut config = self.clone();
         config.group_frac = group_frac;
@@ -199,54 +266,73 @@ impl SummaryConfig {
         config
     }
 
+    /// modify the group fract settings which require the k-mer to be ovserved
+    /// in at least a fraction of `frac_cutoff` of either one, both or none of the
+    /// sample groups
     pub fn set_group_frac(&mut self, group_frac: GroupFrac, frac_cutoff: f32) {
         self.group_frac = group_frac;
         self.frac_cutoff = frac_cutoff;
     }
 
+    /// produce a new `SummaryConfig` which contains the given [`SampleInfo`]
     fn with_sample_info(self, sample_info: SampleInfo) -> Self {
         let mut config = self.clone();
         config.sample_info = sample_info;
         config
     }
 
+    /// produce a new `SummaryConfig` which will filter k-mers by their p-value
+    /// regarding occurrence in the sample groups
     pub fn  with_max_p(&self, max_p: Option<f32>) -> Self {
         let mut config = self.clone();
         config.max_p = max_p;
         config
     }
 
+    /// modify the maximum p-value a k-mer is allowed to have
     pub fn  set_max_p(&mut self, max_p: Option<f32>) {
         self.max_p = max_p;
     }
 
+    /// produce a new `SummaryConfig` which will calculate the p-values based on
+    /// the given statistical test
     pub fn with_stat_test(&self, stat_test: StatTest) -> Self {
         let mut config = self.clone();
         config.stat_test = stat_test;
         config
     }
 
+    /// modify the statistical test, which is used to calculate p-values
+    /// regarding observations in the two sample groups
     pub fn set_stat_test(&mut self, stat_test: StatTest) {
         if stat_test != self.stat_test { self.stat_test_changed = true }
         self.stat_test = stat_test;
     }
 
+    /// produce a new `SummaryConfig` which will filter k-mers by their quality
     pub fn with_min_quality(&self, min_quality: BaseQuality) -> Self {
         let mut config = self.clone();
         config.min_quality = min_quality;
         config
     }
 
+    /// modify the minimum quality required for each k-mer to be 
+    /// included in the graph
     pub fn set_min_quality(&mut self, min_quality: BaseQuality) {
         self.min_quality = min_quality;
     }
 
+    /// produce a new `SummaryConfig` which will keep k-mers from being counted 
+    /// if it's quality is too low - should this disconnect the k-mer it will 
+    /// still be counted
     pub fn with_min_quality_for_edge(&self, min_quality_for_edge: BaseQuality) -> Self {
         let mut config = self.clone();
         config.min_quality_for_edge = min_quality_for_edge;
         config
     }
 
+    /// modify the minimum quality required for each k-mer observation for its
+    /// edges to be counted
     pub fn set_min_quality_for_edge(&mut self, min_quality_for_edge: BaseQuality) {
         self.min_quality_for_edge = min_quality_for_edge;
     }

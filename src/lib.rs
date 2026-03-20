@@ -481,22 +481,6 @@ impl<K: Kmer, DI> KmerDataItem<K, DI> {
     pub fn new(kmer: K, exts: Exts, data: DI, quality: Option<BaseQuality>) -> KmerDataItem<K, DI> {
         KmerDataItem { kmer, exts, data, quality }
     }
-
-/*     fn kmer(&self) -> K {
-        self.kmer
-    }
-
-    fn exts(&self) -> Exts {
-        self.exts
-    }
-
-    fn data(&self) -> DI {
-        self.data
-    }
-
-    fn quality(&self) -> Option<BaseQuality> {
-        self.quality
-    } */
 }
 
 /// A newtype wrapper around a `Vec<u8>` with implementations
@@ -1387,7 +1371,7 @@ impl BaseQuality {
 impl fmt::Display for BaseQuality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoCall => write!(f, "no call"),
+            Self::NoCall => write!(f, "no-call"),
             Self::Marginal => write!(f, "marginal"),
             Self::Medium => write!(f, "medium"),
             Self::High => write!(f, "high"),
