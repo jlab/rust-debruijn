@@ -5,7 +5,27 @@
 use crate::complement;
 use crate::Kmer;
 use crate::Vmer;
+use crate::compression::CheckCompress;
+use crate::compression::compress_kmers_with_hash;
+use crate::dna_string::DnaString;
+use crate::filter::filter_kmers;
+use crate::graph::BaseGraph;
+use crate::graph::DebruijnGraph;
+use crate::reads::ReadData;
+use crate::reads::Reads;
+use crate::reads::ReadsPaired;
+use crate::serde::SerGraph;
+use crate::serde::SerKmers;
+use crate::serde::SerReads;
+use crate::summarizer::ID;
+use crate::summarizer::IDTag;
+use crate::summarizer::SampleInfo;
+use crate::summarizer::SummaryConfig;
+use crate::summarizer::SummaryData;
+use crate::summarizer::Tag;
+use crate::summarizer::Translator;
 
+use bimap::BiMap;
 use rand::distributions::{Distribution, Gamma, Range};
 use rand::{self, Rng, RngCore};
 use std::cmp::{max, min};
@@ -130,6 +150,137 @@ pub fn random_contigs() -> Vec<Vec<u8>> {
     chroms
 }
 
+pub fn build_test_graph<K, SD, DI>() -> (SerReads<DI>, SerKmers<K, SD>, SerGraph<K, SD>)
+where
+    K: Kmer +  Send + Sync,
+    SD: SummaryData<DI>,
+    DI: ReadData
+{
+    /*
+    transcrips
+    GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGTATTATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCGGC
+    GCGATTATTTTGCGGGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTAATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGACGCGATCGAC
+    TATATTATCGGCTGAGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA
+    GCTAGCTAGCTGACTACGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGGGTGCTAGCATGCGT
+    */
+
+    let raw_reads = [
+        ["GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC;;CCCCCCCCCCCCCCC"],
+        ["CTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGTATTATTATTAAA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGGGGACGTATTATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCGGC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCC"],
+        ["TATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCC-CC--CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGAC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATAT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCC--CCCC--CCCCCCCCCCCCCCCCCCCCC"],
+        ["TAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGT", "gene1", "sample1", "CCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGAT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCGATTATTTTGCGGGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGAT", "gene2", "sample1", "CCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCG", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC;CCCCCCCCCCCC"],
+        ["TTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATA", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC.-CCCCCCCCCCCCCCCCCC"],
+        ["CAGGACGCATTACTATCTATTATTATATATCATTATTTTTTTCTATAAAA", "gene2", "sample1", "CCCCCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGG", "gene2", "sample1", "CCCCCCCCCCCCCC-CCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTTTTTC", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGACGCATTACTATCTATTATTATATATCATTATTTTTTTCTATAAAAA", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCC--;CCCCCCCCCCCCCCCCCC"],
+        ["GGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGA", "gene2", "sample1", "CCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTAT", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCT", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCC"],
+        ["ATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGAC", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TAATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCG", "gene2", "sample1", "CCCCCC-CCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCC"],
+        ["ATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGACGCGATCG", "gene2", "sample1", "CCCCCCCCCCCCCCCC;CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTAATTATA", "gene2", "sample1", "CCCCCCCCCCCCCCCCCC;;;CCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGAC", "gene2", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATATTATCGGCTGAGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGC", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGG", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCG", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACC", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCA", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGC", "gene3", "sample2", "CCCCCCCCCCCCCCCCCC-----CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGG", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCC;;;CCCCC;;CCCCCCCCCCCCCCCCC"],
+        ["AGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAG", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAG", "gene3", "sample2", "CCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATC", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTA", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCC---CC-CCCCCCCCCCCCCCCC"],
+        ["CCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGT", "gene3", "sample2", "CCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGT", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGC", "gene3", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCTAGCTAGCTGACTACGATCGACGGGGAGCATTAATTAGAAAAAAGAGA", "gene4", "sample2", "CCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTATCTATTATTATATATCATTATTTGCGATTGGGGTGCTAGCATGCGT", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGG", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGG", "gene4", "sample2", "CCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGGGTGC", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAGCGCAGC", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCA", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTG", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGC", "gene4", "sample2", "CCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACT", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGG", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCC"],
+        ["GCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCG", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAG", "gene4", "sample2", "CCCC----CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACT", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC---CCCCCCCCCCCCCC"],
+        ["TAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGG", "gene4", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCC"]
+    ];
+
+    let mut reads = Reads::new_with_quality(crate::reads::Strandedness::Forward);
+    let mut id_translator = BiMap::new();
+    let mut tag_translator = BiMap::new();
+
+    for [seq, gene, sample, quality] in raw_reads {
+        let gene = String::from(gene);
+        let sample = String::from(sample);
+
+        let id = match id_translator.get_by_left(&gene) {
+            Some(id) => *id,
+            None =>  {
+                let new_id = id_translator.len() as ID;
+                id_translator.insert(gene, new_id);
+                new_id
+            }
+        };
+
+        let tag = match tag_translator.get_by_left(&sample) {
+            Some(tag) => *tag,
+            None =>  {
+                let new_tag = tag_translator.len() as Tag;
+                tag_translator.insert(sample, new_tag);
+                new_tag
+            }
+        };
+
+        reads.add_read(DnaString::from_acgt_bytes(seq.as_bytes()), None, DI::new(id, tag), Some(quality.as_bytes()));
+    }
+
+    let translator = Translator::new(id_translator, tag_translator);
+    let reads_paired = ReadsPaired::Unpaired { reads };
+    let sample_kmers = reads_paired.tag_kmers_vec(K::k(), 4);
+    let ser_reads = SerReads::new(reads_paired, translator.clone());
+    
+    let sample_info = SampleInfo::new(0b1100, 0b0011, sample_kmers);
+    let summary_config = SummaryConfig::new(sample_info);
+
+    let (kmers, _) = filter_kmers::<SD, K, _>(
+        ser_reads.reads(), 
+        &summary_config, 
+        false, 
+        5., 
+        false
+    );
+
+    let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
+
+    let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
+    let graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+    let ser_graph = SerGraph::new(graph, translator, summary_config);
+
+    (ser_reads, ser_kmers, ser_graph)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -153,7 +304,7 @@ mod tests {
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
-    use crate::summarizer::{GroupFrac, SampleInfo, SummaryConfig, TagsCountsEMData, TagsCountsSumData, TagsSumData};
+    use crate::summarizer::{SampleInfo, SummaryConfig, Tag, TagsCountsEMData, TagsCountsSumData, TagsSumData};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -235,27 +386,29 @@ mod tests {
     }
 
     fn simplify_from_kmers<K: Kmer + Send + Sync>(mut contigs: Vec<Vec<u8>>, stranded: bool) {
-        let seqs: Vec<(DnaBytes, Exts, ())> = contigs
+        let seqs: Vec<(DnaBytes, Exts, Tag)> = contigs
             .drain(..)
-            .map(|x| (DnaBytes(x), Exts::empty(), ()))
+            .map(|x| (DnaBytes(x), Exts::empty(), 1))
             .collect();
 
 
         let sample_info = SampleInfo::new(0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
+
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
 
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
-            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, Strandedness::Unstranded) },
+            &crate::reads::ReadsPaired::Unpaired { reads: Reads::from_vmer_vec(seqs, strandedness) },
             &config,
-            stranded,
+            false,
             4.,
             true,
         );
 
         let spec =
             SimpleCompress::new(|d1: u32, d2: &u32| (d1 + *d2) % 65535);
-        let from_kmers = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers, true, false).finish();
+        let from_kmers = compress_kmers_with_hash::<K, u32, _, _>(stranded, &spec, &valid_kmers, true, false).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -363,7 +516,7 @@ mod tests {
         assert_eq!(kmer_set, msp_kmers);
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         // Check the correctness of the process_kmer_shard kmer filtering function
         let (valid_kmers, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -470,7 +623,7 @@ mod tests {
         let mut shard_asms = Vec::new();
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info.clone()).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
 
 
@@ -556,8 +709,8 @@ mod tests {
 
             for _i in 0..5 {
                 let read = DnaString::from_bytes(&c);
-                clean_seqs.add_read(read.clone(), None, rng.gen_range(0, 10) as u8);
-                all_seqs.add_read(read, None, rng.gen_range(0, 10) as u8);
+                clean_seqs.add_read(read.clone(), None, rng.gen_range(0, 10) as u8, None);
+                all_seqs.add_read(read, None, rng.gen_range(0, 10) as u8, None);
             }
 
             let junk = random_dna(5);
@@ -565,12 +718,12 @@ mod tests {
             let l = err_ctg.len();
             err_ctg.truncate(l / 2);
             err_ctg.extend(junk);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
-            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8, None);
+            all_seqs.add_read(DnaString::from_bytes(&err_ctg), None, 3u8, None);
         }
 
         let sample_info = SampleInfo::new(0, 0,Vec::new());
-        let config = SummaryConfig::new(2, None, GroupFrac::None, 0.33, sample_info.clone(), None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info.clone()).with_min_kmer_obs(2).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         // Assemble w/o tips
         let (valid_kmers_clean, _): (BoomHashMap2<K, Exts, u32>, _) = filter::filter_kmers(
@@ -757,7 +910,7 @@ mod tests {
         let reads = Reads::from_vmer_vec(fastq, Strandedness::Unstranded);
 
         let sample_info = SampleInfo::new(0, 0, Vec::new());
-        let config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info, None, crate::summarizer::StatTest::StudentsTTest);
+        let config = SummaryConfig::new(sample_info).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
 
         let hm: (BoomHashMap2<Kmer6, Exts, TagsSumData>, Vec<_>) = filter_kmers(
             &crate::reads::ReadsPaired::Unpaired { reads }, 
