@@ -1796,16 +1796,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut q_state_high = false;
 
                 loop {
-                    // check if path has reached max length -> interrupt
-                    if path_length > max_path {
-                        break;
-                    }
-
                     let current_node = self.get_node(current_node_id);
                     let out_edges = current_node.edges(out_dir);
 
                     // add current node length to path
                     path_length += current_node.len() - K::k() + 1;
+
+                    // check if path has reached max length -> interrupt
+                    if path_length > max_path {
+                        break;
+                    }
                     
                     // check state and add current node to path
                     let path_index = path_groups.len() - 1;
