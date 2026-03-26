@@ -65,8 +65,6 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
     const VAL_MAX: f32 = 1.;
     const VAL_DEF: f32 = 1.;
 
-    const LIGHTN_DEF: f32 = 0.5;
-
     const FC_MAX: f32 = 5.;
     const FC_MIN: f32 = -5.;
     const P_MAX: f32 = -4.;
@@ -295,7 +293,26 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                         // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     },
-                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    // if we don't have IDs, check if we have mapped IDs
+                    None => match data.mapped_ids() {
+                        Some(ids) => {
+                            if ids.is_empty() {
+                                // if we have a map summarizer, but no mapped ids, the vector is empty
+                                // usually this means that the node is "false" -> use default purple and lower sv
+                                format!("{} {} {}", Self::HUE_PURPLE, saturation/2., value/2.)
+                            } else {
+                                // we have mapped IDs, use the same procedure as IDs
+                                format!("{:?}", 
+                                    ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                        *(id_group_ids.get(id).expect("id was not in HM")) as f32 / n_id_groups as f32
+                                    )).collect::<Vec<_>>()
+                                ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                            }
+                        }
+                        None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    }
+                    
+                    
                 }
             }
             ColorMode::IDS { n_ids } => {
@@ -308,7 +325,24 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                         // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     }
-                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    // if we don't have IDs, check if we have mapped IDs
+                    None => match data.mapped_ids() {
+                        Some(ids) => {
+                            if ids.is_empty() {
+                                // if we have a map summarizer, but no mapped ids, the vector is empty
+                                // usually this means that the node is "false" -> use default purple and lower sv (probaby gray)
+                                format!("{} {} {}", Self::HUE_PURPLE, saturation/2., value/2.)
+                            } else {
+                                // we have mapped IDs, use the same procedure as IDs
+                                format!("{:?}", 
+                                    ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                        *id as f32 / n_ids as f32
+                                    )).collect::<Vec<_>>()
+                                ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                            }
+                        }
+                        None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    }
                 }
             }
         }
