@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -114,7 +114,7 @@ fn test_summary_data() {
     let (input_id_tags, _, _) = get_summary_input();
 
     let sum = Some(input_tags.len());
-    let s_m = 8; // usize
+    let s_m = 4; // u32
     
     let tags = Some(Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8]));
     let t_m = tags.as_ref().unwrap().mem(); // Marker
@@ -498,7 +498,7 @@ fn test_summary_data() {
         print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
         print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1".to_string(),
         tags: None,
-        mem: size_aligned(i_m_s + mi_m_s + em_m, i_m_h + mi_m_h, 8), // mapped ids empty
+        mem: size_aligned(i_m_s + mi_m_s + em_m, i_m_h + mi_m_h, 8), 
         sum: None,
         ids:  ids.clone(),
         p_value: None,
@@ -521,7 +521,7 @@ fn test_summary_data() {
         print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
         print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
         tags: None,
-        mem: size_aligned(i_m_s + mi_m_s + em_m + q_m, i_m_h + mi_m_h, 8), // mapped ids empty
+        mem: size_aligned(i_m_s + mi_m_s + em_m + q_m, i_m_h + mi_m_h, 8),
         sum: None,
         ids:  ids.clone(),
         p_value: None,
@@ -532,6 +532,29 @@ fn test_summary_data() {
         mapped_ids:  mapped_ids.clone(),
         valid,
         summarizer: Summarizers::IDMapEMQuality,
+    };
+
+    assert_eq!(test_data, compare_data);
+
+    // SumMapEMQualityData
+
+    let test_data = test_summarize::<SumMapEMQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
+    let compare_data = SummaryTest {
+        print: "sum: 6, mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        print_ol: "sum: 6, mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"sum\": 6, \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        tags: None,
+        mem: size_aligned(s_m + mi_m_s + em_m + q_m, mi_m_h, 8),
+        sum,
+        ids:  None,
+        p_value: None,
+        fold_change: None,
+        sample_count: None,
+        edge_mults:  edge_mults.clone(),
+        quality,
+        mapped_ids:  mapped_ids.clone(),
+        valid,
+        summarizer: Summarizers::SumMapEMQuality,
     };
 
     assert_eq!(test_data, compare_data);
