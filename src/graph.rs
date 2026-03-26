@@ -717,12 +717,16 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
         let mut node_transcript_ids = vec![Vec::new(); self.len()];
 
-        let mut backup_id_tr = BiHashMap::new();
-
+        // if the translator has a id translator, use it, else make a new one to use and put it into the translator
         let id_tr = if let Some(id_tr) = translator.mut_id_translator() {
             id_tr
         } else {
-            &mut backup_id_tr
+            let new_id_tr = BiHashMap::new();
+            translator.mut_id_translator().replace(new_id_tr);
+            
+            let Some(id_tr) = translator.mut_id_translator() else { panic!("should not happen") };
+
+            id_tr
         };
 
         // go through each transcript and map to graph
@@ -3180,12 +3184,24 @@ mod test {
         let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
         let (kmers, mut translator, _) = ser_kmers.dissolve();
 
-
         let unc_graph = uncompressed_graph(&kmers, true).finish();
+
+        let mut id_strings = translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        id_strings.sort();
 
         let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
         assert_eq!(t_map.len(), unc_graph.len());
         assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
+
+        // repeat the same without a previous existing translator
+        let mut new_translator = Translator::empty();
+        let t_map = unc_graph.map_transcripts(t_ref_path, &mut new_translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
+        let mut new_id_strings = new_translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        new_id_strings.sort();
+
+        assert_eq!(id_strings, new_id_strings);
     }
 
     fn build_reads_quality_test() -> ReadsPaired<IDTag> {
