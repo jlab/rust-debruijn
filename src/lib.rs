@@ -1608,7 +1608,7 @@ where
     let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
 
     let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
-    let graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
     let ser_graph = SerGraph::new(graph, translator, summary_config);
 
     (ser_reads, ser_kmers, ser_graph)

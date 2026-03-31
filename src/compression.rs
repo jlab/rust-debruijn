@@ -6,7 +6,6 @@ use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 use std::time::Instant;
@@ -617,7 +616,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
     pub fn compress_kmers(
         stranded: bool,
         spec: &S,
-        index: &BoomHashMap2<K, Exts, D>,
+        index: BoomHashMap2<K, Exts, D>,
         progress: bool,
     ) -> BaseGraph<K, D> {
         
@@ -636,7 +635,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             d: PhantomData,
             di: PhantomData,
             available_kmers,
-            index,
+            index: &index,
         };
 
         // Path-compressed De Bruijn graph will be created here
@@ -679,6 +678,8 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             }
         }
 
+        graph.shrink_to_fit();
+
         if progress { println!() };
 
         graph
@@ -691,7 +692,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
-    index: &BoomHashMap2<K, Exts, D>,
+    index: BoomHashMap2<K, Exts, D>,
     time: bool,
     progress: bool,
 ) -> BaseGraph<K, D> {
@@ -719,7 +720,7 @@ pub fn compress_kmers<K: Kmer, D: Clone + Debug  + Send + Sync + SummaryData<DI>
     }
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, &index, false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index, false)
 }
 
 /// Build graph from a set of kmers with unknown extensions by finding the extensions on the fly.
@@ -763,12 +764,12 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
     assert_eq!(kmer_set.len(), keys.len());
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, &index,false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index,false)
 }
 
 /// build an uncompressed graph from hashed k-mers
 pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
-    index: &BoomHashMap2<K, Exts, D>,
+    index: BoomHashMap2<K, Exts, D>,
     stranded: bool
 ) -> BaseGraph<K, D> {
 
@@ -782,6 +783,9 @@ pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
         }
         graph.add(&kmer_seq, *exts, data.clone());
     }
+
+    graph.shrink_to_fit();
+
     graph
 }
 

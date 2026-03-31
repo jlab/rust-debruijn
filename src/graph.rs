@@ -8,7 +8,6 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
-use itertools::chain;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -30,7 +29,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::usize;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -115,6 +113,13 @@ impl<K, D> BaseGraph<K, D> {
             data,
             phantom: PhantomData,
         }
+    }
+
+    /// shrink the storage of the `BaseGraph` to fit its contents
+    pub fn shrink_to_fit(&mut self) {
+        self.sequences.shrink_to_fit();
+        self.exts.shrink_to_fit();
+        self.data.shrink_to_fit();
     }
 }
 
@@ -217,6 +222,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     pub fn is_empty(&self) -> bool {
         self.base.is_empty()
+    }
+
+    /// shrink the storage of the `DebruijnGraph` to fit its contents
+    pub fn shrink_to_fit(&mut self)  {
+        self.base.shrink_to_fit();
     }
 
     /// Get a node given it's `node_id`
@@ -3165,7 +3175,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = uncompressed_graph(&kmers, true).finish();
+        let graph = uncompressed_graph(kmers, true).finish();
 
         let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
         (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
@@ -3184,7 +3194,7 @@ mod test {
         let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
         let (kmers, mut translator, _) = ser_kmers.dissolve();
 
-        let unc_graph = uncompressed_graph(&kmers, true).finish();
+        let unc_graph = uncompressed_graph(kmers, true).finish();
 
         let mut id_strings = translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
         id_strings.sort();
@@ -3256,7 +3266,7 @@ mod test {
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3283,7 +3293,7 @@ mod test {
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3322,7 +3332,7 @@ mod test {
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3349,7 +3359,7 @@ mod test {
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3422,7 +3432,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3441,7 +3451,7 @@ mod test {
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3492,7 +3502,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3513,7 +3523,7 @@ mod test {
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3547,7 +3557,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), kmers, false, false).finish();
 
         graph.to_tsv("test_graph_unstranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
 
@@ -3563,7 +3573,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), kmers, false, false).finish();
 
         graph.to_tsv("test_graph_stranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
     

@@ -3609,7 +3609,7 @@ mod test {
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: TagsData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {
@@ -3635,7 +3635,7 @@ mod test {
         let (kmers, _) = filter_kmers::<IDData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: IDData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {
