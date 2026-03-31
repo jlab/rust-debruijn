@@ -512,26 +512,16 @@ fn summarize_tags<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -
 
 fn summarize_tags_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) 
 -> TagSummary
-{
-    // collect items so they can be used twice
-    let collected_items = items.collect::<Vec<_>>();
-    
+{    
     // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
-    let items_filtered = collected_items.iter().copied().filter(|item| 
+    let items_filtered = items.filter(|item| 
         match item.quality {
             None => true,
             Some(q) => q >= config.min_quality_for_edge
         }
     );
-    let summary = summarize_tags(items_filtered);
     
-    // if there are no exts in one or both directions, repeat without filter so low coverage connections are not lost
-    if (summary.all_exts.num_exts_l() == 0) | (summary.all_exts.num_exts_r() == 0) {
-        // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
-        summarize_tags(collected_items.into_iter())
-    } else {
-        summary
-    }
+    summarize_tags(items_filtered)
 }
 
 #[derive(Debug)]
@@ -586,25 +576,15 @@ fn summarize_tags_ids<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items
 fn summarize_tags_ids_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) 
 -> IDTagSummary
 {
-    // collect items so they can be used twice
-    let collected_items = items.collect::<Vec<_>>();
-    
     // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
-    let items_filtered = collected_items.iter().copied().filter(|item|
+    let items_filtered = items.filter(|item|
         match item.quality {
             None => true,
             Some(q) => q >= config.min_quality_for_edge
         }
     );
-    let summary = summarize_tags_ids(items_filtered);
-    
-    // if there are no exts in one or both directions, repeat without filter so low coverage connections are not lost
-    if (summary.all_exts.num_exts_l() == 0) | (summary.all_exts.num_exts_r() == 0) {
-        // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
-        summarize_tags_ids(collected_items.into_iter())
-    } else {
-        summary
-    }
+
+    summarize_tags_ids(items_filtered)
 }
 
 /// round an unsigned integer to the specified amount of digits,
@@ -679,7 +659,7 @@ fn valid_p(p_info: PInfo, config: &SummaryConfig) -> bool {
     }
 }
 
-fn p_value(tag_vec: &[Tag], tag_counts: &Vec<u32>, config: &SummaryConfig) -> Result<f32, NotEnoughSamplesError> {
+fn p_value(tag_vec: &[Tag], tag_counts: &[u32], config: &SummaryConfig) -> Result<f32, NotEnoughSamplesError> {
     match config.stat_test {
         StatTest::StudentsTTest => students_t_test(tag_vec, tag_counts, &config.sample_info),
         StatTest::WelchsTTest => welchs_t_test(tag_vec, tag_counts, &config.sample_info),
@@ -688,7 +668,7 @@ fn p_value(tag_vec: &[Tag], tag_counts: &Vec<u32>, config: &SummaryConfig) -> Re
 }
 
 // perform a student's t-test
-fn students_t_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn students_t_test(tag_vec: &[Tag], tag_counts: &[u32], sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -726,7 +706,7 @@ fn students_t_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleI
 }
 
 // perform a welch's t-test
-fn welchs_t_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn welchs_t_test(tag_vec: &[Tag], tag_counts: &[u32], sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
 
@@ -770,7 +750,7 @@ fn welchs_t_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInf
 }
 
 // perform a mann-whitney-u-test
-fn u_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
+fn u_test(tag_vec: &[Tag], tag_counts: &[u32], sample_info: &SampleInfo) -> Result<f32, NotEnoughSamplesError> {
 
     let n0 = sample_info.count0 as f64;
     let n1 = sample_info.count1 as f64;
@@ -843,13 +823,13 @@ fn u_test(tag_vec: &[Tag], tag_counts: &Vec<u32>, sample_info: &SampleInfo) -> R
 }
 
 // calculate the log2 of the log change of the two groups
-fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f32 {
+fn log2_fold_change(tags: Tags, counts: &[u32], sample_info: &SampleInfo) -> f32 {
     let mut norm_count_g0 = 0.;
     let mut norm_count_g1 = 0.;
 
     let (m0, m1) = sample_info.get_markers();
 
-    for (label, count) in tags.to_tag_vec().iter().zip(&counts) {
+    for (label, count) in tags.to_tag_vec().iter().zip(counts) {
         let bin_rep = (2 as Marker).pow(*label as u32);
         // normalize with number of k-mers in the sample
         let norm = *count as f64 / sample_info.sample_kmers[*label as usize] as f64;
@@ -1523,12 +1503,12 @@ impl SummaryData<Tag> for TagsCountsSumData {
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
+        p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
 
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -1649,12 +1629,12 @@ impl SummaryData<Tag> for TagsCountsData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
+        p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
 
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -1792,14 +1772,14 @@ impl SummaryData<Tag> for TagsCountsPData {
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts, config).unwrap())
         } else {
             Some(self.p_value)
         } 
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
     
     fn sample_count(&self) -> Option<usize> {
@@ -1934,11 +1914,11 @@ impl SummaryData<Tag> for TagsCountsEMData {
     fn ids(&self) -> Option<&[ID]> { None }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
+        p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -2084,14 +2064,14 @@ impl SummaryData<Tag> for TagsCountsPEMData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts, config).unwrap())
         } else {
             Some(self.p_value)
         } 
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -2260,14 +2240,14 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts, config).unwrap())
         } else {
             Some(self.p_value)
         } 
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -2425,12 +2405,12 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
-        p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).ok()
+        p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
 
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -2599,14 +2579,14 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         if config.stat_test_changed {
-            Some(p_value(&self.tags.to_tag_vec(), &self.counts.to_vec(), config).unwrap())
+            Some(p_value(&self.tags.to_tag_vec(), &self.counts, config).unwrap())
         } else {
             Some(self.p_value)
         } 
     }
 
     fn fold_change(&self, config: &SummaryConfig) -> Option<f32> {
-        Some(log2_fold_change(self.tags, self.counts.to_vec(), &config.sample_info))
+        Some(log2_fold_change(self.tags, &self.counts, &config.sample_info))
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -3521,27 +3501,27 @@ mod test {
         let labels = vec![0, 1, 2, 3, 7, 8];
         let tags = Tags::from_tag_vec(labels);
         let counts = vec![1, 6, 9, 3, 6, 10];
-        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, 5.286_453_2);
 
         let labels = vec![0, 6, 7, 8, 10, 11];
         let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3, 7, 1, 22, 6];
-        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, -1.339_324_5);
 
         // x/0 = inf -> log(inf) = inf
         let labels = vec![0, 1];
         let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3];
-        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, f32::INFINITY);
 
         // 0/x = 0 -> log2(0) = -inf
         let labels = vec![7, 8];
         let tags = Tags::from_tag_vec(labels);
         let counts = vec![12, 3];
-        let fold_change = log2_fold_change(tags, counts, &sample_info);
+        let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, f32::NEG_INFINITY);       
     }
 
