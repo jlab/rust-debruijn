@@ -721,9 +721,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     where 
         P: AsRef<Path>
     {
-        // return err if not stranded
-        if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
-
         let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
         let mut node_transcript_ids = vec![Vec::new(); self.len()];
 
@@ -756,9 +753,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             // iterate over k-mers in transcript and find each one in the graph
             let sequence = DnaString::from_acgt_bytes(record.seq());
             for kmer in sequence.iter_kmers::<K>() {
-                if let Some(node) = self.search_kmer(kmer, Dir::Right) {
-                    node_transcript_ids[node].push(gene_id);
+                if self.base.stranded {
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    }
+                } else {
+                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    }
                 }
+                
             }
         }
 
