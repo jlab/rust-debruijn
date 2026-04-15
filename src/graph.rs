@@ -179,8 +179,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
-            println!("left kmers: {:?}", kmers);
-            println!("left seqs: {:?}", sequences);
+
             BoomHashMap::new(kmers, indices.clone())
         };
 
@@ -191,8 +190,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
-            println!("right kmers: {:?}", kmers);
-            println!("right seqs: {:?}", sequences);
+
             BoomHashMap::new(kmers, indices)
         };
 
@@ -1756,7 +1754,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // remove split with low quality
             for (nb_id, nb_in_dir, _) in nb_qualities.iter().filter(|(_, _, quality)| *quality < min_quality ) {
-                let path = vec![(node_id, out_dir), (*nb_id, *nb_in_dir)];
+                let path = vec![(node_id, out_dir.flip()), (*nb_id, *nb_in_dir)];
                 if self.remove_path(path).is_err() {
                     warn!("lq tip path could not be removed")
                 }
@@ -1773,14 +1771,13 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // check we do indeed have quality and graph is stranded
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
-        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
         let max_path = max_path_fac * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
-            // check if node has multile outs to the right, at least one with bad quality and one with good quality
+            // check if node has multile outs, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
 
             let good_neighbors = node_out_edges.iter()
@@ -1831,7 +1828,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // if in singular state now or before, add node to path
                     if matches!(state, LadderState::Singular) { 
-                        path_groups[path_index].push((current_node_id, current_in_dir.flip()));
+                        path_groups[path_index].push((current_node_id, current_in_dir));
                     }
 
                     // check if we increase ladder state
@@ -1977,7 +1974,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 if confirmed_targets.contains(&target) {
                     for path in path_group {
-                        if let Err(err) = self.remove_path(path.clone()) {
+                        if let Err(_err) = self.remove_path(path.clone()) {
                             warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
@@ -1987,14 +1984,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove tip paths
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
-                if let Err(err) = self.remove_path(path.clone()) {
+                if let Err(_err) = self.remove_path(path.clone()) {
                     warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
 
-
         }
-
 
         Ok(())
     }
@@ -2015,7 +2010,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // interrupt if we dont have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
-        if !self.base.stranded { return Err(String::from("must be stranded")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
         if let Some(wtr) = writer.as_mut() {
@@ -2241,7 +2235,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         let sequence = self.base.sequences.get(start_node_id);
         let term_kmer: K = sequence.term_kmer(start_out_dir);
         let next_kmer = term_kmer.extend(start_ext, start_out_dir);
-        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer,start_out_dir).expect("link should exist"); 
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2263,7 +2257,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let current_node = self.get_node(current_node_id);
         
             // find outgoing edge with highest coverage
-            let em = current_node.data().edge_mults().expect("must have edge mults").right();
+            let em = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip()).edge_mults;
             let (max_cov_base, &max_cov) = em.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2))?;
 
             // get next node id
@@ -2295,7 +2289,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // interrupt if we dont have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
-        if !self.base.stranded { return Err(String::from("must be stranded")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
         if let Some(wtr) = writer.as_mut() {
@@ -2359,7 +2352,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // path, including start and target node
         let mut path = Vec::new();
-        path.push((start_node_id, start_out_dir));
+        path.push((start_node_id, start_out_dir.flip()));
 
         let mut path_length = 0;
         let mut n_correct_edges = 0;
@@ -2388,10 +2381,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             path_length += len;
 
             // low path nodes should have only one incoming and one outgoing edge
-            let in_edges = current_node.edges(start_out_dir.flip());
+            let in_edges = current_node.edges(current_in_dir);
             if in_edges.len() != 1 { return None; }
 
-            let out_edges = current_node.edges(start_out_dir);
+            let out_edges = current_node.edges(current_in_dir.flip());
             match out_edges.len() {
                 oe if oe > 1 => return None,
                 0 => return Some((path, (sum_path_cov / coverage_counter as f32), (n_correct_edges as f32 / path_length as f32), path_length)),
@@ -2410,6 +2403,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
 
+
+
             // try to check if edge is "correct", add extra length of current node to it to account for compression
             if self.check_edge_truth(current_node_id, next_node_id) {
                 n_correct_edges += len;
@@ -2422,7 +2417,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             coverage_counter += 1;
             // add current node to path
             path.push((current_node_id, current_in_dir));
-
         }
     }
 
@@ -3093,7 +3087,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -3186,7 +3180,7 @@ mod test {
         assert_eq!(id_strings, new_id_strings);
     }
 
-    fn build_reads_quality_test() -> ReadsPaired<IDTag> {
+    fn build_reads_quality_test(strand: Strandedness) -> ReadsPaired<IDTag> {
         let correct1 = "CGATGCTGCTGATGCTGAGTCTGACGTATGCGATCGATCGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTAGCTAGCTACGTGCTAGCTACTAGCACTGATGC";
         let qu_corr1 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         let incorrect1 =                                     "CGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTGGCTAGCTACGTGCTAGCTA";
@@ -3205,7 +3199,7 @@ mod test {
         let qu_incorr5_tip =                                                             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCC";
 
 
-        let mut reads = Reads::new_with_quality(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new_with_quality(strand);
 
         for _i in 0..20 {
             reads.add_read(DnaString::from_acgt_bytes(correct1.as_bytes()), None, IDTag::new(1, 0), Some(qu_corr1.as_bytes()));
@@ -3227,18 +3221,19 @@ mod test {
 
     #[test]
     fn test_remove_lq_splits() {
-        let print = false;
+        let print = true;
+        let stranded = false;
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test();
+        let seqs = build_reads_quality_test(Strandedness::Unstranded);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3255,17 +3250,17 @@ mod test {
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 11);
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3282,10 +3277,10 @@ mod test {
 
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 11);
@@ -3293,18 +3288,19 @@ mod test {
 
     #[test]
     fn test_remove_lq_ladders_tips() {
-        let print = false;
+        let print = true;
+        let stranded = false;
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test();
+        let seqs = build_reads_quality_test(Strandedness::Unstranded);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3321,17 +3317,17 @@ mod test {
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 90);
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3348,10 +3344,10 @@ mod test {
 
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 15);
@@ -3359,7 +3355,10 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
-        let print = false; 
+        let print = true; 
+        let stranded = false; 
+        let strandedness = Strandedness::Unstranded;
+
         let c_csv = if print { Some("c_ladders.csv") } else { None };
         let uc_csv = if print { Some("uc_ladders.csv") } else { None };
 
@@ -3371,7 +3370,7 @@ mod test {
 
         let insertion = "ACGATCGATCGCGATCGATAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new(strandedness);
         for _i in 0..1000 {
             reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
@@ -3404,7 +3403,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3415,15 +3414,15 @@ mod test {
             }
         }
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_ladders(10, 10., uc_csv).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3434,17 +3433,20 @@ mod test {
             }
         }
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_ladders(10, 10., c_csv).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
 
     #[test]
     fn test_remove_tips() {
 
-        let print = false;
+        let print = true;
+        let stranded = false;
+        let strandedness = Strandedness::Unstranded;
+
         let c_csv = if print { Some("c_tips.csv") } else { None };
         let uc_csv = if print { Some("uc_tips.csv") } else { None };
 
@@ -3454,7 +3456,7 @@ mod test {
 
 
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new(strandedness);
         for _i in 0..1000 {
             reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
@@ -3474,7 +3476,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(kmers.clone(), true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3486,16 +3488,16 @@ mod test {
         }
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
         unc_graph.remove_tips(10, 10., uc_csv).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3506,12 +3508,12 @@ mod test {
             }
         }
 
-        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
+        if print { c_graph.to_dot("compressed_bf-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
         c_graph.remove_tips(10, 10., c_csv).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
     }
