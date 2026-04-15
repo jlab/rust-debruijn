@@ -1724,7 +1724,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // check we do indeed have quality and graph is stranded
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
-        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         // iterate over all nodes and look in both directions if there is a low quality node splitting off
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1739,7 +1738,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // get qualities 
             let nb_qualities = out_edges
                 .iter()
-                .map(|(_, nb_id, _, _)| (*nb_id, self
+                .map(|(_, nb_id, nb_in_dir, _)| (*nb_id, *nb_in_dir, self
                     .get_node(*nb_id)
                     .data()
                     .quality()
@@ -1748,7 +1747,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // check for good neighbor
             let has_good_nb = nb_qualities.iter()
-                .any(|(_, quality)| *quality >= min_quality);
+                .any(|(_, _, quality)| *quality >= min_quality);
 
             if !has_good_nb {
                 // split but no good path, move on
@@ -1756,9 +1755,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // remove split with low quality
-            for (nb_id, _) in nb_qualities.iter().filter(|(_, quality)| *quality < min_quality ) {
-                let path = vec![node_id, *nb_id];
-                if self.remove_path(path, out_dir).is_err() {
+            for (nb_id, nb_in_dir, _) in nb_qualities.iter().filter(|(_, _, quality)| *quality < min_quality ) {
+                let path = vec![(node_id, out_dir), (*nb_id, *nb_in_dir)];
+                if self.remove_path(path).is_err() {
                     warn!("lq tip path could not be removed")
                 }
             }
@@ -1781,22 +1780,20 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
-            let in_dir = out_dir.flip();
-
             // check if node has multile outs to the right, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
 
             let good_neighbors = node_out_edges.iter()
-                .map(|(_, target_id, _, _)| *target_id)
-                .filter(|target_id| self.get_node(*target_id)
+                .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir))
+                .filter(|(target_id, _)| self.get_node(*target_id)
                     .data()
                     .quality()
                     .unwrap() >= min_quality
                 ).collect::<Vec<_>>();
 
             let bad_neighbors = node_out_edges.iter()
-                .map(|(_, target_id, _, _)| *target_id)
-                .filter(|target_id| self.get_node(*target_id)
+                .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir))
+                .filter(|(target_id, _)| self.get_node(*target_id)
                     .data()
                     .quality()
                     .unwrap() < min_quality
@@ -1808,9 +1805,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let mut possible_paths = Vec::new();
             let mut tips = Vec::new();
 
-            for bn in bad_neighbors {
+            for (bn, bn_in_dir) in bad_neighbors {
+                let mut current_in_dir = *bn_in_dir; // in an unstranded graph, the out dir can change
                 let mut current_node_id = bn;
-                let mut path_groups = vec![vec![node_id]];
+                let mut path_groups = vec![vec![(node_id, out_dir.flip())]];
                 let mut path_length = K::k() - 1;
 
                 let mut state = LadderState::Singular;
@@ -1818,7 +1816,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     let current_node = self.get_node(current_node_id);
-                    let out_edges = current_node.edges(out_dir);
+                    let out_edges = current_node.edges(current_in_dir.flip());
 
                     // add current node length to path
                     path_length += current_node.len() - K::k() + 1;
@@ -1833,12 +1831,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // if in singular state now or before, add node to path
                     if matches!(state, LadderState::Singular) { 
-                        path_groups[path_index].push(current_node_id);
+                        path_groups[path_index].push((current_node_id, current_in_dir.flip()));
                     }
 
                     // check if we increase ladder state
                     let q_increase = (current_node.data().quality().unwrap() >= min_quality) & !q_state_high;
-                    let mult_increase = current_node.edges(in_dir).len() > 1;
+                    let mult_increase = current_node.edges(current_in_dir).len() > 1;
                     
                     if q_increase {
                         q_state_high = true
@@ -1866,7 +1864,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             LadderState::Singular => (), // ignore
                             LadderState::Double => {
                                 state = LadderState::Singular;
-                                path_groups.push(vec![current_node_id]); // start new path group
+                                path_groups.push(vec![(current_node_id, current_in_dir)]); // start new path group
                             }
                         }
                     }
@@ -1888,9 +1886,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // we have not met the conditions and keep moving
 
                     // find next node
-                    let next_node_id = if out_edges.len() == 1 {
-                        let (_, next_node_id, _, _) = out_edges[0];
-                        next_node_id
+                    let (next_node_id, next_in_dir)  = if out_edges.len() == 1 {
+                        let (_, next_node_id, next_in_dir, _) = out_edges[0];
+                        (next_node_id, next_in_dir)
                     } else if out_edges.is_empty() {
                         // dead end which has not qualified as tip
                         break;
@@ -1898,30 +1896,33 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // choose the lowest quality path
 
                         let worst_neighbor = out_edges.iter()
-                            .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
+                            .map(|(_, target_id, target_in_dir, _)| (*target_id, *target_in_dir, self.get_node(*target_id)
                                 .data()
                                 .quality()
-                                .unwrap()))
-                            .min_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
+                                .unwrap())
+                            )
+                            .min_by(|(_, _, q_a), (_, _, q_b)| q_a.cmp(q_b));
 
-                        if let Some((worst_nb_id, _)) = worst_neighbor {
-                            worst_nb_id
+                        if let Some((worst_nb_id, worst_nb_inc_dir, _)) = worst_neighbor {
+                            (worst_nb_id, worst_nb_inc_dir)
                         } else {
                             break;
                         }
                     };
 
                     current_node_id = next_node_id;
+                    current_in_dir = next_in_dir;
                 }
             }
 
-            let possible_targets = possible_paths.iter().map(|p| p.last().unwrap().last().unwrap()).collect::<Vec<_>>();
+            let possible_targets = possible_paths.iter().map(|p| p.last().unwrap().last().unwrap().0).collect::<Vec<_>>();
             let mut confirmed_targets = Vec::new();
             // follow the good quality paths until we reach a possible target node (or max search radius)
             // if we reached a target node, send bad path to be removed from graph
-            for gn in good_neighbors {
+            for (gn, gn_in_dir) in good_neighbors {
                 let mut path_length = K::k() - 1;
                 let mut current_node_id = gn;
+                let mut current_in_dir = *gn_in_dir;
 
                 loop {
                     // check if we have exceeded the search radius
@@ -1940,42 +1941,43 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     }
 
                     // look for next node
-                    let out_edges = current_node.edges(out_dir);
+                    let out_edges = current_node.edges(current_in_dir.flip());
 
-                    let next_node_id = if out_edges.len() == 1 {
-                        let (_, next_node_id, _, _) = out_edges[0];
-                        next_node_id
+                    let (next_node_id, next_in_dir) = if out_edges.len() == 1 {
+                        let (_, next_node_id, next_in_dir, _) = out_edges[0];
+                        (next_node_id, next_in_dir)
                     } else if out_edges.is_empty() {
                         // dead end, break
                         break;
                     } else {
                         // use node with highest quality
                         // TODO future: use read mapping?
-                        let good_neighbors = out_edges.iter()
-                            .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
+                        let good_neighbor = out_edges.iter()
+                            .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir, self.get_node(*target_id)
                                 .data()
                                 .quality()
                                 .unwrap()))
-                            .max_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
-                        if let Some((best_nb_id, _)) = good_neighbors {
-                            best_nb_id
+                            .max_by(|(_, _, q_a), (_, _, q_b)| q_a.cmp(q_b));
+                        if let Some((best_nb_id, best_nb_in_dir, _)) = good_neighbor {
+                            (best_nb_id, *best_nb_in_dir)
                         } else {
                             break;
                         }
                     };
 
                     current_node_id = next_node_id;
+                    current_in_dir = next_in_dir;
                 }
             }
 
             // check if we have found end nodes of possible paths by following good quality paths
             // if so, remove path
             for path_group in possible_paths {
-                let target = path_group.last().unwrap().last().unwrap();
+                let target = path_group.last().unwrap().last().unwrap().0;
 
-                if confirmed_targets.contains(target) {
+                if confirmed_targets.contains(&target) {
                     for path in path_group {
-                        if let Err(err) = self.remove_path(path.clone(), out_dir) {
+                        if let Err(err) = self.remove_path(path.clone()) {
                             warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
@@ -1985,7 +1987,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove tip paths
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
-                if let Err(err) = self.remove_path(path.clone(), out_dir) {
+                if let Err(err) = self.remove_path(path.clone()) {
                     warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
@@ -2020,10 +2022,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             writeln!(wtr, "avg high cov,avg low cov,high truth ratio,low truth ratio").unwrap();
         }
 
-        // iterate over nodes
-        for node_id in 0..self.len() {
+        // iterate over nodes, check in both directions
+        for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
             // check if node has outgoing edge(s) with both high and low coverage
-            let outs = self.get_node(node_id).data().edge_mults().expect("should have em").right();
+            let outs = self.get_node(node_id).data().edge_mults().expect("should have em").single_dir(out_dir).edge_mults;
 
             let Some((out_max_base, &out_max_cov)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
             let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (out_max_cov > c)).collect::<Vec<_>>();
@@ -2033,18 +2035,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             if smaller_outs.is_empty() { continue; }
 
             // follow path with highest coverage until target length is reached
-            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, out_max_cov) else { continue; };
+            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, out_max_cov, out_dir) else { continue; };
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
-                let Some((target_paths, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
-                let other_target_node = *target_paths.last().expect("should have at least one element").last().expect("should have at least two elements");
+                let Some((target_paths, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov, out_dir) else { continue; };
+                let other_target_node = target_paths.last().expect("should have at least one element").last().expect("should have at least two elements").0;
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
                         for path in target_paths.iter() {
-                            if self.remove_path(path.clone(), Dir::Right).is_err() {
+                            if self.remove_path(path.clone()).is_err() {
                                 warn!("removing ladders: partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                             }
                         } 
@@ -2061,7 +2063,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow the presumably erroneous ladder path with low coverage
-    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<Vec<usize>>, f32, f32)> 
+    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(Vec<Vec<(usize, Dir)>>, f32, f32)> 
     where SD: SummaryData<DI>
     {
         // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
@@ -2078,7 +2080,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         // path, including start and target node
         let mut paths = Vec::new();
         paths.push(Vec::new());
-        paths[0].push(start_node_id);
+        // add start node and start in dir as first element in path
+        paths[0].push((start_node_id, start_out_dir.flip()));
 
         let target_length = K::k();
         let mut path_length = 0;
@@ -2086,10 +2089,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(Dir::Right);
-        let next_kmer = term_kmer.extend(start_ext, Dir::Right);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
-        paths[0].push(current_node_id);
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+        paths[0].push((current_node_id, current_in_dir));
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2123,25 +2126,26 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let current_node = self.get_node(current_node_id);
             
             // get edges
-            let in_edges = current_node.l_edges();
-            let out_edges = current_node.r_edges();
+            let in_edges = current_node.edges(current_in_dir);
+            let out_edges = current_node.edges(current_in_dir.flip());
 
             // get coverage
             // edge cov must be available
-            let edge_coverages = current_node.data().edge_mults().expect("must have edge mults");
+            let out_edge_coverages = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip());
 
             // choose next edge by choosing coverage closest to current coverage
             let mut out_ext = None;
-            let mut out_node_id = None;
+            let mut next_node_id = None;
+            let mut next_in_dir = None;
             let mut cov_diff = i32::MAX;
-            for (e, id, _, _) in out_edges.iter() {
-                let cov = edge_coverages.edge_mult(*e, Dir::Right) as i32;
+            for (e, id, in_dir, _) in out_edges.iter() {
+                let cov = out_edge_coverages.edge_mult(*e) as i32;
                 let new_cov_diff = (current_cov as i32 - cov).abs();
                 if new_cov_diff < cov_diff {
-                    (out_ext, out_node_id, cov_diff) = (Some(*e), Some(*id), new_cov_diff);
+                    (out_ext, next_node_id, next_in_dir, cov_diff) = (Some(*e), Some(*id), Some(in_dir), new_cov_diff);
                 }
             }
-            let (Some(out_ext), Some(out_node_id)) = (out_ext, out_node_id) else { return None; };
+            let (Some(out_ext), Some(next_node_id), Some(next_in_dir)) = (out_ext, next_node_id, next_in_dir) else { return None; };
 
             // ideally, low path nodes should have one incoming and one outgoing edge
             // if two incoming edges, increase state from singular to double if possible
@@ -2162,14 +2166,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     LadderState::Singular => (), // could return None, but would kill if overlap is only one node long
                     LadderState::Double => {
                         state = LadderState::Singular;
-                        paths.push(vec![current_node_id]); // start new path
+                        paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                     }
                 }
                 _ => return None
             }
 
-            // check coverage, in theoretical ladder, coverage should be uniform
-            let coverage = edge_coverages.edge_mult(out_ext, Dir::Right) as f32;
+            // check coverage, in theoretical ladder coverage should be uniform
+            let coverage = out_edge_coverages.edge_mult(out_ext) as f32;
             match state {
                 LadderState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
@@ -2187,7 +2191,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     if coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // back in acceptable range
                         state = LadderState::Singular;
-                        paths.push(vec![current_node_id]); // start new path
+                        paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                         current_cov = coverage;
                     } // else continue on 
                     // TODO check if better to also interrupt if coverage increases further
@@ -2197,7 +2201,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
             match state {
                 LadderState::Singular => {
-                    if self.check_edge_truth(current_node_id, out_node_id) {
+                    if self.check_edge_truth(current_node_id, next_node_id) {
                         n_correct_edges += len;
                     }
                 }
@@ -2205,7 +2209,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = *next_in_dir;
 
             // add current node to path, unless state is double
             match state {
@@ -2214,7 +2219,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     sum_path_cov += current_cov;
                     coverage_counter += 1;
                     let last_path = paths.len() - 1;
-                    paths[last_path].push(current_node_id); // add node to latest path
+                    paths[last_path].push((current_node_id, current_in_dir)); // add node to latest path
                 }
             }
         }
@@ -2222,7 +2227,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     /// follow a path of the length 2*k - 1 by choosing the edges with the hightest coverage
     /// requres the graph to have edge mults
-    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(usize, f32, f32)> 
+    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(usize, f32, f32)> 
     where SD: SummaryData<DI>
     {
 
@@ -2234,9 +2239,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(Dir::Right);
-        let next_kmer = term_kmer.extend(start_ext, Dir::Right);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer,start_out_dir).expect("link should exist"); 
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2263,17 +2268,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // get next node id
             let sequence = self.base.sequences.get(current_node_id);
-            let term_kmer: K = sequence.term_kmer(Dir::Right);
-            let next_kmer = term_kmer.extend(max_cov_base as u8, Dir::Right);
-            let (out_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
+            let term_kmer: K = sequence.term_kmer(current_in_dir.flip());
+            let next_kmer = term_kmer.extend(max_cov_base as u8, current_in_dir.flip());
+            let (next_node_id, next_in_dir, _) = self.find_link(next_kmer, current_in_dir.flip()).expect("link should exist"); 
 
             // try to check if edge is "correct", add extra length of current node to it to account for compression
-            if self.check_edge_truth(current_node_id, out_node_id) {
+            if self.check_edge_truth(current_node_id, next_node_id) {
                 n_correct_edges += len;
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
             sum_path_cov += max_cov;
             coverage_counter += 1;
         }
@@ -2330,7 +2336,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // remove path if coverage below threshold
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_tip_coverage <= max_avg_tip_cov) & (tip_len <= max_len) {
-                        self.remove_path(tip_path, dir)?;
+                        self.remove_path(tip_path)?;
                     }
                         
                     if let Some(wtr) = writer.as_mut() {
@@ -2344,7 +2350,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow a tip path, returns path, average coverage and ration of correct to incorrect connections
-    fn follow_tip_path<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, dir: Dir) -> Option<(Vec<usize>, f32, f32, usize)> 
+    fn follow_tip_path<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(Vec<(usize, Dir)>, f32, f32, usize)> 
     where 
         SD: SummaryData<DI>
     {
@@ -2353,17 +2359,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // path, including start and target node
         let mut path = Vec::new();
-        path.push(start_node_id);
+        path.push((start_node_id, start_out_dir));
 
         let mut path_length = 0;
         let mut n_correct_edges = 0;
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(dir);
-        let next_kmer = term_kmer.extend(start_ext, dir);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, dir).expect("link should exist"); 
-        path.push(current_node_id);
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+        path.push((current_node_id, current_in_dir));
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2382,10 +2388,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             path_length += len;
 
             // low path nodes should have only one incoming and one outgoing edge
-            let in_edges = current_node.edges(dir.flip());
+            let in_edges = current_node.edges(start_out_dir.flip());
             if in_edges.len() != 1 { return None; }
 
-            let out_edges = current_node.edges(dir);
+            let out_edges = current_node.edges(start_out_dir);
             match out_edges.len() {
                 oe if oe > 1 => return None,
                 0 => return Some((path, (sum_path_cov / coverage_counter as f32), (n_correct_edges as f32 / path_length as f32), path_length)),
@@ -2393,9 +2399,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // if edge cov avalable, check for similarity
-            let (out_ext, out_node_id, _, _) = out_edges[0];
+            let (out_ext, next_node_id, next_in_dir, _) = out_edges[0];
             if let Some(em) = current_node.data().edge_mults() {
-                let coverage = em.edge_mult(out_ext, dir) as f32;
+                let coverage = em.edge_mult(out_ext, current_in_dir.flip()) as f32;
                 if coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN // extra two for small values
                     || coverage > current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN {
                     return None;
@@ -2405,98 +2411,56 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // try to check if edge is "correct", add extra length of current node to it to account for compression
-            if self.check_edge_truth(current_node_id, out_node_id) {
+            if self.check_edge_truth(current_node_id, next_node_id) {
                 n_correct_edges += len;
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
             sum_path_cov += current_cov;
             coverage_counter += 1;
             // add current node to path
-            path.push(current_node_id);
+            path.push((current_node_id, current_in_dir));
 
         }
     }
 
-    /// remove the edges (not the nodes) of a path in the graph
-    fn remove_path<DI>(&mut self, path: Vec<usize>, base_dir: Dir) -> Result<(), String> 
+    /// remove the edges (not the nodes) of a path in the graph, the path has to contain 
+    /// the node ID and the direction the path is coming from moving through the node
+    fn remove_path<DI>(&mut self, path: Vec<(usize, Dir)>) -> Result<(), String> 
     where SD: SummaryData<DI>
     {
         let mut path_iter = path.clone().into_iter();
-        let Some(mut current_node_id) = path_iter.next() else { return Ok(()); };
+        let Some((mut current_node_id, mut current_in_dir)) = path_iter.next() else { return Ok(()); };
 
         loop {
             // get next node id
-            let Some(next_node_id) = path_iter.next() else { return Ok(()); }; // whole path has been covered
-            // remove ext to the right of current node
-            let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
-                else { return Err(format!(
-"no edge to remove (base dir)
-path: {:?}
-dir: {:?}
-node1:
-    id: {current_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}
-node2:
-    id: {next_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}",
-                path,
-                base_dir,
-                self.get_node(current_node_id).l_edges(),
-                self.get_node(current_node_id).r_edges(),
-                self.get_node(current_node_id).exts(),
-                self.get_node(current_node_id).data(),
-                self.get_node(next_node_id).l_edges(),
-                self.get_node(next_node_id).r_edges(),
-                self.get_node(next_node_id).exts(),
-                self.get_node(next_node_id).data(),
-                ))
-            };
+            let Some((next_node_id, next_in_dir)) = path_iter.next() else { return Ok(()); }; // whole path has been covered
+            // find base to remove ext leaving the current node
+            let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(current_in_dir.flip()).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
+                else {
+                    return Err( format!("no edge to remove (other dir), node 1:  {:?}, node 2: {:?}",
+                        self.get_node(current_node_id),
+                        self.get_node(next_node_id)
+                    ))
+                };
 
             // remove ext 
-            self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(base_dir, out_base);
+            self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(current_in_dir.flip(), out_base);
         
 
-            // remove ext to the left of the next node
-            let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
-                else { return Err( format!(
-"no edge to remove (other dir)
-path: {:?}
-dir: {:?}
-node1:
-    id: {current_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}
-node2:
-    id: {next_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}",
-                path,
-                base_dir,
-                self.get_node(current_node_id).l_edges(),
-                self.get_node(current_node_id).r_edges(),
-                self.get_node(current_node_id).exts(),
-                self.get_node(current_node_id).data(),
-                self.get_node(next_node_id).l_edges(),
-                self.get_node(next_node_id).r_edges(),
-                self.get_node(next_node_id).exts(),
-                self.get_node(next_node_id).data(),
+            // find base to remove ext entering the next node
+            let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(next_in_dir).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
+                else { 
+                    return Err( format!("no edge to remove (other dir), node 1:  {:?}, node 2: {:?}",
+                    self.get_node(current_node_id),
+                    self.get_node(next_node_id)
                 ))
-            };
+                };
 
             // remove ext
-            self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(base_dir.flip(), in_base); 
+            self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(next_in_dir, in_base); 
 
             // use new exts to fix edge mults
             self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
@@ -2504,6 +2468,7 @@ node2:
 
 
             current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
         }
     }
 

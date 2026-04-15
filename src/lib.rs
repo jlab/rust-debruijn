@@ -1328,6 +1328,11 @@ impl SingleDirEdgeMult {
         reverse.reverse();
         SingleDirEdgeMult::new(reverse)
     }
+
+    /// get the multiplicity of a certain edge
+    pub fn edge_mult(&self, base: u8) -> u32 {
+        self.edge_mults[(ALPHABET_SIZE as u8 - 1 - base) as usize]
+    }
 }
 
 // TODO add methods
