@@ -3090,6 +3090,120 @@ impl SummaryData<Tag> for SumMapEMQualityData{
     }
 }
 
+/// Implementation of [`SummaryData<Tag>`]
+/// 
+/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapEMQualityData {
+    map_ids: Box<[ID]>,
+    edge_mults: EdgeMult,
+    quality: BaseQuality
+}
+
+impl SummaryData<Tag> for MapEMQualityData{
+    fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
+
+        format!("mapped IDs: {}, quality: {}, edge coverage: {}", 
+            map_ids_format,
+            self.quality,
+            self.edge_mults,
+        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
+
+        format!("mapped IDs: {}, quality: {}, edge coverage: {:?}", 
+            map_ids_format,
+            self.quality,
+            self.edge_mults
+        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
+    }
+
+    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+        let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
+
+        let has_mapped = !self.map_ids.is_empty() as usize;
+
+        format!("\"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.quality as u8) // rempve " to avoid conflicts in json file
+    }
+
+    fn tags(&self) -> Option<Tags> { None }
+
+    fn mem(&self) -> usize {
+        mem::size_of_val(self) + mem::size_of_val(&*self.map_ids)
+    }
+
+    fn sum(&self) -> Option<usize> { None }
+
+    fn ids(&self) -> Option<&[ID]> { None }
+
+    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
+
+    fn sample_count(&self) -> Option<usize> { None }
+
+    fn edge_mults(&self) -> Option<&EdgeMult> {
+        Some(&self.edge_mults)
+    }
+
+    fn quality(&self) -> Option<BaseQuality> {
+        Some(self.quality)
+    }
+
+    fn fix_edge_mults(&mut self, exts: Exts) {
+        self.edge_mults.clean_edges(exts);
+    }
+
+    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
+        self.edge_mults = edge_mults.expect("Error: no edge mults")
+    }
+
+    fn mapped_ids(&self) -> Option<&[ID]> {
+        Some(&self.map_ids)
+    }
+
+    fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>) {
+        self.map_ids = mapped_ids
+    }
+
+    fn join_test(&self, other: &Self) -> bool {
+        self.map_ids == other.map_ids
+        && self.quality == other.quality
+    }
+
+    fn valid(&self, config: &SummaryConfig) -> bool { 
+        self.quality >= config.min_quality
+    }
+
+    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+        let summary = summarize_tags_edge_q(items, config);
+        
+        let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
+        
+        // caluclate p-value with chosen test
+        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
+        let valid_q = quality >= config.min_quality;
+
+        let tags = Tags::from_tag_vec(summary.tag_vec);
+
+        let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
+
+        let sum = match config.significant {
+            Some(digits) => round_digits(summary.sum, digits),
+            None => summary.sum  
+        };
+
+        (valid, summary.all_exts, MapEMQualityData { map_ids: Vec::new().into(), edge_mults: summary.edge_mults, quality }) 
+    }
+
+    fn summarizer() -> Summarizers {
+        Summarizers::MapEMQuality
+    }
+}
+
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
@@ -3316,6 +3430,7 @@ pub enum Summarizers {
     IDMapEM,
     IDMapEMQuality,
     SumMapEMQuality,
+    MapEMQuality,
     GroupCount,
     RelCount
 }

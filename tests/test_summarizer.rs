@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -555,6 +555,29 @@ fn test_summary_data() {
         mapped_ids:  mapped_ids.clone(),
         valid,
         summarizer: Summarizers::SumMapEMQuality,
+    };
+
+    assert_eq!(test_data, compare_data);
+
+    // MapEMQualityData
+
+    let test_data = test_summarize::<MapEMQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
+    let compare_data = SummaryTest {
+        print: "mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        print_ol: "mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        tags: None,
+        mem: size_aligned(mi_m_s + em_m + q_m, mi_m_h, 8),
+        sum: None,
+        ids:  None,
+        p_value: None,
+        fold_change: None,
+        sample_count: None,
+        edge_mults:  edge_mults.clone(),
+        quality,
+        mapped_ids:  mapped_ids.clone(),
+        valid,
+        summarizer: Summarizers::MapEMQuality,
     };
 
     assert_eq!(test_data, compare_data);
