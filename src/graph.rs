@@ -1653,7 +1653,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`
-    pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
+    pub fn remove_lq_paths<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
@@ -1662,7 +1662,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
-        //let max_path = 4 * K::k() - 1;
+        let max_path = 4 * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1703,9 +1703,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if path has reached max length -> interrupt
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     let current_node = self.get_node(current_node_id);
                     let out_edges = current_node.edges(out_dir);
@@ -1810,9 +1810,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     // check if we have exceeded the search radius
-                    /* if path_length > max_path {
+                    if path_length > max_path {
                         break;
-                    } */
+                    }
 
                     // add current node length to path length
                     let current_node = self.get_node(current_node_id);
@@ -3142,7 +3142,7 @@ mod test {
     }
 
     #[test]
-    fn test_remove_lq_ladders_tips() {
+    fn test_remove_lq_paths() {
         let print = false;
 
         type K = Kmer16;
@@ -3173,7 +3173,7 @@ mod test {
 
         if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
+        unc_graph.remove_lq_paths(BaseQuality::Medium).unwrap();
         if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
@@ -3200,7 +3200,7 @@ mod test {
 
         if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_lq_ladders_tips(BaseQuality::Medium).unwrap();
+        c_graph.remove_lq_paths(BaseQuality::Medium).unwrap();
         if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
