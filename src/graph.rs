@@ -2528,7 +2528,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         }
     }
 
-    /// use mapped ids to check if the nodes of an edge were mapped to the same id
+    /// use ids mapped to nodes to check if the nodes of an edge were mapped to the same id
     /// returns false if mapped ids are not available
     pub fn check_edge_truth<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
     where 
@@ -2544,6 +2544,37 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     return true;
                 }
             }
+        }
+
+        false
+    }
+
+    /// use ids mapped to edges to check if the edge is a true edge
+    /// returns false if mapped ids are not available
+    pub fn check_edge_truth_emap<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
+    where 
+        SD: SummaryData<DI>
+    {
+        let mapped_ids_1 = self.get_node(node_id_1).data().mapped_edge_ids();
+
+        if let Some(emap) = mapped_ids_1 {
+            let node_1 = self.get_node(node_id_1);
+
+            // find node 2 in edges of node 1, check in both dirs
+            if let Some((out_base, _nb_id, _nb_inc_dir, _flip)) = node_1.l_edges().iter().find(|(_b, nb, _d, _f)| *nb == node_id_2) {
+                let edge_map = emap.edge_map(*out_base, Dir::Left);
+                if !edge_map.is_empty() {
+                    return true
+                }
+            } else if let Some((out_base, _nb_id, _nb_inc_dir, _flip)) = node_1.r_edges().iter().find(|(_b, nb, _d, _f)| *nb == node_id_2) {
+                let edge_map = emap.edge_map(*out_base, Dir::Right);
+                if !edge_map.is_empty() {
+                    return true
+                }
+            } else {
+                panic!("missing neighbor")
+            };
+
         }
 
         false

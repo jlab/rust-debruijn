@@ -1360,6 +1360,10 @@ impl EdgeMap {
         self.edge_maps[dir.index(base) as usize] = edge_map;
     }
 
+    fn edge_map(&self, base: u8, dir: Dir) -> &Box<[ID]>{
+        &self.edge_maps[dir.index(base) as usize]
+    }
+
     fn set_edge_map_at_index(&mut self, edge_map: Box<[ID]>, index: usize) {
         self.edge_maps[index] = edge_map;
     }
