@@ -2,7 +2,7 @@ use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
-use crate::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, TagsCountsFormatter, TagsFormatter};
+use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, TagsCountsFormatter, TagsFormatter};
 use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
 
 /// inner type for [`Tags`] and group markers
@@ -876,8 +876,12 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>);
     /// get a reference to the mapped ids,  returns `None` if data is insufficient
     fn mapped_ids(&self) -> Option<&[ID]>;
-    /// add mapped ids to the data
+    /// add mapped ids to the node data
     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>);
+    /// get a reference to the IDs mapped to the node edges, returns `None` id data is insuffivient
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap>;
+    /// add mapped IDs to the node's edges
+    fn set_mapped_edge_ids(&mut self, mapped_edge_ids: EdgeMap);
     /// check if the data can be joined into one
     fn join_test(&self, other: &Self) -> bool;
     /// check if node is valid according to: min kmer obs, group fraction, p-value
@@ -932,6 +936,10 @@ impl SummaryData<Tag> for u32 {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1023,9 +1031,13 @@ impl SummaryData<Tag> for Vec<Tag> {
 
     fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
 
-        fn mapped_ids(&self) -> Option<&[ID]> { None }
+    fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1104,6 +1116,10 @@ impl SummaryData<IDTag> for IDData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1185,6 +1201,10 @@ impl SummaryData<IDTag> for IDSumData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1281,6 +1301,10 @@ impl SummaryData<Tag> for TagsData {
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self == other
     }
@@ -1372,6 +1396,10 @@ impl SummaryData<Tag> for TagsSumData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1497,6 +1525,10 @@ impl SummaryData<Tag> for TagsCountsSumData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -1653,6 +1685,10 @@ impl SummaryData<Tag> for TagsCountsData {
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self == other
     }
@@ -1798,6 +1834,10 @@ impl SummaryData<Tag> for TagsCountsPData {
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self == other
     }
@@ -1942,6 +1982,10 @@ impl SummaryData<Tag> for TagsCountsEMData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self.counts == other.counts
@@ -2095,6 +2139,10 @@ impl SummaryData<Tag> for TagsCountsPEMData{
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self.counts == other.counts
@@ -2274,6 +2322,10 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self.counts == other.counts
             && self.tags == other.tags
@@ -2428,6 +2480,10 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -2611,6 +2667,10 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self.counts == other.counts
             && self.tags == other.tags
@@ -2714,6 +2774,10 @@ impl SummaryData<IDTag> for IDEMData{
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self.ids == other.ids
@@ -2822,6 +2886,10 @@ impl SummaryData<IDTag> for IDMapEMData{
     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>) {
         self.map_ids = mapped_ids
     }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self.ids == other.ids 
@@ -2936,6 +3004,10 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>) {
         self.map_ids = mapped_ids
     }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self.ids == other.ids 
@@ -3053,6 +3125,10 @@ impl SummaryData<Tag> for SumMapEMQualityData{
         self.map_ids = mapped_ids
     }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self.sum == other.sum 
         && self.map_ids == other.map_ids
@@ -3094,18 +3170,20 @@ impl SummaryData<Tag> for SumMapEMQualityData{
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MapEMQualityData {
+pub struct MapEMEmapQualityData {
     map_ids: Box<[ID]>,
     edge_mults: EdgeMult,
+    edge_maps: EdgeMap,
     quality: BaseQuality
 }
 
-impl SummaryData<Tag> for MapEMQualityData{
+impl SummaryData<Tag> for MapEMEmapQualityData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("mapped IDs: {}, quality: {}, edge coverage: {}", 
+        format!("mapped IDs (node): {}, mapped IDs (edges): {}, quality: {}, edge coverage: {}", 
             map_ids_format,
+            self.edge_maps,
             self.quality,
             self.edge_mults,
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
@@ -3114,8 +3192,9 @@ impl SummaryData<Tag> for MapEMQualityData{
     fn print_ol(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
-        format!("mapped IDs: {}, quality: {}, edge coverage: {:?}", 
+        format!("mapped IDs (node): {}, mapped IDs (edges): {:?}, quality: {}, edge coverage: {:?}", 
             map_ids_format,
+            self.edge_maps,
             self.quality,
             self.edge_mults
         ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
@@ -3126,13 +3205,13 @@ impl SummaryData<Tag> for MapEMQualityData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.quality as u8) // rempve " to avoid conflicts in json file
+        format!("\"mapped_ids_nodes\": {map_ids_format}, \"mapped_ids_edges\": \"{:?}\", \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.edge_maps, self.quality as u8) // rempve " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
 
     fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.map_ids)
+        mem::size_of_val(self) + mem::size_of_val(&*self.map_ids) + self.edge_maps.mem_heap()
     }
 
     fn sum(&self) -> Option<usize> { None }
@@ -3169,9 +3248,18 @@ impl SummaryData<Tag> for MapEMQualityData{
         self.map_ids = mapped_ids
     }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> {
+        Some(&self.edge_maps)
+    }
+
+    fn set_mapped_edge_ids(&mut self, mapped_edge_ids: EdgeMap) {
+        self.edge_maps = mapped_edge_ids
+    }
+
     fn join_test(&self, other: &Self) -> bool {
         self.map_ids == other.map_ids
         && self.quality == other.quality
+        && self.edge_maps == other.edge_maps
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool { 
@@ -3191,16 +3279,11 @@ impl SummaryData<Tag> for MapEMQualityData{
 
         let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
-        let sum = match config.significant {
-            Some(digits) => round_digits(summary.sum, digits),
-            None => summary.sum  
-        };
-
-        (valid, summary.all_exts, MapEMQualityData { map_ids: Vec::new().into(), edge_mults: summary.edge_mults, quality }) 
+        (valid, summary.all_exts, MapEMEmapQualityData { map_ids: Vec::new().into(), edge_mults: summary.edge_mults, edge_maps: EdgeMap::default(), quality }) 
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::MapEMQuality
+        Summarizers::MapEMEmapQuality
     }
 }
 
@@ -3263,6 +3346,10 @@ impl SummaryData<Tag> for GroupCountData {
     fn mapped_ids(&self) -> Option<&[ID]> { None }
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
+
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
 
     fn join_test(&self, other: &Self) -> bool {
         self == other
@@ -3362,6 +3449,10 @@ impl SummaryData<Tag> for RelCountData {
 
     fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
 
+    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
+
+    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
+
     fn join_test(&self, other: &Self) -> bool {
         self == other
     }
@@ -3430,7 +3521,7 @@ pub enum Summarizers {
     IDMapEM,
     IDMapEMQuality,
     SumMapEMQuality,
-    MapEMQuality,
+    MapEMEmapQuality,
     GroupCount,
     RelCount
 }

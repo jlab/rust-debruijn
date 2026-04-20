@@ -280,7 +280,7 @@ pub trait Kmer: Mer + Sized + Copy + PartialEq + PartialOrd + Eq + Ord + Hash {
 
     /// Test if this Kmer and it's reverse complement are the same
     fn is_palindrome(&self) -> bool {
-        self.len() % 2 == 0 && *self == self.rc()
+        self.len().is_multiple_of(2) && *self == self.rc()
     }
 
     /// Create a Kmer from the first K bytes of `bytes`, which must be encoded as the integers 0-4.
@@ -988,7 +988,7 @@ impl Tags {
         // do bit-wise right shifts trough u64
         // each time first digit is 1 (is an odd number), push i to vec
         for i in 0..(mem::size_of::<Tags>()*8) as Tag {
-            if x % 2 != 0 {
+            if !x.is_multiple_of(2) {
                 vec.push(i)
             }
             x >>= 1;
@@ -1006,7 +1006,7 @@ impl Tags {
         // iterate through bits of the u64
         for i in 0..(mem::size_of::<Tags>()*8) as Tag {
             // check if odd number: current first bit is 1
-            if x % 2 != 0 {
+            if !x.is_multiple_of(2) {
                 match str_map.get_by_right(&{ i }) {
                     Some(label) => vec.push(label),
                     None => panic!("tried to access label that does not exist!"),
@@ -1070,7 +1070,7 @@ impl Iterator for TagsIterator {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.i as usize == mem::size_of::<Tags>()*8 { return None }
-            let result = self.tags.val % 2 != 0;
+            let result = !self.tags.val.is_multiple_of(2);
             self.tags.val >>= 1;
             self.i += 1;
             if result { return Some(self.i - 1); }
@@ -1216,7 +1216,7 @@ impl EdgeMult {
     pub fn add_exts(&mut self, exts: Exts) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
-            if exts % 2 != 0 {
+            if !exts.is_multiple_of(2) {
                 self.edge_mults[index] += 1
             }
             exts >>= 1;
@@ -1263,7 +1263,7 @@ impl EdgeMult {
     pub fn clean_edges(&mut self, exts: Exts) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
-            if exts % 2 == 0 {
+            if exts.is_multiple_of(2) {
                 self.edge_mults[index] = 0;
             }
             exts >>= 1;
@@ -1388,7 +1388,7 @@ impl EdgeMap {
     }
 
     /// add an ID at an [`Exts`] to the `EdgeMap`
-    fn add_id(&mut self, exts: Exts, id: ID) {
+    pub fn add_id(&mut self, exts: Exts, id: ID) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
             if !exts.is_multiple_of(2) {
@@ -1398,7 +1398,7 @@ impl EdgeMap {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         let mut empty = true;
 
         for emap in self.edge_maps.iter() {
@@ -1407,12 +1407,47 @@ impl EdgeMap {
 
         empty
     }
+
+    pub fn mem_heap(&self) -> usize {
+        let mut heap = 0;
+
+        for emap in self.edge_maps.iter() {
+            heap += mem::size_of_val(&**emap);
+        }
+
+        heap
+    }
 }
 
 impl Default for EdgeMap {
     fn default() -> Self {
         let edge_maps = array::from_fn(|_n| Vec::new().into());
         Self { edge_maps }
+    }
+}
+
+impl Debug for EdgeMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let edge_f = ["A:", ", C:", ", G:", ", T:", " | A:", ", C:", ", G:", ", T:"];
+        for (ef, em) in edge_f.iter().zip(self.edge_maps.iter().rev()) {
+             write!(f, "{} {:?}", ef, em)?
+        }
+        Ok(())
+    }
+}
+
+impl Display for EdgeMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let base = ["A", "C", "G", "T"];
+        for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
+            writeln!(f, "{}: {:?} | {:?}", 
+                b, 
+                self.edge_maps[i + ALPHABET_SIZE], 
+                self.edge_maps[i]
+            )?
+        }
+
+        Ok(())
     }
 }
 
