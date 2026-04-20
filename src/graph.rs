@@ -39,6 +39,7 @@ type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::BaseQuality;
+use crate::EdgeMap;
 use crate::bits_to_base;
 use crate::colors::ColorMode;
 use crate::colors::Colors;
@@ -771,6 +772,67 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let boxed_transcripts = node_transcript_ids.into_iter().map(|vec| vec.into()).collect();
 
         Ok(boxed_transcripts)
+    }
+
+    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
+    pub fn map_transcripts_to_edges<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<EdgeMap>, String> 
+    where 
+        P: AsRef<Path>
+    {
+        let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
+        let mut node_edge_transcript_ids = vec![EdgeMap::default(); self.len()];
+
+        // if the translator has a id translator, use it, else make a new one to use and put it into the translator
+        let id_tr = if let Some(id_tr) = translator.mut_id_translator() {
+            id_tr
+        } else {
+            let new_id_tr = BiHashMap::new();
+            translator.mut_id_translator().replace(new_id_tr);
+            
+            let Some(id_tr) = translator.mut_id_translator() else { panic!("should not happen") };
+
+            id_tr
+        };
+
+        // go through each transcript and map to graph
+        for result in reader.records() {
+            let record = result.expect("error parsing transcripts fasta");
+
+            // get gene id or make new id
+            let gene_id = match id_tr.get_by_left(&record.id().to_string()) {
+                Some(id) => *id,
+                None => {
+                    let new_id = id_tr.len() as ID;
+                    id_tr.insert(record.id().to_string(), new_id);
+                    new_id
+                }
+            };
+
+            // iterate over k-mers in transcript and find each one in the graph
+            let sequence = DnaString::from_acgt_bytes(record.seq());
+
+            for (kmer, exts) in sequence.iter_kmer_exts::<K>(Exts::empty()) {
+                if self.base.stranded {
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                    }
+                } else {
+                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                    } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                    }
+                }
+                
+            }
+        }
+
+        // remove unncecessary memory from boxed slices
+        node_edge_transcript_ids.iter_mut().for_each(|emap| emap.shrink_to_fit());
+        node_edge_transcript_ids.shrink_to_fit();
+
+        Ok(node_edge_transcript_ids)
     }
 
     /// write a node to a dot file
@@ -3087,7 +3149,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -3168,6 +3230,33 @@ mod test {
         let t_map = unc_graph.map_transcripts(t_ref_path, &mut translator).unwrap();
         assert_eq!(t_map.len(), unc_graph.len());
         assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
+
+        // repeat the same without a previous existing translator
+        let mut new_translator = Translator::empty();
+        let t_map = unc_graph.map_transcripts(t_ref_path, &mut new_translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
+        let mut new_id_strings = new_translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        new_id_strings.sort();
+
+        assert_eq!(id_strings, new_id_strings);
+    }
+
+
+    #[test]
+    fn test_map_transcripts_to_edges() {
+        let t_ref_path = "test_data/test_transcriptome_reference.fasta";
+        let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
+        let (kmers, mut translator, _) = ser_kmers.dissolve();
+
+        let unc_graph = uncompressed_graph(kmers, true).finish();
+
+        let mut id_strings = translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        id_strings.sort();
+
+        let t_map = unc_graph.map_transcripts_to_edges(t_ref_path, &mut translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&emap| !emap.is_empty()).collect::<Vec<_>>().len(), 439);
 
         // repeat the same without a previous existing translator
         let mut new_translator = Translator::empty();

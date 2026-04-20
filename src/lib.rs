@@ -35,7 +35,7 @@ use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::mem;
+use std::{array, mem};
 use std::ops::Range;
 
 use crate::compression::{CheckCompress, compress_kmers_with_hash};
@@ -1332,6 +1332,87 @@ impl SingleDirEdgeMult {
     /// get the multiplicity of a certain edge
     pub fn edge_mult(&self, base: u8) -> u32 {
         self.edge_mults[(ALPHABET_SIZE as u8 - 1 - base) as usize]
+    }
+}
+
+// would be more intuitive with left and right switched but Exts were built this way
+/// mapped transcript/gene/chromosome IDs for each of the 8 possible edges
+/// indices: 
+/// 0: T right
+/// 1: G right
+/// 2: C right
+/// 3: A right
+/// 4: T left
+/// 5: G left
+/// 6: C left
+/// 7: A left
+#[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
+pub struct EdgeMap {
+    edge_maps: [Box<[ID]>; 2*ALPHABET_SIZE],
+}
+
+impl EdgeMap {
+    pub fn new(edge_maps: [Box<[ID]>; 2*ALPHABET_SIZE]) -> EdgeMap {
+        EdgeMap { edge_maps }
+    }
+
+    fn set_edge_map(&mut self, edge_map: Box<[ID]>, base: u8, dir: Dir) {
+        self.edge_maps[dir.index(base) as usize] = edge_map;
+    }
+
+    fn set_edge_map_at_index(&mut self, edge_map: Box<[ID]>, index: usize) {
+        self.edge_maps[index] = edge_map;
+    }
+
+    fn add_id_to_edge_map(&mut self, id: ID, base: u8, dir: Dir) {
+        let mut em = self.edge_maps[dir.index(base) as usize].to_vec();
+        em.push(id);
+
+        self.set_edge_map(em.into(), base, dir);
+    }
+
+     fn add_id_to_edge_map_at_index(&mut self, id: ID, index: usize) {
+        let mut em = self.edge_maps[index].to_vec();
+        em.push(id);
+
+        self.set_edge_map_at_index(em.into(), index);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        for mut emap in self.edge_maps.iter_mut() {
+            let mut emap_vec = emap.to_vec();
+            emap_vec.shrink_to_fit();
+
+            emap = &mut emap_vec.into(); // FIXME
+        }
+    }
+
+    /// add an ID at an [`Exts`] to the `EdgeMap`
+    fn add_id(&mut self, exts: Exts, id: ID) {
+        let mut exts = exts.val;
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
+            if !exts.is_multiple_of(2) {
+                self.add_id_to_edge_map_at_index(id, index);
+            }
+            exts >>= 1;
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        let mut empty = true;
+
+        for emap in self.edge_maps.iter() {
+            if !emap.is_empty() { empty = false }
+        }
+
+        empty
+    }
+}
+
+impl Default for EdgeMap {
+    fn default() -> Self {
+        let edge_maps = array::from_fn(|_n| Vec::new().into());
+        Self { edge_maps }
     }
 }
 
