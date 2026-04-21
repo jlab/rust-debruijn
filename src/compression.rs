@@ -280,13 +280,12 @@ where
     }
 
     /// Generate complete unbranched edges
-    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, Exts, Option<SingleDirEdgeMult>, Option<SingleDirEdgeMap>) {
+    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, TerminalExt) {
         let mut current_dir = start_dir;
         let mut current_node = start_node;
         let mut path = Vec::new();
-        let final_ext: Exts; // must get set below
-        let final_em: Option<SingleDirEdgeMult>; // must get set below
-        let final_emap: Option<SingleDirEdgeMap>; // must get set below
+        // must get set below
+        let terminal: TerminalExt;
 
         self.available_nodes.remove(start_node);
 
@@ -302,24 +301,22 @@ where
                     current_dir = next_dir_outgoing;
                 }
                 ExtModeNode::Terminal(term) => {
-                    final_ext = term.exts;
-                    final_em = term.edge_mults;
-                    final_emap = term.edge_maps;
+                    terminal = term;
 
                     break;
                 }
             }
         }
 
-        (path, final_ext, final_em, final_emap)
+        (path, terminal)
     }
 
     // Determine the sequence and extensions of the maximal unbranched
     // edge, centered around the given edge number
     #[inline(never)]
     fn build_node(&mut self, seed_node: usize) -> (DnaString, Exts, VecDeque<(usize, Dir)>, D) {
-        let (l_path, l_ext, l_em, l_emap) = self.extend_node(seed_node, Dir::Left);
-        let (r_path, r_ext, r_em, r_emap) = self.extend_node(seed_node, Dir::Right);
+        let (l_path, l_terminal) = self.extend_node(seed_node, Dir::Left);
+        let (r_path, r_terminal) = self.extend_node(seed_node, Dir::Right);
 
         // Stick together edge chunks to get full edge sequence
         let mut node_path = VecDeque::new();
@@ -343,22 +340,30 @@ where
                 .reduce(node_data, self.graph.get_node(next_node).data());
         }
 
-        let (left_extend_exts, left_extend_em, left_extend_emap) = match l_path.last() {
-            None => (l_ext, l_em, l_emap),
-            Some(&(_, Dir::Left)) => (l_ext.complement(), l_em.map(|em| em.complement()), l_emap.map(|em| em.complement())),
-            Some(&(_, Dir::Right)) => (l_ext, l_em, l_emap),
+        let left_terminal = match l_path.last() {
+            None => l_terminal,
+            Some(&(_, Dir::Left)) => TerminalExt::new(
+                l_terminal.exts.complement(), 
+                l_terminal.edge_mults.map(|em| em.complement()), 
+                l_terminal.edge_maps.map(|em| em.complement())
+            ),
+            Some(&(_, Dir::Right)) => l_terminal,
         };
 
-        let (right_extend_exts, right_extend_em, right_extend_emap) = match r_path.last() {
-            None => (r_ext, r_em, r_emap),
-            Some(&(_, Dir::Left)) => (r_ext, r_em, r_emap),
-            Some(&(_, Dir::Right)) => (r_ext.complement(), r_em.map(|em| em.complement()), r_emap.map(|em| em.complement()))
+        let right_terminal = match r_path.last() {
+            None => r_terminal,
+            Some(&(_, Dir::Left)) => r_terminal,
+            Some(&(_, Dir::Right)) => TerminalExt::new(
+                r_terminal.exts.complement(), 
+                r_terminal.edge_mults.map(|em| em.complement()), 
+                r_terminal.edge_maps.map(|em| em.complement())
+            )
         };
 
         let path_seq = self.graph.sequence_of_path(node_path.iter());
 
-        let new_em = EdgeMult::from_single_dirs(&left_extend_em, &right_extend_em);
-        let new_emap = EdgeMap::from_single_dirs(&left_extend_emap, &right_extend_emap);
+        let new_em = EdgeMult::from_single_dirs(&left_terminal.edge_mults, &right_terminal.edge_mults);
+        let new_emap = EdgeMap::from_single_dirs(&left_terminal.edge_maps, &right_terminal.edge_maps);
 
         node_data.set_edge_mults(new_em);
         node_data.set_mapped_edge_ids(new_emap);
@@ -366,7 +371,7 @@ where
         // return sequence and extensions
         (
             path_seq,
-            Exts::from_single_dirs(left_extend_exts, right_extend_exts),
+            Exts::from_single_dirs(left_terminal.exts, right_terminal.exts),
             node_path,
             node_data,
         )
@@ -551,15 +556,13 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
     /// Also return the extensions at the end of this line.
     /// Sub-lines break if their extensions are not available in this shard
     #[inline(never)]
-    fn extend_kmer(&mut self, kmer: K, start_dir: Dir, path: &mut Vec<(K, Dir)>) -> (Exts, Option<SingleDirEdgeMult>, Option<SingleDirEdgeMap>) {
+    fn extend_kmer(&mut self, kmer: K, start_dir: Dir, path: &mut Vec<(K, Dir)>) -> TerminalExt {
         let mut current_dir = start_dir;
         let mut current_kmer = kmer;
         path.clear();
 
         // must get set below
-        let final_exts: Exts;
-        let final_em: Option<SingleDirEdgeMult>; 
-        let final_emap: Option<SingleDirEdgeMap>; 
+        let terminal: TerminalExt;
 
         // get id of kmer and remove from available kmers
         let id = self.get_kmer_id(&kmer).expect("should have this kmer");
@@ -577,15 +580,13 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
                     current_dir = next_dir;
                 }
                 ExtMode::Terminal(term) => {
-                    final_exts = term.exts;
-                    final_em = term.edge_mults;
-                    final_emap = term.edge_maps;                    
+                    terminal = term;                   
                     break;
                 }
             }
         }
 
-        (final_exts, final_em, final_emap)
+        terminal
     }
 
     /// Build the edge surrounding a kmer
@@ -605,7 +606,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
         let mut node_data = self.get_kmer_data(&seed).1.clone();
 
         // Unique path from seed kmer with Dir Left is built
-        let l_ext = self.extend_kmer(seed, Dir::Left, path);
+        let l_term = self.extend_kmer(seed, Dir::Left, path);
 
 
         // Add on the left path
@@ -622,15 +623,19 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             node_data = self.spec.reduce(node_data, kmer_data)
         }
 
-        let (left_extend_exts, left_extend_em, left_extend_emap)  = match path.last() {
-            None => l_ext,
-            Some(&(_, Dir::Left)) => l_ext,
-            Some(&(_, Dir::Right)) => (l_ext.0.complement(), l_ext.1.map(|em| em.complement()), l_ext.2.map(|em| em.complement()))
+        let left_terminal  = match path.last() {
+            None => l_term,
+            Some(&(_, Dir::Left)) => l_term,
+            Some(&(_, Dir::Right)) => TerminalExt::new(
+                l_term.exts.complement(), 
+                l_term.edge_mults.map(|em| em.complement()), 
+                l_term.edge_maps.map(|em| em.complement())
+            )
         };
 
 
         // Unique path from seed kmer with Dir Right is built
-        let r_ext = self.extend_kmer(seed, Dir::Right, path);
+        let r_term = self.extend_kmer(seed, Dir::Right, path);
 
         // Add on the right path
         for &(next_kmer, dir) in path.iter() {
@@ -645,18 +650,22 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             node_data = self.spec.reduce(node_data, kmer_data)
         }
 
-        let (right_extend_exts, right_extend_em, right_extend_emap) = match path.last() {
-            None => r_ext,
-            Some(&(_, Dir::Left)) => (r_ext.0.complement(), r_ext.1.map(|em| em.complement()), r_ext.2.map(|em| em.complement())),
-            Some(&(_, Dir::Right)) => r_ext,
+        let right_terminal = match path.last() {
+            None => r_term,
+            Some(&(_, Dir::Left)) => TerminalExt::new(
+                r_term.exts.complement(), 
+                r_term.edge_mults.map(|em| em.complement()), 
+                r_term.edge_maps.map(|em| em.complement())
+            ),
+            Some(&(_, Dir::Right)) => r_term,
         };
 
-        let new_em = EdgeMult::from_single_dirs(&left_extend_em, &right_extend_em);
-        let new_emap = EdgeMap::from_single_dirs(&left_extend_emap, &right_extend_emap);
+        let new_em = EdgeMult::from_single_dirs(&left_terminal.edge_mults, &right_terminal.edge_mults);
+        let new_emap = EdgeMap::from_single_dirs(&left_terminal.edge_maps, &right_terminal.edge_maps);
         node_data.set_edge_mults(new_em);
         node_data.set_mapped_edge_ids(new_emap);
         
-        (Exts::from_single_dirs(left_extend_exts, right_extend_exts), node_data)
+        (Exts::from_single_dirs(left_terminal.exts, right_terminal.exts), node_data)
     }
 
     /// Compress a set of kmers and their extensions and metadata into a base DeBruijn graph.
