@@ -821,7 +821,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                     if let Some(node) = self.search_kmer(kmer, Dir::Right) {
                         node_edge_transcript_ids[node].add_id(exts, gene_id);
                     } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
-                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                        node_edge_transcript_ids[node].add_id(exts.rc(), gene_id);
                     }
                 }
                 
