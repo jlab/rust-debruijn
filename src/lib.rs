@@ -1411,6 +1411,14 @@ impl EdgeMap {
 
         heap
     }
+
+    pub fn combine(left: &EdgeMap, right: &EdgeMap) -> EdgeMap {
+        let mut combined = EdgeMap::default().edge_maps;
+        (0..ALPHABET_SIZE).for_each(|i| combined[i] = right.edge_maps[i].clone());
+        (ALPHABET_SIZE..(2*ALPHABET_SIZE)).for_each(|i| combined[i] = left.edge_maps[i].clone());
+
+        EdgeMap::new(combined)
+    }
 }
 
 impl Default for EdgeMap {
