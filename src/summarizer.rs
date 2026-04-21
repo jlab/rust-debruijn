@@ -140,17 +140,6 @@ pub struct SummaryConfig {
 
 impl SummaryConfig {
     /// make a new `SummaryConfig`
-    /// 
-    /// arguments: 
-    /// * `min_kmer_obs`: minimum number of times a k-mer has to be observed in the reads to be valid
-    /// * `significant`: some summaries round numbers to a certain number of digits ([`u32`], counts in [`GroupCountData`] and [`RelCountData`])
-    /// * `group_frac`: a [`GroupFrac`] determining if the k-mers are going to be filtered out
-    ///   based on if they are observed in certain percentage of the samples of each group
-    /// * `frac_cutoff`: the cutoff for `group_frac`
-    /// * `sample_info`: a [`SampleInfo`] with information about the sample groups
-    /// * `max_p`: a maximum p-value which will be used for filtering if applicable
-    /// * `stat_test`: a [`StatTest`], determining which statistical test will be used
-    ///   for calculation of p-values
     pub fn new(sample_info: SampleInfo) -> Self {
         SummaryConfig::empty().with_sample_info(sample_info)
     }

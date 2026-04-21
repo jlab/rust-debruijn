@@ -476,22 +476,6 @@ impl<K: Kmer, DI> KmerDataItem<K, DI> {
     pub fn new(kmer: K, exts: Exts, data: DI, quality: Option<BaseQuality>) -> KmerDataItem<K, DI> {
         KmerDataItem { kmer, exts, data, quality }
     }
-
-/*     fn kmer(&self) -> K {
-        self.kmer
-    }
-
-    fn exts(&self) -> Exts {
-        self.exts
-    }
-
-    fn data(&self) -> DI {
-        self.data
-    }
-
-    fn quality(&self) -> Option<BaseQuality> {
-        self.quality
-    } */
 }
 
 /// A newtype wrapper around a `Vec<u8>` with implementations
