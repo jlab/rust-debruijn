@@ -68,7 +68,7 @@ where
     emap.add_id(Exts { val: 0b0010010 }, 2);
     emap.add_id(Exts { val: 0b0100011 }, 3);
 
-    data.set_mapped_edge_ids(emap.clone());
+    data.set_mapped_edge_ids(Some(emap.clone()));
     if let Some(m) = data.mapped_edge_ids() {
         assert_eq!(m, &emap)
     }

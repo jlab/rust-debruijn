@@ -881,7 +881,7 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     /// get a reference to the IDs mapped to the node edges, returns `None` id data is insuffivient
     fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
     /// add mapped IDs to the node's edges
-    fn set_mapped_edge_ids(&mut self, _mapped_edge_ids: EdgeMap) { }
+    fn set_mapped_edge_ids(&mut self, _mapped_edge_ids: Option<EdgeMap>) { }
     /// check if the data can be joined into one
     fn join_test(&self, other: &Self) -> bool { self == other }
     /// check if node is valid according to: min kmer obs, group fraction, p-value
@@ -1225,34 +1225,8 @@ impl SummaryData<Tag> for TagsSumData {
         Some(self.sum as usize)
     }
 
-    fn ids(&self) -> Option<&[ID]> { None }
-
-    fn p_value(&self, _: &SummaryConfig) -> Option<f32> { None }
-
-    fn fold_change(&self, _: &SummaryConfig) -> Option<f32> { None }
-
     fn sample_count(&self) -> Option<usize> {
         Some(self.tags.len())
-    }
-
-    fn edge_mults(&self) -> Option<&EdgeMult> { None }
-
-    fn quality(&self) -> Option<BaseQuality> { None }
-
-    fn fix_edge_mults(&mut self, _: Exts) { }
-    
-    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
-
-    fn mapped_ids(&self) -> Option<&[ID]> { None }
-
-    fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
-
-    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
-
-    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
-
-    fn join_test(&self, other: &Self) -> bool {
-        self == other
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -1358,30 +1332,8 @@ impl SummaryData<Tag> for TagsCountsSumData {
         Some(self.sum as usize)
     }
 
-    fn ids(&self) -> Option<&[ID]> { None }
-
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
-    }
-
-    fn edge_mults(&self) -> Option<&EdgeMult> { None }
-
-    fn quality(&self) -> Option<BaseQuality> { None }
-
-    fn fix_edge_mults(&mut self, _: Exts) { }
-    
-    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
-
-    fn mapped_ids(&self) -> Option<&[ID]> { None }
-
-    fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
-
-    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
-
-    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
-
-    fn join_test(&self, other: &Self) -> bool {
-        self == other
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
@@ -1508,8 +1460,6 @@ impl SummaryData<Tag> for TagsCountsData {
         Some(self.counts.iter().sum::<u32>() as usize)
     }
 
-    fn ids(&self) -> Option<&[ID]> { None }
-
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
         p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
@@ -1521,26 +1471,6 @@ impl SummaryData<Tag> for TagsCountsData {
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
-    }
-
-    fn edge_mults(&self) -> Option<&EdgeMult> { None }
-
-    fn quality(&self) -> Option<BaseQuality> { None }
-
-    fn fix_edge_mults(&mut self, _: Exts) { }
-    
-    fn set_edge_mults(&mut self, _: Option<EdgeMult>) { }
-
-    fn mapped_ids(&self) -> Option<&[ID]> { None }
-
-    fn set_mapped_ids(&mut self, _: Box<[ID]>) { }
-
-    fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
-
-    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
-
-    fn join_test(&self, other: &Self) -> bool {
-        self == other
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -2721,8 +2651,6 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         self.map_ids = mapped_ids
     }
 
-    fn set_mapped_edge_ids(&mut self, _: EdgeMap) { }
-
     fn join_test(&self, other: &Self) -> bool {
         self.ids == other.ids 
         && self.map_ids == other.map_ids
@@ -2940,8 +2868,8 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
         Some(&self.edge_maps)
     }
 
-    fn set_mapped_edge_ids(&mut self, mapped_edge_ids: EdgeMap) {
-        self.edge_maps = mapped_edge_ids
+    fn set_mapped_edge_ids(&mut self, mapped_edge_ids: Option<EdgeMap>) {
+        self.edge_maps = mapped_edge_ids.expect("Error: no mapped edge IDs")
     }
 
     fn join_test(&self, other: &Self) -> bool {

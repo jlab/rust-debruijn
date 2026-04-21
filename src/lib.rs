@@ -1412,12 +1412,27 @@ impl EdgeMap {
         heap
     }
 
-    pub fn combine(left: &EdgeMap, right: &EdgeMap) -> EdgeMap {
-        let mut combined = EdgeMap::default().edge_maps;
-        (0..ALPHABET_SIZE).for_each(|i| combined[i] = right.edge_maps[i].clone());
-        (ALPHABET_SIZE..(2*ALPHABET_SIZE)).for_each(|i| combined[i] = left.edge_maps[i].clone());
+    pub fn from_single_dirs(left: &Option<SingleDirEdgeMap>, right: &Option<SingleDirEdgeMap>) -> Option<EdgeMap> {
+        if let Some(l_em) = left {
+            if let Some(r_em) = right {
+                let mut combined = EdgeMap::default().edge_maps;
+                (0..ALPHABET_SIZE).for_each(|i| combined[i] = r_em.edge_maps[i].clone());
+                (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_maps[i].clone());
+        
+                return Some(EdgeMap::new(combined))
+            }
+        }
 
-        EdgeMap::new(combined)
+        None
+    }
+
+    pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMap {
+        let singe_dir: &[Box<[u16]>; 4] = match dir {
+            Dir::Left => self.edge_maps[ALPHABET_SIZE..(2*ALPHABET_SIZE)].try_into().expect("Error: slice has incorrect length"),
+            Dir::Right => self.edge_maps[0..ALPHABET_SIZE].try_into().expect("Error: slice has incorrect length"),
+        };
+
+        SingleDirEdgeMap::new(singe_dir.clone())
     }
 }
 
@@ -1451,6 +1466,28 @@ impl Display for EdgeMap {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SingleDirEdgeMap {
+    edge_maps: [Box<[ID]>; ALPHABET_SIZE]
+}
+
+impl SingleDirEdgeMap {
+    pub fn new(edge_maps: [Box<[ID]>; ALPHABET_SIZE]) -> Self {
+        SingleDirEdgeMap { edge_maps }
+    }
+
+    pub fn complement(&self) -> Self {
+        let mut reverse = self.edge_maps.clone();
+        reverse.reverse();
+        SingleDirEdgeMap::new(reverse)
+    }
+
+    /// get the IDs mapped to a certain edge
+    pub fn edge_map(&self, base: u8) -> &[ID] {
+        &self.edge_maps[(ALPHABET_SIZE as u8 - 1 - base) as usize]
     }
 }
 

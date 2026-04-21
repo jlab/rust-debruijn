@@ -3355,7 +3355,7 @@ mod test {
 
     #[test]
     fn test_remove_lq_splits() {
-        let print = true;
+        let print = false;
         let stranded = false;
 
         type K = Kmer16;
@@ -3422,7 +3422,7 @@ mod test {
 
     #[test]
     fn test_remove_lq_ladders_tips() {
-        let print = true;
+        let print = false;
         let stranded = false;
 
         type K = Kmer16;
@@ -3489,7 +3489,7 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
-        let print = true; 
+        let print = false; 
         let stranded = false; 
         let strandedness = Strandedness::Unstranded;
 
@@ -3577,7 +3577,7 @@ mod test {
     #[test]
     fn test_remove_tips() {
 
-        let print = true;
+        let print = false;
         let stranded = false;
         let strandedness = Strandedness::Unstranded;
 
