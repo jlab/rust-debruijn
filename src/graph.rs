@@ -2863,7 +2863,21 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
-            format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\", weight={count}]", bits_to_base(base))
+            if let Some(emap) = self.data().mapped_edge_ids() {
+                // if available, also print IDs mapped to edges
+                let mapped_ids = emap.edge_map(base, dir);
+
+                // change color according to edge truth
+                let color = match incoming_dir {
+                    Dir::Left => if mapped_ids.is_empty() {"deepskyblue"} else {"blue"},
+                    Dir::Right => if mapped_ids.is_empty() {"salmon"} else {"red"},
+                };
+
+                format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}, {:?}\", weight={count}]", bits_to_base(base), mapped_ids)
+            } else {
+                format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\", weight={count}]", bits_to_base(base))
+            }
+            
         } else {
             format!("[color={color}, penwidth={}]", colors.edge_width(1)) // since there should be no edge mults, this will return default value
         }

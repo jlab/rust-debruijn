@@ -1179,6 +1179,7 @@ impl Debug for EdgeMult {
 impl Display for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let base = ["A", "C", "G", "T"];
+        writeln!(f)?;
         for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
             writeln!(f, "{}: {} | {}", 
                 b, 
@@ -1356,11 +1357,7 @@ impl EdgeMap {
         EdgeMap { edge_maps }
     }
 
-    fn set_edge_map(&mut self, edge_map: Box<[ID]>, base: u8, dir: Dir) {
-        self.edge_maps[dir.index(base) as usize] = edge_map;
-    }
-
-    fn edge_map(&self, base: u8, dir: Dir) -> &Box<[ID]>{
+    fn edge_map(&self, base: u8, dir: Dir) -> &[ID] {
         &self.edge_maps[dir.index(base) as usize]
     }
 
@@ -1368,14 +1365,7 @@ impl EdgeMap {
         self.edge_maps[index] = edge_map;
     }
 
-    fn add_id_to_edge_map(&mut self, id: ID, base: u8, dir: Dir) {
-        let mut em = self.edge_maps[dir.index(base) as usize].to_vec();
-        em.push(id);
-
-        self.set_edge_map(em.into(), base, dir);
-    }
-
-     fn add_id_to_edge_map_at_index(&mut self, id: ID, index: usize) {
+    fn add_id_to_edge_map_at_index(&mut self, id: ID, index: usize) {
         let mut em = self.edge_maps[index].to_vec();
         em.push(id);
 
@@ -1443,6 +1433,7 @@ impl Debug for EdgeMap {
 impl Display for EdgeMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let base = ["A", "C", "G", "T"];
+        writeln!(f)?;
         for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
             writeln!(f, "{}: {:?} | {:?}", 
                 b, 

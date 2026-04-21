@@ -3259,7 +3259,6 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
     fn join_test(&self, other: &Self) -> bool {
         self.map_ids == other.map_ids
         && self.quality == other.quality
-        && self.edge_maps == other.edge_maps
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool { 
