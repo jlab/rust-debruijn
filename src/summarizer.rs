@@ -866,11 +866,11 @@ fn log2_fold_change(tags: Tags, counts: Vec<u32>, sample_info: &SampleInfo) -> f
 
 /// Trait for summarizing k-mers, determines the data saved in the graph nodes
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
-    /// format the noda data 
+    /// format the node data 
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// format the noda data in for json
+    /// format the node data in for json
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// format the noda data in one line
+    /// format the node data in one line
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
     /// get `Tags` and the overall count, returns `None` if data is insufficient
     fn tags(&self) -> Option<Tags>;
@@ -1092,7 +1092,7 @@ impl SummaryData<IDTag> for IDData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1134,7 +1134,7 @@ impl SummaryData<IDTag> for IDData {
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
                 let summary = summarize_tags_ids_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };            
 
@@ -1171,7 +1171,7 @@ impl SummaryData<IDTag> for IDSumData {
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -1217,7 +1217,7 @@ impl SummaryData<IDTag> for IDSumData {
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };            
 
@@ -1264,7 +1264,7 @@ impl SummaryData<Tag> for TagsData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }; // rempve " to avoid conflicts in json file
+        }; // remove " to avoid conflicts in json file
 
         format!("\"samples\": {labels}")
     }
@@ -1354,7 +1354,7 @@ impl SummaryData<Tag> for TagsSumData {
             format!("{:?}", self.tags.to_string_vec(tag_translator))
         } else {
             format!("{:?}", self.tags.to_tag_vec())
-        }; // rempve " to avoid conflicts in json file
+        }; // remove " to avoid conflicts in json file
 
         format!("\"samples\": {labels}, \"sum\": {}", self.sum)
     }
@@ -2130,7 +2130,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
 
         let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
@@ -2310,7 +2310,7 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
         let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
 
@@ -2465,7 +2465,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
         
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
 
         let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
@@ -2646,7 +2646,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
 
         let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
@@ -2696,7 +2696,7 @@ impl SummaryData<IDTag> for IDEMData{
     }
 
     fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2744,7 +2744,7 @@ impl SummaryData<IDTag> for IDEMData{
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
 
-        // caluclate p-value with chosen test, valid if not enough samples
+        // calculate p-value with chosen test, valid if not enough samples
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };
 
@@ -2800,7 +2800,7 @@ impl SummaryData<IDTag> for IDMapEMData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}", ) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}", ) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2853,7 +2853,7 @@ impl SummaryData<IDTag> for IDMapEMData{
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
         let summary = summarize_tags_ids_edge_q(items, config);
 
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };            
 
@@ -2912,7 +2912,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.quality as u8) // rempve " to avoid conflicts in json file
+        format!("\"ids\": {ids_format}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.quality as u8) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -2972,7 +2972,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         
         let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
         
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = quality >= config.min_quality;
 
@@ -3028,7 +3028,7 @@ impl SummaryData<Tag> for SumMapEMQualityData{
 
         let has_mapped = !self.map_ids.is_empty() as usize;
 
-        format!("\"sum\": {}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.sum, self.quality as u8) // rempve " to avoid conflicts in json file
+        format!("\"sum\": {}, \"mapped_ids\": {map_ids_format}, \"has_mapped_ids\": {has_mapped}, \"quality\": {}", self.sum, self.quality as u8) // remove " to avoid conflicts in json file
     }
 
     fn tags(&self) -> Option<Tags> { None }
@@ -3089,7 +3089,7 @@ impl SummaryData<Tag> for SumMapEMQualityData{
         
         let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
         
-        // caluclate p-value with chosen test
+        // calculate p-value with chosen test
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = quality >= config.min_quality;
 
