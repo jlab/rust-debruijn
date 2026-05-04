@@ -1739,14 +1739,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Colors::new(self, config, color_mode)
     }
     
-    /// [`crate::EdgeMult`] will contain hanging edges if the nodes were filtered
-    pub fn fix_edge_mults<DI>(&mut self) 
+    /// [`crate::EdgeMult`] and [] will contain hanging edges if the nodes were filtered
+    pub fn fix_edge_data<DI>(&mut self) 
     where 
         SD: SummaryData<DI>
     {
         if self.get_node(0).data().edge_mults().is_some() {
             for i in 0..self.len() {
-                self.base.data[i].fix_edge_mults(self.base.exts[i]);
+                self.base.data[i].fix_edge_data(self.base.exts[i]);
             }
         }
     }
@@ -2791,9 +2791,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove ext
             self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(next_in_dir, in_base); 
 
-            // use new exts to fix edge mults
-            self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
-            self.base.data[next_node_id].fix_edge_mults(self.base.exts[next_node_id]);
+            // use new exts to fix edge mults and edge maps
+            self.base.data[current_node_id].fix_edge_data(self.base.exts[current_node_id]);
+            self.base.data[next_node_id].fix_edge_data(self.base.exts[next_node_id]);
 
 
             current_node_id = next_node_id;

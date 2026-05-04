@@ -43,7 +43,7 @@ where
 
     let edge_mults = data.edge_mults().cloned();
 
-    data.fix_edge_mults(Exts::new(0));
+    data.fix_edge_data(Exts::new(0));
     if let Some(e) = data.edge_mults() {
         assert_eq!(e.edge_mults(), [0; 8]);
     }

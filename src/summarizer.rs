@@ -872,7 +872,7 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     /// get the quality of the node k-mer
     fn quality(&self) -> Option<BaseQuality> { None }
     /// fix the [`EdgeMult`] by removing hanging edges
-    fn fix_edge_mults(&mut self, _exts: Exts) { }
+    fn fix_edge_data(&mut self, _exts: Exts) { }
     /// set the edge mults
     fn set_edge_mults(&mut self, _edge_mults: Option<EdgeMult>) { }
     /// get a reference to the mapped ids,  returns `None` if data is insufficient
@@ -1728,7 +1728,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
     }
 
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -1873,7 +1873,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         Some(&self.edge_mults)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2045,7 +2045,7 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
         Some(self.quality)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2360,7 +2360,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         Some(&self.edge_mults)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2448,7 +2448,7 @@ impl SummaryData<IDTag> for IDEMData{
         Some(&self.edge_mults)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2534,7 +2534,7 @@ impl SummaryData<IDTag> for IDMapEMData{
         Some(&self.edge_mults)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2636,7 +2636,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         Some(self.quality)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2742,7 +2742,7 @@ impl SummaryData<Tag> for SumMapEMQualityData{
         Some(self.quality)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
     }
 
@@ -2849,8 +2849,9 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
         Some(self.quality)
     }
 
-    fn fix_edge_mults(&mut self, exts: Exts) {
+    fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
+        self.edge_maps.clean_edges(exts);
     }
 
     fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {

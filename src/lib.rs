@@ -1429,12 +1429,25 @@ impl EdgeMap {
     }
 
     pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMap {
-        let singe_dir: &[Box<[u16]>; 4] = match dir {
+        let singe_dir: &[Box<[ID]>; 4] = match dir {
             Dir::Left => self.edge_maps[ALPHABET_SIZE..(2*ALPHABET_SIZE)].try_into().expect("Error: slice has incorrect length"),
             Dir::Right => self.edge_maps[0..ALPHABET_SIZE].try_into().expect("Error: slice has incorrect length"),
         };
 
         SingleDirEdgeMap::new(singe_dir.clone())
+    }
+
+    /// clean the edge maps by removing IDs that led to filtered kmers
+    /// based on a correct [`Exts`]
+    pub fn clean_edges(&mut self, exts: Exts) {
+        let mut exts = exts.val;
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
+            if exts.is_multiple_of(2) {
+                self.edge_maps[index] = [].into();
+            }
+            exts >>= 1;
+        }
+        
     }
 }
 

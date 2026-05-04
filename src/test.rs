@@ -781,7 +781,7 @@ mod tests {
 
         let mut graph = graph.finish();
         graph.fix_exts(None);
-        graph.fix_edge_mults();
+        graph.fix_edge_data();
         let _ = graph.filter_edges(2);
         graph.print();
         /* graph.to_dot("test_out", &|d| format!("{:?}", d));
