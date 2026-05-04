@@ -2122,6 +2122,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // check if path has reached max length -> interrupt
                     if path_length > max_path {
+                        print!("interrupt, too long");
                         break;
                     }
                     
@@ -2150,6 +2151,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             (out_cov, next_node_id, next_in_dir, cov_diff) = (Some(cov as f32), Some(*id), Some(*in_dir), new_cov_diff);
                         }
                     }
+                    
                     let (Some(out_cov), Some(next_node_id), Some(next_in_dir)) = (out_cov, next_node_id, next_in_dir) else { break; };
 
                     // check if we increase ladder state
@@ -2211,6 +2213,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         cov_sum += current_cov as u32;
                         cov_count += 1;
                     }
+
+                    println!("node: {current_node_id} - {:?}", current_node);
                 }
             }
 
@@ -2266,6 +2270,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             let avg_cov_high_path = (cov_sum as f32 / cov_count as f32) as u32;
+
+            println!("paths: {:?}", possible_paths);
+            println!("tips: {:?}", tips);
 
             // check if we have found end nodes of possible paths by following high coverage paths
             // if so, remove path
@@ -3818,7 +3825,7 @@ mod test {
 
     #[test]
     fn test_remove_ladders() {
-        let print = false; 
+        let print = true; 
         let stranded = false; 
         let strandedness = Strandedness::Unstranded;
 
