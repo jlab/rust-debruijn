@@ -962,6 +962,9 @@ impl Tags {
     /// encodes a sorted (!) Vec<Tag> and encodes it as a u64
     pub fn from_tag_vec(vec: Vec<Tag>) -> Self {
         let mut x = 0;
+        
+        // if the vector is empty, return an empty Tags
+        if vec.is_empty() { return Tags { val: 0 } }
 
         // panic if Tags would overflow
         if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8 as Tag >= mem::size_of::<Tags>() as Tag { 

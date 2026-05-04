@@ -3,6 +3,5 @@ Cargo.lock
 *.gfa
 *.fasta
 lcov.info
-compressed*
-uncompressed*
+*compressed*
 *c_ladders.csv

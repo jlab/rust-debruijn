@@ -187,6 +187,9 @@ impl Display for NotEnoughSamplesError {
 /// 
 /// // ...
 /// ```
+/// 
+/// By setting the `with_min_kmer_obs` to 0, k-mers for which all occurences were filtered
+/// out with `with_min_quality_for_edge`, can still be included, with empty k-mer data.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SummaryConfig {
     min_kmer_obs: usize,
@@ -215,7 +218,7 @@ impl SummaryConfig {
     /// statistical analysis regarding sample groups.
     pub fn empty() -> Self {
         SummaryConfig { 
-            min_kmer_obs: 0, 
+            min_kmer_obs: 1, 
             significant: None, 
             group_frac: GroupFrac::None, 
             frac_cutoff: 0., 
@@ -478,7 +481,6 @@ struct TagSummary {
 /// summarize the k-mers, exts and labels, also include an [`EdgeMult`]
 fn summarize_tags<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -> TagSummary {
     let mut all_exts = Exts::empty();
-
     let mut tag_vec: Vec<Tag> = Vec::with_capacity(items.size_hint().0);
     let mut edge_mults = EdgeMult::new();
     let mut highest_quality = None;
@@ -538,7 +540,6 @@ struct IDTagSummary {
 /// summarize the k-mers, exts and labels
 fn summarize_tags_ids<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F) -> IDTagSummary {
     let mut all_exts = Exts::empty();
-
     let mut tag_vec = Vec::with_capacity(items.size_hint().0);
     let mut id_vec = Vec::new();
     let mut edge_mults = EdgeMult::new();
