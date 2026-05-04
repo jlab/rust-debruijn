@@ -29,14 +29,21 @@
 //! which expects bases encoded as the ASCII letters A,C,G,T.
 
 use bimap::BiMap;
+use clap::ValueEnum;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::Range;
 
-use crate::summarizer::{Tag, Translator};
+use crate::compression::{CheckCompress, compress_kmers_with_hash};
+use crate::dna_string::DnaString;
+use crate::filter::filter_kmers;
+use crate::reads::{ReadData, Reads, ReadsPaired};
+use crate::serde::{SerGraph, SerKmers, SerReads};
+use crate::summarizer::{ID, SampleInfo, SummaryConfig, SummaryData, Tag, Translator};
 
 pub mod clean_graph;
 pub mod compression;
@@ -459,6 +466,20 @@ pub trait Vmer: Mer + PartialEq + Eq {
             kmer,
             pos: K::k(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KmerDataItem<K: Kmer, DI> {
+    pub kmer: K,
+    pub exts: Exts,
+    pub data: DI,
+    pub quality: Option<BaseQuality>
+}
+
+impl<K: Kmer, DI> KmerDataItem<K, DI> {
+    pub fn new(kmer: K, exts: Exts, data: DI, quality: Option<BaseQuality>) -> KmerDataItem<K, DI> {
+        KmerDataItem { kmer, exts, data, quality }
     }
 }
 
@@ -1019,6 +1040,11 @@ impl Tags {
     pub fn iter(&self) -> TagsIterator {
         TagsIterator::new(*self)
     }
+
+    /// get the memory of the [`Tags`] (depends on activated features)
+    pub fn mem(&self) -> usize {
+        mem::size_of::<Marker>()
+    }
 }
 
 impl fmt::Debug for Tags {
@@ -1309,6 +1335,283 @@ impl SingleDirEdgeMult {
 pub struct Label {
     group: char,
     sample_label: String
+}
+
+/// category for the 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum BaseQuality {
+    NoCall,
+    Marginal,
+    Medium,
+    High
+}
+
+impl BaseQuality {
+    fn from_u64(quality: u64) -> BaseQuality {
+        match quality {
+            0 => Self::NoCall,
+            1 => Self::Marginal,
+            2 => Self::Medium,
+            3 => Self::High,
+            _ => panic!("invalid base quality value")
+        }
+    }
+
+    fn as_char(&self) -> char {
+        match self {
+            Self::NoCall => '#',
+            Self::Marginal => '-',
+            Self::Medium => ';',
+            Self::High => 'C',
+        }
+    }
+}
+
+impl fmt::Display for BaseQuality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoCall => write!(f, "no-call"),
+            Self::Marginal => write!(f, "marginal"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct QualityBins {
+    marginal_top_cutoff: u8,
+    high_bottom_cutoff: u8,
+}
+
+impl Default for QualityBins  {
+    fn default() -> Self {
+        Self { marginal_top_cutoff: 15, high_bottom_cutoff: 30 }
+    }
+}
+
+impl QualityBins {
+    pub fn new(marginal_top_cutoff: u8, high_bottom_cutoff: u8) -> QualityBins {
+        Self { marginal_top_cutoff, high_bottom_cutoff }
+    }
+
+    fn base_quality(&self, score: u8) -> BaseQuality {
+        if score <= 2 {
+            BaseQuality::NoCall
+        } else if score < self.marginal_top_cutoff {
+            BaseQuality::Marginal
+        } else if score > self.high_bottom_cutoff {
+            BaseQuality::High
+        } else {
+            BaseQuality::Medium
+        }
+    }
+
+    fn base_quality_from_ascii_bytes(&self, char: u8) -> BaseQuality {
+        let score = char - 33;
+        self.base_quality(score)
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
+pub struct QualityVec {
+    storage: Vec<BaseQuality>
+}
+
+impl QualityVec {
+    fn from_vec(quality_vec: Vec<BaseQuality>) -> QualityVec {
+        QualityVec { storage: quality_vec }
+    }
+
+    fn from_ascii_bytes(quality_scores: &[u8], quality_bins: QualityBins) -> QualityVec {
+        let mut vec = Vec::new();
+        for score in quality_scores {
+            vec.push(quality_bins.base_quality_from_ascii_bytes(*score));
+        }
+
+        QualityVec { storage: vec }
+    }
+
+    fn iter_k_lowest_q<K: Kmer>(&'_ self) -> KLowestQualityIter<'_, K> {
+        KLowestQualityIter { 
+            quality_vec: self, 
+            start_pos: 0, 
+            phantom_data: PhantomData,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.storage.len()
+    }
+}
+
+impl fmt::Debug for QualityVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for q in self.storage.iter() {
+            write!(f, "{}", q.as_char())?;
+        }
+
+        Ok(())
+    }
+}
+
+pub struct KLowestQualityIter<'a, K: Kmer> {
+    quality_vec: &'a QualityVec,
+    start_pos: usize,
+    phantom_data: PhantomData<K>
+}
+
+impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
+    type Item = BaseQuality;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let end_pos = self.start_pos + K::k();
+        if end_pos <= self.quality_vec.len() {
+            let range = self.start_pos..end_pos;
+
+            let quality = self.quality_vec.storage[range]
+                .iter()
+                .min()
+                .expect("missing base quality");
+
+            self.start_pos += 1;
+            Some(*quality)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn build_test_graph<K, SD, DI>() -> (SerReads<DI>, SerKmers<K, SD>, SerGraph<K, SD>)
+where
+    K: Kmer +  Send + Sync,
+    SD: SummaryData<DI>,
+    DI: ReadData
+{
+    /*
+    transcrips
+    GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGTATTATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCGGC
+    GCGATTATTTTGCGGGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTAATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGACGCGATCGAC
+    TATATTATCGGCTGAGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA
+    GCTAGCTAGCTGACTACGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGGGTGCTAGCATGCGT
+    */
+
+    let raw_reads = [
+        ["GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC;;CCCCCCCCCCCCCCC"],
+        ["CTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGTATTATTATTAAA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGGGGACGTATTATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATTCGAGCGGAGCGAGCGACAGGAGAGGAGTTTGCGGTACGGGATTTTC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCGGC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGA", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCC"],
+        ["TATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAG", "gene1", "sample1", "CCCCCCCCCCCCCCCCCC-CC--CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGAC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATAT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCC--CCCC--CCCCCCCCCCCCCCCCCCCCC"],
+        ["TAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGT", "gene1", "sample1", "CCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGC", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGAT", "gene1", "sample1", "CCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCGATTATTTTGCGGGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGAT", "gene2", "sample2", "CCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCG", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC;CCCCCCCCCCCC"],
+        ["TTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATA", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC.-CCCCCCCCCCCCCCCCCC"],
+        ["CAGGACGCATTACTATCTATTATTATATATCATTATTTTTTTCTATAAAA", "gene2", "sample2", "CCCCCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGG", "gene2", "sample2", "CCCCCCCCCCCCCC-CCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTTTTTC", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGACGCATTACTATCTATTATTATATATCATTATTTTTTTCTATAAAAA", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCC--;CCCCCCCCCCCCCCCCCC"],
+        ["GGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGA", "gene2", "sample2", "CCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTAT", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCT", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCC"],
+        ["ATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGAC", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TAATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCG", "gene2", "sample2", "CCCCCC-CCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCC"],
+        ["ATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGACGCGATCG", "gene2", "sample2", "CCCCCCCCCCCCCCCC;CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTAATTATA", "gene2", "sample2", "CCCCCCCCCCCCCCCCCC;;;CCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGAC", "gene2", "sample2", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATATTATCGGCTGAGCGAGCGGGGGGAGCTATATTACGCGATAAAGAGC", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGG", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCG", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACC", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCA", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["TATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGC", "gene3", "sample3", "CCCCCCCCCCCCCCCCCC-----CCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGG", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCC;;;CCCCC;;CCCCCCCCCCCCCCCCC"],
+        ["AGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAG", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAG", "gene3", "sample3", "CCCCCCCCCCCCC---CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATC", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTA", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCC---CC-CCCCCCCCCCCCCCCC"],
+        ["CCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGT", "gene3", "sample3", "CCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGT", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGC", "gene3", "sample3", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GCTAGCTAGCTGACTACGATCGACGGGGAGCATTAATTAGAAAAAAGAGA", "gene4", "sample4", "CCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTATCTATTATTATATATCATTATTTGCGATTGGGGTGCTAGCATGCGT", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGG", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGG", "gene4", "sample4", "CCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["AGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGGGGTGC", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAGCGCAGC", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCC"],
+        ["ACTGGGAGCGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCA", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTG", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGC", "gene4", "sample4", "CCCCCCCCCC-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACT", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["ATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGG", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC--CCCCCCCCCCCCCC"],
+        ["GCAGCTAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCG", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["GACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACTGGGAG", "gene4", "sample4", "CCCC----CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"],
+        ["CGATCGACGGGGAGCATTAATTAGAAAAAAGAGAGAGACAGCTTTCGACT", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC---CCCCCCCCCCCCCC"],
+        ["TAGGCAGGACGCATTACTATCTATTATTATATATCATTATTTGCGATTGG", "gene4", "sample4", "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCCCCCCCCCC"]
+    ];
+
+    let mut reads = Reads::new_with_quality(crate::reads::Strandedness::Forward);
+    let mut id_translator = BiMap::new();
+    let mut tag_translator = BiMap::new();
+
+    for [seq, gene, sample, quality] in raw_reads {
+        let gene = String::from(gene);
+        let sample = String::from(sample);
+
+        let id = match id_translator.get_by_left(&gene) {
+            Some(id) => *id,
+            None =>  {
+                let new_id = id_translator.len() as ID;
+                id_translator.insert(gene, new_id);
+                new_id
+            }
+        };
+
+        let tag = match tag_translator.get_by_left(&sample) {
+            Some(tag) => *tag,
+            None =>  {
+                let new_tag = tag_translator.len() as Tag;
+                tag_translator.insert(sample, new_tag);
+                new_tag
+            }
+        };
+
+        reads.add_read(DnaString::from_acgt_bytes(seq.as_bytes()), None, DI::new(id, tag), Some(quality.as_bytes()));
+    }
+
+    let translator = Translator::new(id_translator, tag_translator);
+    let reads_paired = ReadsPaired::Unpaired { reads };
+    let sample_kmers = reads_paired.tag_kmers_vec(K::k(), 4);
+    let ser_reads = SerReads::new(reads_paired, translator.clone());
+    
+    let sample_info = SampleInfo::new(0b1100, 0b0011, sample_kmers);
+    let summary_config = SummaryConfig::new(sample_info);
+
+    let (kmers, _) = filter_kmers::<SD, K, _>(
+        ser_reads.reads(), 
+        &summary_config, 
+        false, 
+        5., 
+        false
+    );
+
+    let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
+
+    let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
+    let graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+    let ser_graph = SerGraph::new(graph, translator, summary_config);
+
+    (ser_reads, ser_kmers, ser_graph)
 }
 
 #[cfg(test)]

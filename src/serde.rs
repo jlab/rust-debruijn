@@ -112,18 +112,23 @@ impl<K: Kmer, SD> SerKmers<K, SD> {
     }
 
     /// deserialize a [`SerKmers`]
-    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerKmers<K, SD> 
+    pub fn deserialize_from<P: AsRef<Path> + Debug, DI>(path: P) -> SerKmers<K, SD> 
     where
         K: DeserializeOwned,
-        SD: DeserializeOwned
+        SD: DeserializeOwned + SummaryData<DI>
     {
         let file = File::open(&path).expect("error opening file with serialized k-mers");
         let reader = BufReader::new(file);
 
-        match bincode::deserialize_from(reader) {
-            Ok(ser_reads) => ser_reads,
+        let ser_kmers: SerKmers<K, SD> = match bincode::deserialize_from(reader) {
+            Ok(ser_kmers) => ser_kmers,
             Err(err) => panic!("Error deserializing cached k-mers: {}\n Make sure the file was cached with a compatible version and parameters. \nFile: {:?}", err, path)
-        }
+        };
+
+        assert_eq!(ser_kmers.parameters().0, K::k(), "deserialized k-kmers do not match expected k");
+        assert_eq!(ser_kmers.parameters().1, SD::summarizer(), "deserialized k-mers do not match expected summarizer");
+
+        ser_kmers
     }
 
     /// get a reference of the underlying [`BoomHashMap2<K, Exts, SD>`]
@@ -188,18 +193,23 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
     }
 
     /// deserialize a [`SerGraph`]
-    pub fn deserialize_from<P: AsRef<Path> + Debug>(path: P) -> SerGraph<K, SD>  
+    pub fn deserialize_from<P: AsRef<Path> + Debug, DI>(path: P) -> SerGraph<K, SD>  
     where 
         K: DeserializeOwned,
-        SD: DeserializeOwned
+        SD: DeserializeOwned + SummaryData<DI>
     {
         let file = File::open(&path).expect("error opening file with a serialized graph");
         let reader = BufReader::new(file);
 
-        match bincode::deserialize_from(reader) {
-            Ok(ser_reads) => ser_reads,
+        let ser_graph: SerGraph<K, SD> = match bincode::deserialize_from(reader) {
+            Ok(ser_graph) => ser_graph,
             Err(err) => panic!("Error deserializing cached graph: {}\n Make sure the file was cached with a compatible version and parameters. \n File: {:?}", err, path)
-        }
+        };
+
+        assert_eq!(ser_graph.parameters().0, K::k(), "deserialized k-kmers do not match expected k");
+        assert_eq!(ser_graph.parameters().1, SD::summarizer(), "deserialized k-mers do not match expected summarizer");
+
+        ser_graph
     }
 
     /// get a reference of the underlying [`DebruijnGraph<K, SD>`]
@@ -231,43 +241,33 @@ impl<K: Kmer, SD> SerGraph<K, SD> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, Summarizers, ID}};
+    use crate::{kmer::Kmer16, reads::ReadDatas, serde::{SerGraph, SerKmers}, summarizer::{IDSumData, IDTag, Summarizers}, test::build_test_graph};
 
     use super::SerReads;
 
-    #[cfg(not(feature = "id4b"))]
-    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids.reads.dbg", "test_data/test_graph_ids.kmers.dbg", "test_data/test_graph_ids.graph.dbg"];
-
-    #[cfg(feature = "id4b")]
-    const TEST_CP_FILES: [&str; 3] = ["test_data/test_graph_ids-4b.reads.dbg", "test_data/test_graph_ids-4b.kmers.dbg", "test_data/test_graph_ids-4b.graph.dbg"];
-
-    // test files: cargo run -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids
-    // and with --feature id4b:
-    // cargo run --features id4b -- -c ../marbel_datasets/sim_reads_200.csv -s id-sum --checkpoint -o ../rust-debruijn/test_data/test_graph_ids-4b
-
     #[test]
     fn test_ser_reads() {
-        let ser_reads: SerReads<ID> = SerReads::deserialize_from(TEST_CP_FILES[0]);
+        let (ser_reads, _, _) = build_test_graph::<Kmer16, IDSumData, _>();
 
         let cloned_ser_reads = ser_reads.clone();
 
         let all = ser_reads.dissolve();
         assert_eq!(cloned_ser_reads.reads(), &all.0);
         assert_eq!(cloned_ser_reads.translator(), &all.1);
-        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::ID);
+        assert_eq!(cloned_ser_reads.parameters(), ReadDatas::IDTag);
 
         let ser_reads = SerReads::new(all.0, all.1);
         let ser_path = "test_data/new_ser_reads";
         ser_reads.serialize(ser_path);
 
-        let new_ser_reads: SerReads<ID> = SerReads::deserialize_from(ser_path);
+        let new_ser_reads: SerReads<IDTag> = SerReads::deserialize_from(ser_path);
         assert_eq!(ser_reads, new_ser_reads);
         remove_file(ser_path).unwrap();
     }
 
     #[test]
     fn test_ser_kmers() {
-        let ser_kmers: SerKmers<Kmer16, IDSumData> = SerKmers::deserialize_from(TEST_CP_FILES[1]);
+        let (_, ser_kmers, _) = build_test_graph::<Kmer16, IDSumData, _>();
 
         let cloned_ser_kmers = ser_kmers.clone();
 
@@ -291,7 +291,7 @@ mod test {
 
     #[test]
     fn test_ser_graph() {
-        let ser_graph: SerGraph<Kmer16, IDSumData> = SerGraph::deserialize_from(TEST_CP_FILES[2]);
+        let (_, _, ser_graph) = build_test_graph::<Kmer16, IDSumData, _>();
 
         let all = ser_graph.dissolve();
 

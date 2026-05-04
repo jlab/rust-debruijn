@@ -232,21 +232,20 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
         }
     }
 
-
-    /// get the color for a node in a HSV format
-    pub fn node_color(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
-        // calculate saturation
-        let saturation = match self.log10_p_mb {
+    /// calculate the saturation
+    fn saturation(&self, data: &SD, summary_config: &SummaryConfig) -> f32 {
+        match self.log10_p_mb {
             Some((_m, _b)) => if data.p_value(summary_config).expect("error getting p-value") < Self::SIGN_P { Self::SAT_MAX } else { Self::SAT_MIN },
             None => Self::SAT_DEF
-        };
+        }
+    }
 
-        // set value as default value
-        let value = Self::VAL_DEF;
-        
-        
-        // get hue and color
-        let colors = match self.color_mode {
+    /// get the color(s) for a nore in hsv format for dot 
+    /// -> single "hue saturation value" or list 
+    /// "hue saturation value:hue saturation value:hue saturation value" 
+    /// for multiple colors
+    fn hsv_dot(&self, data: &SD, summary_config: &SummaryConfig, saturation: f32, value: f32) -> String  {
+        match self.color_mode {
             ColorMode::FoldChange => {
                 let hue = match self.log2_fc_factor {
                     // if fold change available calculate hue based on log2(fc)
@@ -294,7 +293,26 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                         // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     },
-                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    // if we don't have IDs, check if we have mapped IDs
+                    None => match data.mapped_ids() {
+                        Some(ids) => {
+                            if ids.is_empty() {
+                                // if we have a map summarizer, but no mapped ids, the vector is empty
+                                // usually this means that the node is "false" -> use default purple and lower sv
+                                format!("{} {} {}", Self::HUE_PURPLE, saturation/2., value/2.)
+                            } else {
+                                // we have mapped IDs, use the same procedure as IDs
+                                format!("{:?}", 
+                                    ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                        *(id_group_ids.get(id).expect("id was not in HM")) as f32 / n_id_groups as f32
+                                    )).collect::<Vec<_>>()
+                                ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                            }
+                        }
+                        None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    }
+                    
+                    
                 }
             }
             ColorMode::IDS { n_ids } => {
@@ -307,14 +325,42 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
                         // turns '["hue saturation value", "hue saturation value", hue saturation value"]' into 'hue saturation value:hue saturation value:hue saturation value' -> DOT format
                     }
-                    None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    // if we don't have IDs, check if we have mapped IDs
+                    None => match data.mapped_ids() {
+                        Some(ids) => {
+                            if ids.is_empty() {
+                                // if we have a map summarizer, but no mapped ids, the vector is empty
+                                // usually this means that the node is "false" -> use default purple and lower sv (probaby gray)
+                                format!("{} {} {}", Self::HUE_PURPLE, saturation/2., value/2.)
+                            } else {
+                                // we have mapped IDs, use the same procedure as IDs
+                                format!("{:?}", 
+                                    ids.iter().map(|id| format!("{} {saturation} {value}", 
+                                        *id as f32 / n_ids as f32
+                                    )).collect::<Vec<_>>()
+                                ).replace("\"", "").replace("[", "").replace("]", "").replace(", ", ":")
+                            }
+                        }
+                        None => format!("{} {saturation} {value}", Self::HUE_PURPLE)
+                    }
                 }
             }
-        };
+        }
+    }
+
+    /// get the color for a node in a HSV format
+    pub fn node_color_dot(&self, data: &SD, summary_config: &SummaryConfig, outline: bool) -> String {
+        // calculate saturation
+        let saturation = self.saturation(data, summary_config);
+
+        // set value as default value
+        let value = Self::VAL_DEF;
+
+        // get hue and color
+        let hsv_colors = self.hsv_dot(data, summary_config, saturation, value);
 
         // adapt font color to value (currently always black)
         let font_color= if value <= 0.5 { "white" } else { "black" };
-
         
         // set outline (eg if it is in a path)
         let mut prefix = if outline {
@@ -347,7 +393,80 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
         }
 
         // return formatted string for color, fillcolor, and fontcolor
-        format!("{shape_style}, color={prefix}\"{colors}\", fontcolor={font_color}")
+        format!("{shape_style}, color={prefix}\"{hsv_colors}\", fontcolor={font_color}")
+    }
+
+    /// get the hue for hsl color in json
+    pub fn hue_json(&self, data: &SD, summary_config: &SummaryConfig) -> i32  {
+        let hue = match self.color_mode {
+            ColorMode::FoldChange => {
+                match self.log2_fc_factor {
+                    // if fold change available calculate hue based on log2(fc)
+                    Some(fc_factor) => {
+                        match data.fold_change(summary_config).unwrap() {
+                            Self::FC_MAX..=f32::INFINITY => Self::HUE_GREEN,
+                            f32::NEG_INFINITY..=Self::FC_MIN => Self::HUE_RED,
+                            fc => fc * fc_factor + Self::HUE_YELLOW
+                        }
+                    }, 
+                    None => Self::HUE_PURPLE
+                }
+            },
+            ColorMode::SampleGroups  => {
+                match data.tags() {
+                    Some(tag) => {
+                        if tag.bit_and(self.marker0) & !tag.bit_and(self.marker1) {
+                            // tags are only in marker0 group
+                            Self::HUE_GREEN
+                        } else if !tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
+                            // tag is only in marker1 group
+                            Self::HUE_RED
+                        } else if tag.bit_and(self.marker0) & tag.bit_and(self.marker1) {
+                            // tag is in both groups
+                            Self::HUE_YELLOW
+                        } else {
+                            // tag is in neither group
+                            // should only happen if the tags started with more than three distinct characters
+                            // (overflow purple)
+                            Self::HUE_PURPLE
+                        }
+                    },
+                    None => Self::HUE_PURPLE
+                }
+            },
+            ColorMode::IDGroups { id_group_ids, n_id_groups } => {
+                match data.ids() {
+                    Some(ids) => {
+                        // calculate separate hues of group IDs
+                        let id_hues = ids
+                            .iter()
+                            .map(|id| *(id_group_ids
+                                .get(id)
+                                .expect("id was not in HM")) as f32 / n_id_groups as f32)
+                            .collect::<Vec<_>>();
+                        
+                        // calculate average hue
+                        id_hues.iter().sum::<f32>() / id_hues.len() as f32 
+                    },
+                    None => Self::HUE_PURPLE
+                }
+            }
+            ColorMode::IDS { n_ids } => {
+                match data.ids() {
+                    Some(ids) => {
+                        // calculate separate hues of group IDs
+                        let id_hues = ids.iter().map(|id| *id as f32 / n_ids as f32).collect::<Vec<_>>();
+
+                        // calulate the average hue
+                        id_hues.iter().sum::<f32>() / id_hues.len() as f32 
+                    }
+                    None => Self::HUE_PURPLE
+                }
+            }
+        };
+
+        // transform into degrees
+        (hue * 365.) as i32
     }
 
     /// get the edge width based on the edge multiplicity

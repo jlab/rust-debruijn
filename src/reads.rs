@@ -10,7 +10,7 @@ use std::hash::Hash;
 use std::{mem, str};
 use crate::dna_string::DnaString;
 use crate::summarizer::{IDTag, Tag, ID};
-use crate::{base_to_bits, base_to_bits_checked, Exts, Vmer};
+use crate::{BaseQuality, Exts, Kmer, QualityBins, QualityVec, Vmer, base_to_bits, base_to_bits_checked};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
 pub enum Strandedness {
@@ -26,12 +26,13 @@ pub struct Read<D> {
     exts: Exts,
     data: D,
     strand: Strandedness,
+    quality: Option<QualityVec>
 }
 
 impl<D: Clone + Copy> Read<D> {
     /// a new `Read`
-    pub fn new(seq: DnaString, exts: Exts, data: D, strand: Strandedness) -> Read<D> {
-        Read { seq, exts, data, strand }
+    pub fn new(seq: DnaString, exts: Exts, data: D, strand: Strandedness, quality: Option<QualityVec>) -> Read<D> {
+        Read { seq, exts, data, strand, quality }
     }
 
     /// the sequence of the `Read`
@@ -52,6 +53,23 @@ impl<D: Clone + Copy> Read<D> {
     /// the strandedness of the `Read`
     pub fn stranded(&self) -> Strandedness {
         self.strand
+    }
+
+    pub fn iter_kmer_exts_quality<'a, K: Kmer + 'a>(&'a self) -> Box<dyn Iterator<Item = (K, Exts, Option<BaseQuality>)> + 'a> {
+        if let Some(quality) = self.quality.as_ref() {
+            Box::new(self.seq()
+                .iter_kmer_exts::<K>(self.exts)
+                .zip(quality
+                    .iter_k_lowest_q::<K>()
+                    .map(Some)
+                )
+                .map(|((kmer, exts), quality)| (kmer, exts, quality))
+            )
+        } else {
+            Box::new(self.seq()
+                .iter_kmer_exts::<K>(self.exts)
+                .map(|(kmer, exts)| (kmer, exts, None)))
+        }
     }
 }
 
@@ -91,9 +109,12 @@ pub struct Reads<D> {
     storage: Vec<u64>,
     ends: Vec<usize>,
     exts: Option<Vec<Exts>>,
+    quality: Option<Vec<u64>>,
     data: Vec<D>,
     len: usize,
-    stranded: Strandedness
+    stranded: Strandedness,
+    quality_bins: QualityBins
+
 }
 
 impl<D: Clone + Copy> Reads<D> {
@@ -105,20 +126,23 @@ impl<D: Clone + Copy> Reads<D> {
             ends: Vec::new(),
             exts: None,
             data: Vec::new(),
+            quality: None,
             len: 0,
-            stranded
+            stranded,
+            quality_bins: QualityBins::default(),
         }
     }
 
-    /// Returns a new `Reads` with exts
-    pub fn new_with_exts(stranded: Strandedness) -> Self {
+    pub fn new_with_quality(stranded: Strandedness) -> Self {
         Reads {
             storage: Vec::new(),
             ends: Vec::new(),
-            exts: Some(Vec::new()),
+            exts: None,
             data: Vec::new(),
+            quality: Some(Vec::new()),
             len: 0,
-            stranded
+            stranded,
+            quality_bins: QualityBins::default(),
         }
     }
 
@@ -136,12 +160,22 @@ impl<D: Clone + Copy> Reads<D> {
     /// get the memory required for the reads
     pub fn mem(&self) -> usize {
         let exts_size = if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
-        mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + exts_size
+        let quality_size_inner = if let Some(q) = self.quality.as_ref() {
+            size_of_val(&*q)
+        } else {
+            0
+        };
+        mem::size_of_val(self) + size_of_val(&*self.storage) + size_of_val(&*self.data) + size_of_val(&*self.ends) + exts_size + quality_size_inner
     }
 
     /// set the strandedness and the direction of the reads
     pub fn set_stranded(&mut self, stranded: Strandedness) {
         self.stranded = stranded
+    }
+
+    /// set custom quality bins
+    pub fn set_custom_quality_bins(&mut self, quality_bins: QualityBins) {
+        self.quality_bins = quality_bins
     }
 
     /// add exts to `Reads` if needed - use after adding sequence and new end
@@ -175,10 +209,24 @@ impl<D: Clone + Copy> Reads<D> {
 
     /// Adds a new read to the `Reads`
     // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
-    pub fn add_read<V: Vmer>(&mut self, seq: V, exts: Option<Exts>, data: D) {
-        for base in seq.iter() {
-            self.push_base(base);
+    pub fn add_read<V: Vmer>(&mut self, seq: V, exts: Option<Exts>, data: D, quality_scores: Option<&[u8]>) {
+        // check if we have quality scores
+        if let (Some(q), true) = (quality_scores, self.quality.is_some()) {
+            // we do, add bases and quality
+            assert_eq!(seq.len(), q.len(), "mismatch in read and quality score length");
+            for (base, &score) in seq.iter().zip(q) {
+                self.push_base_and_quality(base, score)
+            }
+        } else if self.quality.is_none() {
+            // we do not, only add base
+            for base in seq.iter() {
+                self.push_base(base);
+            }
+        } else {
+            // mismatch in quality scores, panic
+            panic!("Error: quality scores have to be added to all reads or none")
         }
+
         self.ends.push(self.len);
         self.add_exts(exts);
         self.data.push(data);
@@ -336,6 +384,34 @@ impl<D: Clone + Copy> Reads<D> {
         self.len += 1; 
     }
 
+    /// Simultaniously add new 2-bit encoded base and quality to the `Reads`
+    fn push_base_and_quality(&mut self, base: u8, score: u8) {
+        let Some(quality) = self.quality.as_mut() else { return; };
+        let base_quality = self.quality_bins.base_quality_from_ascii_bytes(score);
+
+        let bit = (self.len % 32) * 2;
+        if bit != 0 {
+            match self.storage.pop() {
+                Some(last) => {
+                    let last = last + ((base as u64) << (64 - bit - 2));
+                    self.storage.push(last);
+                },
+                None => panic!("tried to push base to empty vector (?)")
+            }
+
+            match quality.pop() {
+                Some(last) => {
+                    let last = last + ((base_quality as u64) << (64 - bit - 2));
+                    quality.push(last);
+                },
+                None => panic!("tried to push quality to empty vector (?)")
+            }
+        } else {
+            self.storage.push((base as u64) << 62);
+            quality.push((base_quality as u64) << 62);
+        }
+        self.len += 1; 
+    }
 
     /// extend the reads' storage by 2-bit encoded bases
     fn extend(&mut self, mut bytes: impl Iterator<Item = u8>) {
@@ -380,6 +456,7 @@ impl<D: Clone + Copy> Reads<D> {
     pub fn get_read(&self, i: usize) -> Option<Read<D>> {
         if i >= self.n_reads() { return None }
 
+        // get the read sequence
         let mut sequence = DnaString::new();
         let end = self.ends[i];
         //let start = if i != 0 { self.ends[i-1] } else { 0 };
@@ -394,12 +471,26 @@ impl<D: Clone + Copy> Reads<D> {
             sequence.push(base);
         }
 
+        // get the quality score sequence
+        let quality = if let Some(quality) = self.quality.as_ref() {
+            let mut base_qualities = Vec::new();
+            for q in start..end {
+                let (block, bit) = self.addr(&q);
+                let base_quality = BaseQuality::from_u64((quality[block] >> (62 - bit)) & 3u64);
+                base_qualities.push(base_quality);
+            }
+            
+            Some(QualityVec::from_vec(base_qualities))
+        } else {
+            None
+        };
+
         let exts = match self.exts {
             Some(ref e_vec) => e_vec[i],
             None => Exts::empty()
         };
 
-        Some(Read::new(sequence, exts, self.data[i], self.stranded))
+        Some(Read::new(sequence, exts, self.data[i], self.stranded, quality))
     }
 
 
@@ -786,6 +877,8 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 
 /// Trait for ReadData, [`ID`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
+    /// generate a read data from an ID and a tag
+    fn new(id: ID, tag: Tag) -> Self;
     /// geneate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
     /// if available, get a tag
@@ -795,6 +888,10 @@ pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Deb
 }
 
 impl ReadData for Tag {
+    fn new(_id: ID, tag: Tag) -> Self {
+        tag
+    }
+
     fn read_data(_: &mut BiMap<String, ID>, _: &[u8], tag: Tag) -> Self {
         tag
     }
@@ -809,6 +906,10 @@ impl ReadData for Tag {
 }
 
 impl ReadData for ID {
+    fn new(id: ID, _tag: Tag) -> Self {
+        id    
+    }
+
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], _: Tag) -> Self {
 
         // read name is e.g. "B7R87_RS28825_2_0/1" -> gene: "B7R87_RS28825"
@@ -851,6 +952,10 @@ impl ReadData for ID {
 }
 
 impl ReadData for IDTag {
+    fn new(id: ID, tag: Tag) -> Self {
+        Self::new(id, tag)
+    }
+
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self {
         let id = ID::read_data(gene_ids, read_name, tag);
         IDTag::new(id, tag)
@@ -871,6 +976,7 @@ pub enum ReadDatas {
     Tag,
     IDTag
 }
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time};
@@ -879,7 +985,7 @@ mod tests {
     use itertools::enumerate;
     use rand::random;
 
-    use crate::{dna_string::DnaString, reads::{Read, Strandedness}, summarizer::{IDTag, Tag, ID}, test::random_dna, Exts};
+    use crate::{Exts, QualityVec, dna_string::DnaString, reads::{Read, Strandedness}, summarizer::{ID, IDTag, Tag}, test::random_dna};
     use crate::reads::ReadData;
     use super::{Reads, ReadsPaired};
 
@@ -887,20 +993,19 @@ mod tests {
     fn test_add() {
 
         let fastq = vec![
-            (DnaString::from_acgt_bytes(str::as_bytes("ACGATCGT")), Exts::empty(), 6u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("GGGGGG")), Exts::empty(), 5u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("TTGGTT")), Exts::empty(), 7u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("ACCAC")), Exts::empty(), 8u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("TCCCT")), Exts::empty(), 9u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("ACCAC")), Exts::empty(), 8u8),
-            (DnaString::from_acgt_bytes(str::as_bytes("TCCCT")), Exts::empty(), 9u8),
-
+            (DnaString::from_acgt_bytes(str::as_bytes("ACGATCGT")), Exts::empty(), 6u8, str::as_bytes("CCC-CC;#")),
+            (DnaString::from_acgt_bytes(str::as_bytes("GGGGGG")), Exts::empty(), 5u8, str::as_bytes("CCCCCC")),
+            (DnaString::from_acgt_bytes(str::as_bytes("TTGGTT")), Exts::empty(), 7u8, str::as_bytes("CCC-CC")),
+            (DnaString::from_acgt_bytes(str::as_bytes("ACCAC")), Exts::empty(), 8u8, str::as_bytes("-CC;#")),
+            (DnaString::from_acgt_bytes(str::as_bytes("TCCCT")), Exts::empty(), 9u8, str::as_bytes("CCCC;")),
+            (DnaString::from_acgt_bytes(str::as_bytes("ACCAC")), Exts::empty(), 8u8, str::as_bytes("C-C;C")),
+            (DnaString::from_acgt_bytes(str::as_bytes("TCCCT")), Exts::empty(), 9u8, str::as_bytes("CCC-C")),
         ];
 
 
-        let mut reads = Reads::new(Strandedness::Unstranded);
-        for (read, _, data) in fastq.clone() {
-            reads.add_read(read, None, data);
+        let mut reads = Reads::new_with_quality(Strandedness::Unstranded);
+        for (read, _, data, quality) in fastq.clone() {
+            reads.add_read(read, None, data, Some(quality));
         }
 
         println!("reads: {:#?}", reads);
@@ -910,11 +1015,19 @@ mod tests {
             println!("{:#b}", no)
         } */
 
-         assert_eq!(reads.storage, vec![1791212948343256433, 5140577499666710528]);
+        assert_eq!(reads.storage, vec![1791212948343256433, 5140577499666710528]);
 
         for (i, _) in fastq.iter().enumerate() {
             //println!("read {}: {:?}", i, reads.get_read(i))
-            assert_eq!(Read::new(fastq[i].0.clone(), fastq[i].1, fastq[i].2, Strandedness::Unstranded), reads.get_read(i).unwrap())
+            assert_eq!(
+                Read::new(
+                    fastq[i].0.clone(), 
+                    fastq[i].1, 
+                    fastq[i].2, 
+                    Strandedness::Unstranded, 
+                    Some(QualityVec::from_ascii_bytes(fastq[i].3, reads.quality_bins))
+                ), 
+                reads.get_read(i).unwrap())
         }
 
         for read in reads.iter() {
@@ -1032,7 +1145,7 @@ mod tests {
         let mut reads: Reads<u8> = Reads::new(Strandedness::Unstranded);
         for _i in 0..REPS {
             for dna in dnas {
-                reads.add_read(DnaString::from_acgt_bytes(dna), None, random());
+                reads.add_read(DnaString::from_acgt_bytes(dna), None, random(), None);
             }
         }
         let ds_finish = ds_start.elapsed();
@@ -1146,19 +1259,19 @@ mod tests {
         let unpaired = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), up.clone()));
         assert_eq!(ReadsPaired::Unpaired { reads: up.clone() }, unpaired);
         println!("exts up {:?}", unpaired);
-        assert_eq!(unpaired.mem(), 148);
+        assert_eq!(unpaired.mem(), 172);
         assert_eq!(unpaired.n_reads(), 2);
         assert_eq!(unpaired.iterable(), vec![&up]);
       
         let paired = ReadsPaired::from_reads((p1.clone(), p2.clone(), Reads::new(Strandedness::Unstranded)));
         assert_eq!(ReadsPaired::Paired { paired1: p1.clone(), paired2: p2.clone() }, paired);        
-        assert_eq!(paired.mem(), 376);
+        assert_eq!(paired.mem(), 424);
         assert_eq!(paired.n_reads(), 8);
         assert_eq!(paired.iterable(), vec![&p1, &p2]);
 
         let combined = ReadsPaired::from_reads((p1.clone(), p2.clone(), up.clone()));
         assert_eq!(ReadsPaired::Combined { paired1: p1.clone(), paired2: p2.clone(), unpaired: up.clone() }, combined);
-        assert_eq!(combined.mem(), 524);
+        assert_eq!(combined.mem(), 596);
         assert_eq!(combined.n_reads(), 10);
         assert_eq!(combined.iterable(), vec![&p1, &p2, &up]);
 
