@@ -2113,8 +2113,11 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut cov_sum = start_out_cov;
                 let mut cov_count = 1;
 
+                println!("start node: {node_id}, out base: {start_out_base}, out cov: {start_out_cov}");
+
                 loop {
                     let current_node = self.get_node(current_node_id);
+                    println!("node: {current_node_id} - {:?}", current_node);
                     let out_edges = current_node.edges(current_in_dir.flip());
 
                     // add current node length to path
@@ -2138,9 +2141,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // get coverage
                     // edge cov must be available
-                    let out_edge_coverages = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip());
+                    let edge_coverages = current_node.data().edge_mults().expect("must have edge mults");
+                    let out_edge_coverages = edge_coverages.single_dir(current_in_dir.flip());
 
-                    let mut out_cov = None;
+                    let mut closest_out_cov = None;
                     let mut next_node_id = None;
                     let mut next_in_dir = None;
                     let mut cov_diff = i32::MAX;
@@ -2148,19 +2152,47 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let cov = out_edge_coverages.edge_mult(*base) as i32;
                         let new_cov_diff = (current_cov as i32 - cov).abs();
                         if new_cov_diff < cov_diff {
-                            (out_cov, next_node_id, next_in_dir, cov_diff) = (Some(cov as f32), Some(*id), Some(*in_dir), new_cov_diff);
+                            (closest_out_cov, next_node_id, next_in_dir, cov_diff) = (Some(cov as f32), Some(*id), Some(*in_dir), new_cov_diff);
                         }
                     }
-                    
-                    let (Some(out_cov), Some(next_node_id), Some(next_in_dir)) = (out_cov, next_node_id, next_in_dir) else { break; };
+
+                    println!("next node: {:?}, next in dir: {:?}, closest_out_cov: {:?}", next_node_id, next_in_dir, closest_out_cov);
+
+                    // check if coverage increases on high path, similar to c_increase check but with highest outgoing coverage and start cov
+                    // TODO check if better with min_diff_factor
+                    // TODO check if we should replace consts with min diff factor
+                    let highest_cov = out_edge_coverages.edge_mults.iter().max().unwrap_or(&0);
+                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high; // higer coverage than last edge
+                    println!("highest out cov: {highest_cov}, coverage_req: {coverage_req}");
+
+                    // check if we have met end criterium -> save path
+                    let len_req = path_length >= min_path; // path long enough
+                    // path is a simple tip -> save as tip
+                    let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
+
+                    if coverage_req & len_req {
+                        possible_paths.push((path_groups, cov_sum as f32 / cov_count as f32));
+                        break;
+                    } else if is_tip {
+                        tips.push((path_groups, cov_sum as f32 / cov_count as f32));
+                        break;
+                    }
+
+                    // check if we have a next node: 
+                    let (Some(closest_out_cov), Some(next_node_id), Some(next_in_dir)) = (closest_out_cov, next_node_id, next_in_dir) else { 
+                        println!("interrupting bc no more nodes");
+                        break; 
+                    };
 
                     // check if we increase ladder state
-                    let c_increase = (out_cov > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high;
+                    let c_increase = (closest_out_cov > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high;
                     let mult_increase = current_node.edges(current_in_dir).len() > 1;
                     
                     if c_increase {
                         c_state_high = true
                     }
+
+                    println!("state: {:?}", state);
 
                     if c_increase | mult_increase {
                         match state {
@@ -2171,22 +2203,11 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         };
                     }
 
-                    // check if we have met end criterium -> save path
-                    let quality_req =  c_state_high; // high coverage
-                    let len_req = path_length >= min_path; // path long enough
-                    // path is a simple tip -> save as tip
-                    let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
-
-                    if quality_req & len_req {
-                        possible_paths.push((path_groups, cov_sum as f32 / cov_count as f32));
-                        break;
-                    } else if is_tip {
-                        tips.push((path_groups, cov_sum as f32 / cov_count as f32));
-                        break;
-                    }
+                    println!("state: {:?}", state);
 
                     // check if we decrease ladder state
-                    let c_decrease = (out_cov < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) & c_state_high;
+                    // do not check if coverage was already high bc state could be increased for just one node by inc edge
+                    let c_decrease = closest_out_cov < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD; //& c_state_high;
                     let mult_decrease = out_edges.len() > 1;
 
                     if c_decrease {
@@ -2203,18 +2224,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         }
                     }
 
+                    println!("state: {:?}", state);
+
                     // we have not met the conditions and keep moving
-                    current_cov = out_cov;
                     current_node_id = next_node_id;
                     current_in_dir = next_in_dir;
 
                     // if the ladder state is singular, use coverage for avg cov
                     if matches!(state, LadderState::Singular) {
+                        current_cov = closest_out_cov;
                         cov_sum += current_cov as u32;
                         cov_count += 1;
                     }
-
-                    println!("node: {current_node_id} - {:?}", current_node);
                 }
             }
 
@@ -3801,7 +3822,7 @@ mod test {
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_lc_paths(10, 10, 10.).unwrap();
         if print { unc_graph.to_dot("uncompressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
+        assert_eq!(n_edges - 27, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
@@ -3820,7 +3841,7 @@ mod test {
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_lc_paths(10, 10, 10.).unwrap();
         if print { c_graph.to_dot("compressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 6, c_graph.iter_edges().count());
+        assert_eq!(n_edges - 10, c_graph.iter_edges().count());
     }
 
     #[test]

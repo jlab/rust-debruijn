@@ -603,9 +603,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<MapEMEmapQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        print: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3] | [2]\nC: [1, 2, 3] | [1, 3]\nG: [] | []\nT: [1] | []\n, quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        print_ol: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: [], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"mapped_ids_edges\": \"A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: []\", \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
         tags: None,
         mem: size_aligned(mi_m_s + em_m + q_m + emap_m_s, mi_m_h + emap_m_h, 8),
         sum: None,

@@ -1182,7 +1182,6 @@ impl Debug for EdgeMult {
 impl Display for EdgeMult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let base = ["A", "C", "G", "T"];
-        writeln!(f)?;
         for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
             writeln!(f, "{}: {} | {}", 
                 b, 
@@ -1459,7 +1458,6 @@ impl Debug for EdgeMap {
 impl Display for EdgeMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let base = ["A", "C", "G", "T"];
-        writeln!(f)?;
         for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
             writeln!(f, "{}: {:?} | {:?}", 
                 b, 
