@@ -2113,11 +2113,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut cov_sum = start_out_cov;
                 let mut cov_count = 1;
 
-                println!("start node: {node_id}, out base: {start_out_base}, out cov: {start_out_cov}");
-
                 loop {
                     let current_node = self.get_node(current_node_id);
-                    println!("node: {current_node_id} - {:?}", current_node);
                     let out_edges = current_node.edges(current_in_dir.flip());
 
                     // add current node length to path
@@ -2156,14 +2153,11 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         }
                     }
 
-                    println!("next node: {:?}, next in dir: {:?}, closest_out_cov: {:?}", next_node_id, next_in_dir, closest_out_cov);
-
                     // check if coverage increases on high path, similar to c_increase check but with highest outgoing coverage and start cov
                     // TODO check if better with min_diff_factor
                     // TODO check if we should replace consts with min diff factor
                     let highest_cov = out_edge_coverages.edge_mults.iter().max().unwrap_or(&0);
                     let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high; // higer coverage than last edge
-                    println!("highest out cov: {highest_cov}, coverage_req: {coverage_req}");
 
                     // check if we have met end criterium -> save path
                     let len_req = path_length >= min_path; // path long enough
@@ -2180,7 +2174,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // check if we have a next node: 
                     let (Some(closest_out_cov), Some(next_node_id), Some(next_in_dir)) = (closest_out_cov, next_node_id, next_in_dir) else { 
-                        println!("interrupting bc no more nodes");
                         break; 
                     };
 
@@ -2192,8 +2185,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         c_state_high = true
                     }
 
-                    println!("state: {:?}", state);
-
                     if c_increase | mult_increase {
                         match state {
                             LadderState::Singular => {
@@ -2202,8 +2193,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             LadderState::Double => () // ignore
                         };
                     }
-
-                    println!("state: {:?}", state);
 
                     // check if we decrease ladder state
                     // do not check if coverage was already high bc state could be increased for just one node by inc edge
@@ -2223,8 +2212,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             }
                         }
                     }
-
-                    println!("state: {:?}", state);
 
                     // we have not met the conditions and keep moving
                     current_node_id = next_node_id;
@@ -2291,9 +2278,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             let avg_cov_high_path = (cov_sum as f32 / cov_count as f32) as u32;
-
-            println!("paths: {:?}", possible_paths);
-            println!("tips: {:?}", tips);
 
             // check if we have found end nodes of possible paths by following high coverage paths
             // if so, remove path
@@ -3627,13 +3611,23 @@ mod test {
     }
 
     #[test]
-    fn test_remove_lq_splits() {
+    fn test_remove_lq_splits_s() {
+        test_remove_lq_splits(true);
+    }
+
+    #[test]
+    fn test_remove_lq_splits_us() {
+        test_remove_lq_splits(false);
+    }
+
+    fn test_remove_lq_splits(stranded: bool) {
         let print = false;
-        let stranded = false;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test(Strandedness::Unstranded);
+        let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
@@ -3694,13 +3688,22 @@ mod test {
     }
 
     #[test]
-    fn test_remove_lq_paths() {
+    fn test_remove_lq_paths_s() {
+        test_remove_lq_paths(true);
+    }
+
+    #[test]
+    fn test_remove_lq_paths_us() {
+        test_remove_lq_paths(false);
+    }
+
+    fn test_remove_lq_paths(stranded: bool) {
         let print = false;
-        let stranded = false;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test(Strandedness::Unstranded);
+        let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
@@ -3761,10 +3764,20 @@ mod test {
     }
 
     #[test]
-    fn test_remove_lc_paths() {
+    fn test_remove_lc_paths_s() {
+        test_remove_lc_paths(true);
+    }
+
+    #[test]
+    fn test_remove_lc_paths_us() {
+        test_remove_lc_paths(false);
+    }
+    
+    fn test_remove_lc_paths(stranded: bool) {
         let print = true; 
-        let stranded = false; 
-        let strandedness = Strandedness::Unstranded;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
+        let (n_diff_uc, n_diff_c) = if stranded { (27, 8) } else { (27, 10) };
 
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
@@ -3822,7 +3835,7 @@ mod test {
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_lc_paths(10, 10, 10.).unwrap();
         if print { unc_graph.to_dot("uncompressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 27, unc_graph.iter_edges().count());
+        assert_eq!(n_edges - n_diff_uc, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
@@ -3841,14 +3854,22 @@ mod test {
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_lc_paths(10, 10, 10.).unwrap();
         if print { c_graph.to_dot("compressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 10, c_graph.iter_edges().count());
+        assert_eq!(n_edges - n_diff_c, c_graph.iter_edges().count());
     }
 
     #[test]
-    fn test_remove_ladders() {
+    fn test_remove_ladders_s() {
+        test_remove_ladders(true);
+    }
+
+    #[test]
+    fn test_remove_ladders_us() {
+        test_remove_ladders(false);
+    }
+
+    fn test_remove_ladders(stranded: bool) {
         let print = true; 
-        let stranded = false; 
-        let strandedness = Strandedness::Unstranded;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
         let c_csv = if print { Some("c_ladders.csv") } else { None };
         let uc_csv = if print { Some("uc_ladders.csv") } else { None };
@@ -3931,12 +3952,20 @@ mod test {
         assert_eq!(n_edges - 6, c_graph.iter_edges().count());
     }
 
-    #[test]
-    fn test_remove_tips() {
 
+    #[test]
+    fn test_remove_tips_s() {
+        test_remove_tips(true);
+    }
+
+    #[test]
+    fn test_remove_tips_us() {
+        test_remove_tips(false);
+    }
+
+    fn test_remove_tips(stranded: bool) {
         let print = false;
-        let stranded = false;
-        let strandedness = Strandedness::Unstranded;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
         let c_csv = if print { Some("c_tips.csv") } else { None };
         let uc_csv = if print { Some("uc_tips.csv") } else { None };
