@@ -1875,7 +1875,7 @@ mod tests {
 
     #[test]
     fn test_edge_map() {
-        let empty_emaps: [Box<[u16]>; 8] = Default::default();
+        let empty_emaps: [Box<[ID]>; 8] = Default::default();
         let default_emap = EdgeMap::default();
 
         let mut emap = EdgeMap::new(empty_emaps.clone());
