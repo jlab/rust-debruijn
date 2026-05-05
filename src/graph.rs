@@ -2129,7 +2129,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // check if path has reached max length -> interrupt
                     if path_length > max_path {
-                        print!("interrupt, too long");
                         break;
                     }
                     
