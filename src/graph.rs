@@ -715,7 +715,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         seq
     }
 
-    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
+    /// map sequences from a fasta reference to the nodes of a **completely uncompressed** debruijn graph
+    /// 
+    /// the IDs are stored with the node if the k-mer occured in the reference
     pub fn map_transcripts<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<Box<[ID]>>, String> 
     where 
         P: AsRef<Path>
@@ -774,7 +776,9 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(boxed_transcripts)
     }
 
-    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
+    /// map sequences from a fasta reference to the edges of a **completely uncompressed** debruijn graph
+    /// 
+    /// the IDs are stored with the edges if the two k-mers occured together in the reference
     pub fn map_transcripts_to_edges<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<EdgeMap>, String> 
     where 
         P: AsRef<Path>
@@ -1825,7 +1829,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
-    /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`
+    /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`. 
+    /// The method continues searching on a path for a maximum of (`max_path_fac`` * k - 1).
     pub fn remove_lq_paths<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
     where
         SD: SummaryData<DI>
@@ -1930,7 +1935,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // check if we have met end criterium -> save path
                     let quality_req =  current_node.data().quality().unwrap() >= min_quality;
                     let len_req = path_length >= min_path;
-                    // path is a simple tip -> save as tip
+                    // path is a simple tip -> save as tip (does not have to meet length requirement)
                     let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
 
                     if quality_req & len_req {
@@ -2055,7 +2060,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
-    /// remove bubbles/ladders and tips in which one path has a coverage lower than the other
+    /// remove bubbles/ladders and tips in which one path has a lower coverage than the alternative path. 
+    /// The method continues searching on a path for a maximum of (`max_path_fac`` * k - 1).
+    /// The path is only removed if the average coverage of the lower path is below `max_avg_low_cov` and the 
+    /// average coverage is at least `min_diff_factor` times higher.
     pub fn remove_lc_paths<DI>(&mut self, max_path_fac: usize, min_diff_factor: u32, max_avg_low_cov: f32) -> Result<(), String>
     where
         SD: SummaryData<DI>

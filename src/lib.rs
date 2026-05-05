@@ -1355,18 +1355,22 @@ pub struct EdgeMap {
 }
 
 impl EdgeMap {
+    /// create a new [`EdgeMap`] by supplying the underlying mapped IDs.
     pub fn new(edge_maps: [Box<[ID]>; 2*ALPHABET_SIZE]) -> EdgeMap {
         EdgeMap { edge_maps }
     }
 
+    /// get the IDs mapped to the specified edge
     fn edge_map(&self, base: u8, dir: Dir) -> &[ID] {
         &self.edge_maps[dir.index(base) as usize]
     }
 
+    /// set the IDs mapped to the edge at the specified index
     fn set_edge_map_at_index(&mut self, edge_map: Box<[ID]>, index: usize) {
         self.edge_maps[index] = edge_map;
     }
 
+    /// add an ID to the edge at the specified index
     fn add_id_to_edge_map_at_index(&mut self, id: ID, index: usize) {
         let mut em = self.edge_maps[index].to_vec();
         em.push(id);
@@ -1374,7 +1378,7 @@ impl EdgeMap {
         self.set_edge_map_at_index(em.into(), index);
     }
 
-    /// add an ID at an [`Exts`] to the `EdgeMap`
+    /// add an ID at an [`Exts`] to the [`EdgeMap`]
     pub fn add_id(&mut self, exts: Exts, id: ID) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
@@ -1385,6 +1389,7 @@ impl EdgeMap {
         }
     }
 
+    /// returns true if the [`EdgeMap`] does not contain any IDs
     pub fn is_empty(&self) -> bool {
         let mut empty = true;
 
@@ -1395,6 +1400,8 @@ impl EdgeMap {
         empty
     }
 
+    /// returns the heap memory used by the [`EdgeMap`] - the stack memory size
+    /// is always 128 bytes (8 edges * (8 byte pointer + 8 byte length))
     pub fn mem_heap(&self) -> usize {
         let mut heap = 0;
 
@@ -1405,6 +1412,7 @@ impl EdgeMap {
         heap
     }
 
+    /// create an [`EdgeMap`] from two [`SingleDirEdgeMap`]s
     pub fn from_single_dirs(left: &Option<SingleDirEdgeMap>, right: &Option<SingleDirEdgeMap>) -> Option<EdgeMap> {
         if let Some(l_em) = left {
             if let Some(r_em) = right {
@@ -1419,6 +1427,7 @@ impl EdgeMap {
         None
     }
 
+    /// get the [`SingleDirEdgeMap`] in the specified [`Dir`]
     pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMap {
         let singe_dir: &[Box<[ID]>; 4] = match dir {
             Dir::Left => self.edge_maps[ALPHABET_SIZE..(2*ALPHABET_SIZE)].try_into().expect("Error: slice has incorrect length"),
@@ -1428,7 +1437,7 @@ impl EdgeMap {
         SingleDirEdgeMap::new(singe_dir.clone())
     }
 
-    /// clean the edge maps by removing IDs that led to filtered kmers
+    /// clean the edge maps by removing IDs mapped to edges that led to filtered kmers,
     /// based on a correct [`Exts`]
     pub fn clean_edges(&mut self, exts: Exts) {
         let mut exts = exts.val;
@@ -1474,6 +1483,13 @@ impl Display for EdgeMap {
     }
 }
 
+/// mapped transcript/gene/chromosome IDs for each of the 4 possible edges
+/// indices in one direction: 
+/// 
+/// 0: T 
+/// 1: G 
+/// 2: C 
+/// 3: A 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SingleDirEdgeMap {
     edge_maps: [Box<[ID]>; ALPHABET_SIZE]
@@ -1490,7 +1506,7 @@ impl SingleDirEdgeMap {
         SingleDirEdgeMap::new(reverse)
     }
 
-    /// get the IDs mapped to a certain edge
+    /// get the IDs mapped to the specified edge
     pub fn edge_map(&self, base: u8) -> &[ID] {
         &self.edge_maps[(ALPHABET_SIZE as u8 - 1 - base) as usize]
     }
