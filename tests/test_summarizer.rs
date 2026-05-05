@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, size_aligned, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMEmapQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -19,6 +19,7 @@ struct SummaryTest {
     edge_mults: Option<EdgeMult>,
     quality: Option<BaseQuality>,
     mapped_ids: Option<Vec<ID>>, // also include set_ma
+    mapped_edge_ids: Option<EdgeMap>,
     valid: bool,
     summarizer: Summarizers
 }
@@ -42,7 +43,7 @@ where
 
     let edge_mults = data.edge_mults().cloned();
 
-    data.fix_edge_mults(Exts::new(0));
+    data.fix_edge_data(Exts::new(0));
     if let Some(e) = data.edge_mults() {
         assert_eq!(e.edge_mults(), [0; 8]);
     }
@@ -62,6 +63,18 @@ where
     let mapped_ids = data.mapped_ids().map(|m| m.into());
     let ids = data.ids().map(|ids| ids.to_vec());
 
+    let mut emap = EdgeMap::default();
+    emap.add_id(Exts { val: 0b0101010 }, 1);
+    emap.add_id(Exts { val: 0b0010010 }, 2);
+    emap.add_id(Exts { val: 0b0100011 }, 3);
+
+    data.set_mapped_edge_ids(Some(emap.clone()));
+    if let Some(m) = data.mapped_edge_ids() {
+        assert_eq!(m, &emap)
+    }
+
+    let mapped_edge_ids = data.mapped_edge_ids().cloned();
+
     SummaryTest { 
         print: data.print(translator, config, None),
         print_ol: data.print_ol(translator, config, None), 
@@ -76,6 +89,7 @@ where
         edge_mults:  edge_mults.clone(), 
         quality: data.quality(), 
         mapped_ids, 
+        mapped_edge_ids,
         valid, 
         summarizer: SD::summarizer() 
     }
@@ -132,13 +146,21 @@ fn test_summary_data() {
     let edge_mults = Some(EdgeMult::new_from([0, 0, 0, 0, 0, 0, 0, 6]));
     let em_m = 8 * 4; // EdgeMult
 
-
     let ids = Some(vec![0, 1, 2, 3, 7, 8]);
     let i_m_s = 16; // Boxed slice
     let i_m_h = 6 * mem::size_of::<ID>(); // ids, depend on feature
     let mapped_ids = Some(vec![1, 2, 3]);
     let mi_m_s = 16; // Boxed slice
     let mi_m_h = 3 * mem::size_of::<ID>(); // ids, depend on feature
+
+    let mut emap = EdgeMap::default();
+    emap.add_id(Exts { val: 0b0101010 }, 1);
+    emap.add_id(Exts { val: 0b0010010 }, 2);
+    emap.add_id(Exts { val: 0b0100011 }, 3);
+
+    let emap_m_s = 128;
+    let emap_m_h = emap.mem_heap();
+    let mapped_edge_ids = Some(emap);
 
     let quality = Some(BaseQuality::Medium);
     let q_m = 1; // BaseQuality (enum -> u8)
@@ -162,6 +184,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::Sum,
     };
@@ -185,6 +208,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::VecTags,
     };
@@ -208,6 +232,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::ID,
     };
@@ -231,6 +256,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDSum,
     };
@@ -254,6 +280,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::Tags,
     };
@@ -277,6 +304,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsSum,
     };
@@ -300,6 +328,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsSum,
     };
@@ -323,6 +352,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCounts,
     };
@@ -346,6 +376,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsP,
     };
@@ -369,6 +400,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsEM,
     };
@@ -392,6 +424,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsPEM,
     };
@@ -415,6 +448,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::TagsCountsPEMQuality,
     };
@@ -438,6 +472,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDTagsCounts,
     };
@@ -461,6 +496,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDTagsCountsPEM,
     };
@@ -484,6 +520,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDEM,
     };
@@ -507,6 +544,7 @@ fn test_summary_data() {
         edge_mults: edge_mults.clone(),
         quality: None,
         mapped_ids: mapped_ids.clone(),
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDMapEM,
     };
@@ -530,6 +568,7 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality,
         mapped_ids:  mapped_ids.clone(),
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::IDMapEMQuality,
     };
@@ -553,8 +592,33 @@ fn test_summary_data() {
         edge_mults:  edge_mults.clone(),
         quality,
         mapped_ids:  mapped_ids.clone(),
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::SumMapEMQuality,
+    };
+
+    assert_eq!(test_data, compare_data);
+
+    // MapEMEmapQualityData
+
+    let test_data = test_summarize::<MapEMEmapQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
+    let compare_data = SummaryTest {
+        print: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3] | [2]\nC: [1, 2, 3] | [1, 3]\nG: [] | []\nT: [1] | []\n, quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
+        print_ol: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: [], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"mapped_ids_edges\": \"A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: []\", \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        tags: None,
+        mem: size_aligned(mi_m_s + em_m + q_m + emap_m_s, mi_m_h + emap_m_h, 8),
+        sum: None,
+        ids:  None,
+        p_value: None,
+        fold_change: None,
+        sample_count: None,
+        edge_mults:  edge_mults.clone(),
+        quality,
+        mapped_ids:  mapped_ids.clone(),
+        mapped_edge_ids,
+        valid,
+        summarizer: Summarizers::MapEMEmapQuality,
     };
 
     assert_eq!(test_data, compare_data);
@@ -576,6 +640,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::GroupCount,
     };
@@ -599,6 +664,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::RelCount,
     };
@@ -627,6 +693,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid,
         summarizer: Summarizers::Tags,
     };
@@ -651,6 +718,7 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid: false,
         summarizer: Summarizers::Tags,
     };
@@ -675,21 +743,10 @@ fn test_summary_data() {
         edge_mults: None,
         quality: None,
         mapped_ids: None,
+        mapped_edge_ids: None,
         valid: false,
         summarizer: Summarizers::Tags,
     };
 
     assert_eq!(test_data, compare_data);
-}
-
-/// add the alignment buffer to a structure
-/// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
-fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {
-    let empty = size_stack % align;
-    let buffer = match empty {
-        0 => 0,
-        _ => align - empty
-    };
-
-    buffer + size_heap + size_stack
 }

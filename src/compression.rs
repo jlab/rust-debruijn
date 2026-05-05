@@ -6,7 +6,6 @@ use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use log::debug;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 use std::time::Instant;
@@ -14,22 +13,35 @@ use std::time::Instant;
 use crate::dna_string::DnaString;
 use crate::graph::{BaseGraph, DebruijnGraph};
 use crate::summarizer::SummaryData;
-use crate::{Dir, EdgeMult, SingleDirEdgeMult, PROGRESS_STYLE};
+use crate::{Dir, EdgeMap, EdgeMult, PROGRESS_STYLE, SingleDirEdgeMap, SingleDirEdgeMult};
 use crate::Exts;
 use crate::Kmer;
 use crate::Vmer;
 use boomphf::hashmap::BoomHashMap2;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 enum ExtMode<K: Kmer> {
     Unique(K, Dir, Exts),
-    Terminal(Exts, Option<SingleDirEdgeMult>),
+    Terminal(TerminalExt),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 enum ExtModeNode {
     Unique(usize, Dir, Exts),
-    Terminal(Exts, Option<SingleDirEdgeMult>),
+    Terminal(TerminalExt),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct TerminalExt {
+    exts: Exts,
+    edge_mults: Option<SingleDirEdgeMult>,
+    edge_maps: Option<SingleDirEdgeMap>
+}
+
+impl TerminalExt {
+    fn new(exts: Exts, edge_mults: Option<SingleDirEdgeMult>, edge_maps: Option<SingleDirEdgeMap>) -> Self {
+        TerminalExt { exts, edge_mults, edge_maps }
+    }
 }
 
 /// Customize the path-compression process. Implementing this trait lets the user
@@ -171,7 +183,11 @@ where
         if exts.num_ext_dir(dir) != 1
             || (!self.stranded && node.len() == K::k() && bases.get_kmer::<K>(0).is_palindrome())
         {
-            ExtModeNode::Terminal(exts.single_dir(dir), data.edge_mults().map(|em| em.single_dir(dir)))
+            ExtModeNode::Terminal( TerminalExt::new(
+                exts.single_dir(dir), 
+                data.edge_mults().map(|em| em.single_dir(dir)), 
+                data.mapped_edge_ids().map(|em| em.single_dir(dir))
+            ))
         } else {
             // Get the next kmer
             let ext_base = exts.get_unique_extension(dir).expect("should be unique");
@@ -229,7 +245,11 @@ where
                 // or we've already used it,
                 // or it's palindrom and we are not stranded
                 // or the colors were not same
-                return ExtModeNode::Terminal(exts.single_dir(dir), data.edge_mults().map(|em| em.single_dir(dir)));
+                return ExtModeNode::Terminal( TerminalExt::new(
+                    exts.single_dir(dir), 
+                    data.edge_mults().map(|em| em.single_dir(dir)), 
+                    data.mapped_edge_ids().map(|em| em.single_dir(dir))
+                ));
             }
 
             // orientation of next edge
@@ -250,18 +270,22 @@ where
             } else {
                 // there's more than one path
                 // into the target kmer - don't include it
-                ExtModeNode::Terminal(exts.single_dir(dir),data.edge_mults().map(|em| em.single_dir(dir)))
+                ExtModeNode::Terminal( TerminalExt::new(
+                exts.single_dir(dir), 
+                data.edge_mults().map(|em| em.single_dir(dir)), 
+                data.mapped_edge_ids().map(|em| em.single_dir(dir))
+            ))
             }
         }
     }
 
     /// Generate complete unbranched edges
-    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, Exts, Option<SingleDirEdgeMult>) {
+    fn extend_node(&mut self, start_node: usize, start_dir: Dir) -> (Vec<(usize, Dir)>, TerminalExt) {
         let mut current_dir = start_dir;
         let mut current_node = start_node;
         let mut path = Vec::new();
-        let final_exts: Exts; // must get set below
-        let final_em: Option<SingleDirEdgeMult>; // must get set below
+        // must get set below
+        let terminal: TerminalExt;
 
         self.available_nodes.remove(start_node);
 
@@ -276,23 +300,23 @@ where
                     current_node = next_node;
                     current_dir = next_dir_outgoing;
                 }
-                ExtModeNode::Terminal(ext, em) => {
-                    final_exts = ext;
-                    final_em = em;
+                ExtModeNode::Terminal(term) => {
+                    terminal = term;
+
                     break;
                 }
             }
         }
 
-        (path, final_exts, final_em)
+        (path, terminal)
     }
 
     // Determine the sequence and extensions of the maximal unbranched
     // edge, centered around the given edge number
     #[inline(never)]
     fn build_node(&mut self, seed_node: usize) -> (DnaString, Exts, VecDeque<(usize, Dir)>, D) {
-        let (l_path, l_ext, l_em) = self.extend_node(seed_node, Dir::Left);
-        let (r_path, r_ext, r_em) = self.extend_node(seed_node, Dir::Right);
+        let (l_path, l_terminal) = self.extend_node(seed_node, Dir::Left);
+        let (r_path, r_terminal) = self.extend_node(seed_node, Dir::Right);
 
         // Stick together edge chunks to get full edge sequence
         let mut node_path = VecDeque::new();
@@ -316,27 +340,38 @@ where
                 .reduce(node_data, self.graph.get_node(next_node).data());
         }
 
-        let (left_extend_exts, left_extend_em) = match l_path.last() {
-            None => (l_ext, l_em),
-            Some(&(_, Dir::Left)) => (l_ext.complement(), l_em.map(|em| em.complement())),
-            Some(&(_, Dir::Right)) => (l_ext, l_em),
+        let left_terminal = match l_path.last() {
+            None => l_terminal,
+            Some(&(_, Dir::Left)) => TerminalExt::new(
+                l_terminal.exts.complement(), 
+                l_terminal.edge_mults.map(|em| em.complement()), 
+                l_terminal.edge_maps.map(|em| em.complement())
+            ),
+            Some(&(_, Dir::Right)) => l_terminal,
         };
 
-        let (right_extend_exts, right_extend_em) = match r_path.last() {
-            None => (r_ext, r_em),
-            Some(&(_, Dir::Left)) => (r_ext, r_em),
-            Some(&(_, Dir::Right)) => (r_ext.complement(), r_em.map(|em| em.complement()))
+        let right_terminal = match r_path.last() {
+            None => r_terminal,
+            Some(&(_, Dir::Left)) => r_terminal,
+            Some(&(_, Dir::Right)) => TerminalExt::new(
+                r_terminal.exts.complement(), 
+                r_terminal.edge_mults.map(|em| em.complement()), 
+                r_terminal.edge_maps.map(|em| em.complement())
+            )
         };
 
         let path_seq = self.graph.sequence_of_path(node_path.iter());
 
-        let new_em = EdgeMult::from_single_dirs(&left_extend_em, &right_extend_em);
+        let new_em = EdgeMult::from_single_dirs(&left_terminal.edge_mults, &right_terminal.edge_mults);
+        let new_emap = EdgeMap::from_single_dirs(&left_terminal.edge_maps, &right_terminal.edge_maps);
+
         node_data.set_edge_mults(new_em);
+        node_data.set_mapped_edge_ids(new_emap);
 
         // return sequence and extensions
         (
             path_seq,
-            Exts::from_single_dirs(left_extend_exts, right_extend_exts),
+            Exts::from_single_dirs(left_terminal.exts, right_terminal.exts),
             node_path,
             node_data,
         )
@@ -445,7 +480,11 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
         // kmer is marked terminal if it has not one extension in one direction (if clear path always 1) 
         // or if the graph is not stranded and the kmer is a palindrome
         if exts.num_ext_dir(dir) != 1 || (!self.stranded && kmer.is_palindrome()) {
-            ExtMode::Terminal(exts.single_dir(dir), kmer_data.edge_mults().map(|em| em.single_dir(dir)))
+            ExtMode::Terminal( TerminalExt::new(
+                exts.single_dir(dir), 
+                kmer_data.edge_mults().map(|em| em.single_dir(dir)),
+                kmer_data.mapped_edge_ids().map(|em| em.single_dir(dir))
+            ))
         } else {
             // Get the next kmer
             let ext_base = exts.get_unique_extension(dir).expect("should be unique");
@@ -473,7 +512,11 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
                 Some(id) if self.available_kmers.contains(id) => (),
 
                 // This kmer isn't in this partition, or we've already used it
-                _ => return ExtMode::Terminal(exts.single_dir(dir), kmer_data.edge_mults().map(|em| em.single_dir(dir))),
+                _ => return ExtMode::Terminal( TerminalExt::new(
+                    exts.single_dir(dir), 
+                    kmer_data.edge_mults().map(|em| em.single_dir(dir)),
+                    kmer_data.mapped_edge_ids().map(|em| em.single_dir(dir))
+                )),
             }
 
             // Check condition b)
@@ -500,7 +543,11 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             } else {
                 // there's more than one path
                 // into the target kmer - don't include it
-                ExtMode::Terminal(exts.single_dir(dir), kmer_data.edge_mults().map(|em| em.single_dir(dir)))
+                ExtMode::Terminal( TerminalExt::new(
+                    exts.single_dir(dir), 
+                    kmer_data.edge_mults().map(|em| em.single_dir(dir)),
+                    kmer_data.mapped_edge_ids().map(|em| em.single_dir(dir))
+                ))
             }
         }
     }
@@ -509,13 +556,13 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
     /// Also return the extensions at the end of this line.
     /// Sub-lines break if their extensions are not available in this shard
     #[inline(never)]
-    fn extend_kmer(&mut self, kmer: K, start_dir: Dir, path: &mut Vec<(K, Dir)>) -> (Exts, Option<SingleDirEdgeMult>) {
+    fn extend_kmer(&mut self, kmer: K, start_dir: Dir, path: &mut Vec<(K, Dir)>) -> TerminalExt {
         let mut current_dir = start_dir;
         let mut current_kmer = kmer;
         path.clear();
 
-        let final_exts: Exts; // must get set below
-        let final_em: Option<SingleDirEdgeMult>; // must get set below
+        // must get set below
+        let terminal: TerminalExt;
 
         // get id of kmer and remove from available kmers
         let id = self.get_kmer_id(&kmer).expect("should have this kmer");
@@ -532,15 +579,14 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
                     current_kmer = next_kmer;
                     current_dir = next_dir;
                 }
-                ExtMode::Terminal(ext, em) => {
-                    final_exts = ext;
-                    final_em = em;
+                ExtMode::Terminal(term) => {
+                    terminal = term;                   
                     break;
                 }
             }
         }
 
-        (final_exts, final_em)
+        terminal
     }
 
     /// Build the edge surrounding a kmer
@@ -560,7 +606,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
         let mut node_data = self.get_kmer_data(&seed).1.clone();
 
         // Unique path from seed kmer with Dir Left is built
-        let l_ext = self.extend_kmer(seed, Dir::Left, path);
+        let l_term = self.extend_kmer(seed, Dir::Left, path);
 
 
         // Add on the left path
@@ -577,15 +623,19 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             node_data = self.spec.reduce(node_data, kmer_data)
         }
 
-        let (left_extend_exts, left_extend_em)  = match path.last() {
-            None => l_ext,
-            Some(&(_, Dir::Left)) => l_ext,
-            Some(&(_, Dir::Right)) => (l_ext.0.complement(), l_ext.1.map(|em| em.complement()))
+        let left_terminal  = match path.last() {
+            None => l_term,
+            Some(&(_, Dir::Left)) => l_term,
+            Some(&(_, Dir::Right)) => TerminalExt::new(
+                l_term.exts.complement(), 
+                l_term.edge_mults.map(|em| em.complement()), 
+                l_term.edge_maps.map(|em| em.complement())
+            )
         };
 
 
         // Unique path from seed kmer with Dir Right is built
-        let r_ext = self.extend_kmer(seed, Dir::Right, path);
+        let r_term = self.extend_kmer(seed, Dir::Right, path);
 
         // Add on the right path
         for &(next_kmer, dir) in path.iter() {
@@ -600,16 +650,22 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             node_data = self.spec.reduce(node_data, kmer_data)
         }
 
-        let (right_extend_exts, right_extend_em) = match path.last() {
-            None => r_ext,
-            Some(&(_, Dir::Left)) => (r_ext.0.complement(), r_ext.1.map(|em| em.complement())),
-            Some(&(_, Dir::Right)) => r_ext,
+        let right_terminal = match path.last() {
+            None => r_term,
+            Some(&(_, Dir::Left)) => TerminalExt::new(
+                r_term.exts.complement(), 
+                r_term.edge_mults.map(|em| em.complement()), 
+                r_term.edge_maps.map(|em| em.complement())
+            ),
+            Some(&(_, Dir::Right)) => r_term,
         };
 
-        let new_em = EdgeMult::from_single_dirs(&left_extend_em, &right_extend_em);
+        let new_em = EdgeMult::from_single_dirs(&left_terminal.edge_mults, &right_terminal.edge_mults);
+        let new_emap = EdgeMap::from_single_dirs(&left_terminal.edge_maps, &right_terminal.edge_maps);
         node_data.set_edge_mults(new_em);
+        node_data.set_mapped_edge_ids(new_emap);
         
-        (Exts::from_single_dirs(left_extend_exts, right_extend_exts), node_data)
+        (Exts::from_single_dirs(left_terminal.exts, right_terminal.exts), node_data)
     }
 
     /// Compress a set of kmers and their extensions and metadata into a base DeBruijn graph.
@@ -617,7 +673,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
     pub fn compress_kmers(
         stranded: bool,
         spec: &S,
-        index: &BoomHashMap2<K, Exts, D>,
+        index: BoomHashMap2<K, Exts, D>,
         progress: bool,
     ) -> BaseGraph<K, D> {
         
@@ -636,7 +692,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             d: PhantomData,
             di: PhantomData,
             available_kmers,
-            index,
+            index: &index,
         };
 
         // Path-compressed De Bruijn graph will be created here
@@ -679,6 +735,8 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
             }
         }
 
+        graph.shrink_to_fit();
+
         if progress { println!() };
 
         graph
@@ -691,7 +749,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
-    index: &BoomHashMap2<K, Exts, D>,
+    index: BoomHashMap2<K, Exts, D>,
     time: bool,
     progress: bool,
 ) -> BaseGraph<K, D> {
@@ -719,7 +777,7 @@ pub fn compress_kmers<K: Kmer, D: Clone + Debug  + Send + Sync + SummaryData<DI>
     }
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, &index, false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index, false)
 }
 
 /// Build graph from a set of kmers with unknown extensions by finding the extensions on the fly.
@@ -763,12 +821,12 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
     assert_eq!(kmer_set.len(), keys.len());
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, &index,false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index,false)
 }
 
 /// build an uncompressed graph from hashed k-mers
 pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
-    index: &BoomHashMap2<K, Exts, D>,
+    index: BoomHashMap2<K, Exts, D>,
     stranded: bool
 ) -> BaseGraph<K, D> {
 
@@ -782,6 +840,9 @@ pub fn uncompressed_graph<K: Kmer, D: Clone + Debug>(
         }
         graph.add(&kmer_seq, *exts, data.clone());
     }
+
+    graph.shrink_to_fit();
+
     graph
 }
 

@@ -8,7 +8,6 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
-use itertools::chain;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -30,7 +29,6 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::usize;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -41,6 +39,7 @@ type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::BaseQuality;
+use crate::EdgeMap;
 use crate::bits_to_base;
 use crate::colors::ColorMode;
 use crate::colors::Colors;
@@ -116,6 +115,13 @@ impl<K, D> BaseGraph<K, D> {
             phantom: PhantomData,
         }
     }
+
+    /// shrink the storage of the `BaseGraph` to fit its contents
+    pub fn shrink_to_fit(&mut self) {
+        self.sequences.shrink_to_fit();
+        self.exts.shrink_to_fit();
+        self.data.shrink_to_fit();
+    }
 }
 
 impl<K: Kmer, D> BaseGraph<K, D> {
@@ -174,8 +180,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 kmers.push(self.sequences.get(*idx as usize).first_kmer());
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
-            println!("left kmers: {:?}", kmers);
-            println!("left seqs: {:?}", sequences);
+
             BoomHashMap::new(kmers, indices.clone())
         };
 
@@ -186,8 +191,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
                 kmers.push(self.sequences.get(*idx as usize).last_kmer());
                 sequences.push(self.sequences.get(*idx as usize).to_dna_string());
             }
-            println!("right kmers: {:?}", kmers);
-            println!("right seqs: {:?}", sequences);
+
             BoomHashMap::new(kmers, indices)
         };
 
@@ -217,6 +221,11 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     pub fn is_empty(&self) -> bool {
         self.base.is_empty()
+    }
+
+    /// shrink the storage of the `DebruijnGraph` to fit its contents
+    pub fn shrink_to_fit(&mut self)  {
+        self.base.shrink_to_fit();
     }
 
     /// Get a node given it's `node_id`
@@ -711,9 +720,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     where 
         P: AsRef<Path>
     {
-        // return err if not stranded
-        if !self.base.stranded { return Err("graph has to be stranded".to_string()) };
-
         let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
         let mut node_transcript_ids = vec![Vec::new(); self.len()];
 
@@ -746,9 +752,19 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             // iterate over k-mers in transcript and find each one in the graph
             let sequence = DnaString::from_acgt_bytes(record.seq());
             for kmer in sequence.iter_kmers::<K>() {
-                if let Some(node) = self.search_kmer(kmer, Dir::Right) {
-                    node_transcript_ids[node].push(gene_id);
+                if self.base.stranded {
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    }
+                } else {
+                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
+                        node_transcript_ids[node].push(gene_id);
+                    }
                 }
+                
             }
         }
 
@@ -756,6 +772,66 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         let boxed_transcripts = node_transcript_ids.into_iter().map(|vec| vec.into()).collect();
 
         Ok(boxed_transcripts)
+    }
+
+    /// map sequences from a fasta file to a **completely uncompressed** and **stranded** debruijn graph
+    pub fn map_transcripts_to_edges<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<EdgeMap>, String> 
+    where 
+        P: AsRef<Path>
+    {
+        let reader = fasta::Reader::new(BufReader::new(File::open(path).unwrap()));
+        let mut node_edge_transcript_ids = vec![EdgeMap::default(); self.len()];
+
+        // if the translator has a id translator, use it, else make a new one to use and put it into the translator
+        let id_tr = if let Some(id_tr) = translator.mut_id_translator() {
+            id_tr
+        } else {
+            let new_id_tr = BiHashMap::new();
+            translator.mut_id_translator().replace(new_id_tr);
+            
+            let Some(id_tr) = translator.mut_id_translator() else { panic!("should not happen") };
+
+            id_tr
+        };
+
+        // go through each transcript and map to graph
+        for result in reader.records() {
+            let record = result.expect("error parsing transcripts fasta");
+
+            // get gene id or make new id
+            let gene_id = match id_tr.get_by_left(&record.id().to_string()) {
+                Some(id) => *id,
+                None => {
+                    let new_id = id_tr.len() as ID;
+                    id_tr.insert(record.id().to_string(), new_id);
+                    new_id
+                }
+            };
+
+            // iterate over k-mers in transcript and find each one in the graph
+            let sequence = DnaString::from_acgt_bytes(record.seq());
+
+            for (kmer, exts) in sequence.iter_kmer_exts::<K>(Exts::empty()) {
+                if self.base.stranded {
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                    }
+                } else {
+                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    if let Some(node) = self.search_kmer(kmer, Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts, gene_id);
+                    } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
+                        node_edge_transcript_ids[node].add_id(exts.rc(), gene_id);
+                    }
+                }
+                
+            }
+        }
+
+        // remove unncecessary memory from vector
+        node_edge_transcript_ids.shrink_to_fit();
+
+        Ok(node_edge_transcript_ids)
     }
 
     /// write a node to a dot file
@@ -1662,14 +1738,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Colors::new(self, config, color_mode)
     }
     
-    /// [`crate::EdgeMult`] will contain hanging edges if the nodes were filtered
-    pub fn fix_edge_mults<DI>(&mut self) 
+    /// [`crate::EdgeMult`] and [] will contain hanging edges if the nodes were filtered
+    pub fn fix_edge_data<DI>(&mut self) 
     where 
         SD: SummaryData<DI>
     {
         if self.get_node(0).data().edge_mults().is_some() {
             for i in 0..self.len() {
-                self.base.data[i].fix_edge_mults(self.base.exts[i]);
+                self.base.data[i].fix_edge_data(self.base.exts[i]);
             }
         }
     }
@@ -1707,7 +1783,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // check we do indeed have quality and graph is stranded
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
-        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         // iterate over all nodes and look in both directions if there is a low quality node splitting off
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
@@ -1722,7 +1797,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // get qualities 
             let nb_qualities = out_edges
                 .iter()
-                .map(|(_, nb_id, _, _)| (*nb_id, self
+                .map(|(_, nb_id, nb_in_dir, _)| (*nb_id, *nb_in_dir, self
                     .get_node(*nb_id)
                     .data()
                     .quality()
@@ -1731,7 +1806,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // check for good neighbor
             let has_good_nb = nb_qualities.iter()
-                .any(|(_, quality)| *quality >= min_quality);
+                .any(|(_, _, quality)| *quality >= min_quality);
 
             if !has_good_nb {
                 // split but no good path, move on
@@ -1739,9 +1814,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // remove split with low quality
-            for (nb_id, _) in nb_qualities.iter().filter(|(_, quality)| *quality < min_quality ) {
-                let path = vec![node_id, *nb_id];
-                if self.remove_path(path, out_dir).is_err() {
+            for (nb_id, nb_in_dir, _) in nb_qualities.iter().filter(|(_, _, quality)| *quality < min_quality ) {
+                let path = vec![(node_id, out_dir.flip()), (*nb_id, *nb_in_dir)];
+                if self.remove_path(path).is_err() {
                     warn!("lq tip path could not be removed")
                 }
             }
@@ -1751,35 +1826,32 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`
-    pub fn remove_lq_ladders_tips<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
+    pub fn remove_lq_paths<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
         // check we do indeed have quality and graph is stranded
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
-        if !self.base.stranded { return Err(String::from("graph must be stranded to remove ladders")) };
 
         let min_path = 2 * K::k() - 1;
         let max_path = max_path_fac * K::k() - 1;
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
-            let in_dir = out_dir.flip();
-
-            // check if node has multile outs to the right, at least one with bad quality and one with good quality
+            // check if node has multile outs, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
 
             let good_neighbors = node_out_edges.iter()
-                .map(|(_, target_id, _, _)| *target_id)
-                .filter(|target_id| self.get_node(*target_id)
+                .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir))
+                .filter(|(target_id, _)| self.get_node(*target_id)
                     .data()
                     .quality()
                     .unwrap() >= min_quality
                 ).collect::<Vec<_>>();
 
             let bad_neighbors = node_out_edges.iter()
-                .map(|(_, target_id, _, _)| *target_id)
-                .filter(|target_id| self.get_node(*target_id)
+                .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir))
+                .filter(|(target_id, _)| self.get_node(*target_id)
                     .data()
                     .quality()
                     .unwrap() < min_quality
@@ -1791,9 +1863,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let mut possible_paths = Vec::new();
             let mut tips = Vec::new();
 
-            for bn in bad_neighbors {
+            for (bn, bn_in_dir) in bad_neighbors {
+                let mut current_in_dir = *bn_in_dir; // in an unstranded graph, the out dir can change
                 let mut current_node_id = bn;
-                let mut path_groups = vec![vec![node_id]];
+                let mut path_groups = vec![vec![(node_id, out_dir.flip())]];
                 let mut path_length = K::k() - 1;
 
                 let mut state = LadderState::Singular;
@@ -1801,7 +1874,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 loop {
                     let current_node = self.get_node(current_node_id);
-                    let out_edges = current_node.edges(out_dir);
+                    let out_edges = current_node.edges(current_in_dir.flip());
 
                     // add current node length to path
                     path_length += current_node.len() - K::k() + 1;
@@ -1816,12 +1889,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // if in singular state now or before, add node to path
                     if matches!(state, LadderState::Singular) { 
-                        path_groups[path_index].push(current_node_id);
+                        path_groups[path_index].push((current_node_id, current_in_dir));
                     }
 
                     // check if we increase ladder state
                     let q_increase = (current_node.data().quality().unwrap() >= min_quality) & !q_state_high;
-                    let mult_increase = current_node.edges(in_dir).len() > 1;
+                    let mult_increase = current_node.edges(current_in_dir).len() > 1;
                     
                     if q_increase {
                         q_state_high = true
@@ -1849,7 +1922,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                             LadderState::Singular => (), // ignore
                             LadderState::Double => {
                                 state = LadderState::Singular;
-                                path_groups.push(vec![current_node_id]); // start new path group
+                                path_groups.push(vec![(current_node_id, current_in_dir)]); // start new path group
                             }
                         }
                     }
@@ -1871,9 +1944,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // we have not met the conditions and keep moving
 
                     // find next node
-                    let next_node_id = if out_edges.len() == 1 {
-                        let (_, next_node_id, _, _) = out_edges[0];
-                        next_node_id
+                    let (next_node_id, next_in_dir)  = if out_edges.len() == 1 {
+                        let (_, next_node_id, next_in_dir, _) = out_edges[0];
+                        (next_node_id, next_in_dir)
                     } else if out_edges.is_empty() {
                         // dead end which has not qualified as tip
                         break;
@@ -1881,30 +1954,33 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // choose the lowest quality path
 
                         let worst_neighbor = out_edges.iter()
-                            .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
+                            .map(|(_, target_id, target_in_dir, _)| (*target_id, *target_in_dir, self.get_node(*target_id)
                                 .data()
                                 .quality()
-                                .unwrap()))
-                            .min_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
+                                .unwrap())
+                            )
+                            .min_by(|(_, _, q_a), (_, _, q_b)| q_a.cmp(q_b));
 
-                        if let Some((worst_nb_id, _)) = worst_neighbor {
-                            worst_nb_id
+                        if let Some((worst_nb_id, worst_nb_inc_dir, _)) = worst_neighbor {
+                            (worst_nb_id, worst_nb_inc_dir)
                         } else {
                             break;
                         }
                     };
 
                     current_node_id = next_node_id;
+                    current_in_dir = next_in_dir;
                 }
             }
 
-            let possible_targets = possible_paths.iter().map(|p| p.last().unwrap().last().unwrap()).collect::<Vec<_>>();
+            let possible_targets = possible_paths.iter().map(|p| p.last().unwrap().last().unwrap().0).collect::<Vec<_>>();
             let mut confirmed_targets = Vec::new();
             // follow the good quality paths until we reach a possible target node (or max search radius)
             // if we reached a target node, send bad path to be removed from graph
-            for gn in good_neighbors {
+            for (gn, gn_in_dir) in good_neighbors {
                 let mut path_length = K::k() - 1;
                 let mut current_node_id = gn;
+                let mut current_in_dir = *gn_in_dir;
 
                 loop {
                     // check if we have exceeded the search radius
@@ -1917,48 +1993,49 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     path_length += current_node.len() - K::k() + 1;
 
                     // check if we have found a target
-                    if possible_targets.contains(&&current_node_id) {
+                    if possible_targets.contains(&current_node_id) {
                         confirmed_targets.push(current_node_id);
                         break;
                     }
 
                     // look for next node
-                    let out_edges = current_node.edges(out_dir);
+                    let out_edges = current_node.edges(current_in_dir.flip());
 
-                    let next_node_id = if out_edges.len() == 1 {
-                        let (_, next_node_id, _, _) = out_edges[0];
-                        next_node_id
+                    let (next_node_id, next_in_dir) = if out_edges.len() == 1 {
+                        let (_, next_node_id, next_in_dir, _) = out_edges[0];
+                        (next_node_id, next_in_dir)
                     } else if out_edges.is_empty() {
                         // dead end, break
                         break;
                     } else {
                         // use node with highest quality
                         // TODO future: use read mapping?
-                        let good_neighbors = out_edges.iter()
-                            .map(|(_, target_id, _, _)| (*target_id, self.get_node(*target_id)
+                        let good_neighbor = out_edges.iter()
+                            .map(|(_, target_id, target_in_dir, _)| (*target_id, target_in_dir, self.get_node(*target_id)
                                 .data()
                                 .quality()
                                 .unwrap()))
-                            .max_by(|(_, q_a), (_, q_b)| q_a.cmp(q_b));
-                        if let Some((best_nb_id, _)) = good_neighbors {
-                            best_nb_id
+                            .max_by(|(_, _, q_a), (_, _, q_b)| q_a.cmp(q_b));
+                        if let Some((best_nb_id, best_nb_in_dir, _)) = good_neighbor {
+                            (best_nb_id, *best_nb_in_dir)
                         } else {
                             break;
                         }
                     };
 
                     current_node_id = next_node_id;
+                    current_in_dir = next_in_dir;
                 }
             }
 
             // check if we have found end nodes of possible paths by following good quality paths
             // if so, remove path
             for path_group in possible_paths {
-                let target = path_group.last().unwrap().last().unwrap();
+                let target = path_group.last().unwrap().last().unwrap().0;
 
-                if confirmed_targets.contains(target) {
+                if confirmed_targets.contains(&target) {
                     for path in path_group {
-                        if let Err(err) = self.remove_path(path.clone(), out_dir) {
+                        if let Err(_err) = self.remove_path(path.clone()) {
                             warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                         }
                     }
@@ -1968,14 +2045,269 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // remove tip paths
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
-                if let Err(err) = self.remove_path(path.clone(), out_dir) {
+                if let Err(_err) = self.remove_path(path.clone()) {
                     warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                 }
             }
 
-
         }
 
+        Ok(())
+    }
+
+    /// remove bubbles/ladders and tips in which one path has a coverage lower than the other
+    pub fn remove_lc_paths<DI>(&mut self, max_path_fac: usize, min_diff_factor: u32, max_avg_low_cov: f32) -> Result<(), String>
+    where
+        SD: SummaryData<DI>
+    {
+        // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
+        // nodes with higher state are kept connected together
+        // tests have shown that increase in coverage does not necessarily indicate 
+        // a multiplicity change
+        // however, we are trying to avoid false positives - false negatives will 
+        // most likely be cut off from the component or would be removed by remove_tips
+        // as a next step
+        // increasing these values will increase the number of removed edges
+        const COV_STATE_FACTOR: f32 = 0.2; 
+        const COV_STATE_ADD: f32 = 2.;
+
+        // check we do indeed have the edge coverage
+        if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no quality scores available")); }
+
+        let min_path = 2 * K::k() - 1;
+        let max_path = max_path_fac * K::k() - 1;
+
+        // iterate over nodes
+        for (node_id, start_out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
+
+            let node = self.get_node(node_id);
+
+            // check if node has multile outs, at least one with bad quality and one with good quality
+            let node_out_coverages = node.data().edge_mults().expect("should have em").single_dir(start_out_dir).edge_mults;
+
+            let Some((out_max_base, &out_max_cov)) = node_out_coverages.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
+            let smaller_outs = node_out_coverages.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (out_max_cov > c)).collect::<Vec<_>>();
+
+            if smaller_outs.is_empty() { continue; }
+
+            // follow the bad quality paths until we reach nodes with high quality again (or max search radius)
+            let mut possible_paths = Vec::new();
+            let mut tips = Vec::new();
+
+            let node_term_kmer = node.sequence().term_kmer::<K>(start_out_dir);
+
+            for (start_out_base, start_out_cov) in smaller_outs {
+                // get nb id
+                let next_kmer = node_term_kmer.extend(start_out_base as u8, start_out_dir);
+                let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+
+                let mut current_cov = start_out_cov as f32;
+
+                let mut path_groups = vec![vec![(node_id, start_out_dir.flip())]];
+                let mut path_length = K::k() - 1;
+
+                let mut state = LadderState::Singular;
+                let mut c_state_high = false;
+
+                let mut cov_sum = start_out_cov;
+                let mut cov_count = 1;
+
+                loop {
+                    let current_node = self.get_node(current_node_id);
+                    let out_edges = current_node.edges(current_in_dir.flip());
+
+                    // add current node length to path
+                    path_length += current_node.len() - K::k() + 1;
+
+                    // check if path has reached max length -> interrupt
+                    if path_length > max_path {
+                        print!("interrupt, too long");
+                        break;
+                    }
+                    
+                    // check state and add current node to path
+                    let path_index = path_groups.len() - 1;
+
+                    // if in singular state now or before, add node to path
+                    if matches!(state, LadderState::Singular) { 
+                        path_groups[path_index].push((current_node_id, current_in_dir));
+                    }
+
+                    // choose next edge by choosing coverage closest to current coverage
+
+                    // get coverage
+                    // edge cov must be available
+                    let edge_coverages = current_node.data().edge_mults().expect("must have edge mults");
+                    let out_edge_coverages = edge_coverages.single_dir(current_in_dir.flip());
+
+                    let mut closest_out_cov = None;
+                    let mut next_node_id = None;
+                    let mut next_in_dir = None;
+                    let mut cov_diff = i32::MAX;
+                    for (base, id, in_dir, _) in out_edges.iter() {
+                        let cov = out_edge_coverages.edge_mult(*base) as i32;
+                        let new_cov_diff = (current_cov as i32 - cov).abs();
+                        if new_cov_diff < cov_diff {
+                            (closest_out_cov, next_node_id, next_in_dir, cov_diff) = (Some(cov as f32), Some(*id), Some(*in_dir), new_cov_diff);
+                        }
+                    }
+
+                    // check if coverage increases on high path, similar to c_increase check but with highest outgoing coverage and start cov
+                    // TODO check if better with min_diff_factor
+                    // TODO check if we should replace consts with min diff factor
+                    let highest_cov = out_edge_coverages.edge_mults.iter().max().unwrap_or(&0);
+                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high; // higer coverage than last edge
+
+                    // check if we have met end criterium -> save path
+                    let len_req = path_length >= min_path; // path long enough
+                    // path is a simple tip -> save as tip
+                    let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
+
+                    if coverage_req & len_req {
+                        possible_paths.push((path_groups, cov_sum as f32 / cov_count as f32));
+                        break;
+                    } else if is_tip {
+                        tips.push((path_groups, cov_sum as f32 / cov_count as f32));
+                        break;
+                    }
+
+                    // check if we have a next node: 
+                    let (Some(closest_out_cov), Some(next_node_id), Some(next_in_dir)) = (closest_out_cov, next_node_id, next_in_dir) else { 
+                        break; 
+                    };
+
+                    // check if we increase ladder state
+                    let c_increase = (closest_out_cov > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high;
+                    let mult_increase = current_node.edges(current_in_dir).len() > 1;
+                    
+                    if c_increase {
+                        c_state_high = true
+                    }
+
+                    if c_increase | mult_increase {
+                        match state {
+                            LadderState::Singular => {
+                                state = LadderState::Double;
+                            }
+                            LadderState::Double => () // ignore
+                        };
+                    }
+
+                    // check if we decrease ladder state
+                    // do not check if coverage was already high bc state could be increased for just one node by inc edge
+                    let c_decrease = closest_out_cov < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD; //& c_state_high;
+                    let mult_decrease = out_edges.len() > 1;
+
+                    if c_decrease {
+                        c_state_high = false;
+                    }
+
+                    if c_decrease | mult_decrease {
+                        match state {
+                            LadderState::Singular => (), // ignore
+                            LadderState::Double => {
+                                state = LadderState::Singular;
+                                path_groups.push(vec![(current_node_id, current_in_dir)]); // start new path group
+                            }
+                        }
+                    }
+
+                    // we have not met the conditions and keep moving
+                    current_node_id = next_node_id;
+                    current_in_dir = next_in_dir;
+
+                    // if the ladder state is singular, use coverage for avg cov
+                    if matches!(state, LadderState::Singular) {
+                        current_cov = closest_out_cov;
+                        cov_sum += current_cov as u32;
+                        cov_count += 1;
+                    }
+                }
+            }
+
+            let possible_targets = possible_paths.iter().map(|(p, _c)| p.last().unwrap().last().unwrap().0).collect::<Vec<_>>();
+            let mut confirmed_targets = Vec::new();
+
+            // follow the high coverage until we reach a possible target node (or max search radius)
+            // if we reached a target node, send bad path to be removed from graph
+            
+            let next_kmer = node_term_kmer.extend(out_max_base as u8, start_out_dir);
+            let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+
+            let mut path_length = K::k() - 1;
+            let mut current_cov = out_max_cov;
+
+            // track coverage 
+            let mut cov_sum = current_cov;
+            let mut cov_count = 1;
+
+            loop {
+                // check if we have exceeded the search radius
+                if path_length > max_path {
+                    break;
+                }
+
+                // add current node length to path length
+                let current_node = self.get_node(current_node_id);
+                path_length += current_node.len() - K::k() + 1;
+
+                // check if we have found a target
+                if possible_targets.contains(&current_node_id) {
+                    confirmed_targets.push(current_node_id);
+                    // keep going in case we find another one
+                }
+
+                // look for next node
+                let out_coverages = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip()).edge_mults;
+
+                // use node with highest coverage
+                // find highest coverage
+                let current_term_kmer = current_node.sequence().term_kmer::<K>(current_in_dir.flip());
+                let Some((next_out_base, next_out_cov)) = out_coverages.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { break };
+                let next_kmer = current_term_kmer.extend(next_out_base as u8, current_in_dir.flip());
+                let (next_node_id, next_in_dir, _) = self.find_link(next_kmer, current_in_dir.flip()).expect("link should exist"); 
+
+
+                current_node_id = next_node_id;
+                current_in_dir = next_in_dir;
+                current_cov = *next_out_cov;
+                cov_sum += current_cov;
+                cov_count += 1;
+
+            }
+
+            let avg_cov_high_path = (cov_sum as f32 / cov_count as f32) as u32;
+
+            // check if we have found end nodes of possible paths by following high coverage paths
+            // if so, remove path
+            for (path_group, avg_low_cov) in possible_paths {
+                let target = path_group.last().unwrap().last().unwrap().0;
+
+                let cov_valid = (avg_low_cov.round() as u32 * min_diff_factor <= avg_cov_high_path) & (avg_low_cov <= max_avg_low_cov);
+
+                if confirmed_targets.contains(&target) & cov_valid {
+                    for path in path_group {
+                        if let Err(_err) = self.remove_path(path.clone()) {
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                        }
+                    }
+                }
+            }
+
+            // remove tip paths
+            for (path_group, avg_tip_cov) in tips {
+                let path = path_group.into_iter().next().expect("empty tip path found");
+                let cov_valid = (avg_tip_cov.round() as u32 * min_diff_factor <= avg_cov_high_path) & (avg_tip_cov <= max_avg_low_cov);
+
+                if cov_valid {
+                    if let Err(_err) = self.remove_path(path.clone()) {
+                        warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                    }
+                }
+                
+            }
+
+        }
 
         Ok(())
     }
@@ -1996,17 +2328,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // interrupt if we dont have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
-        if !self.base.stranded { return Err(String::from("must be stranded")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
         if let Some(wtr) = writer.as_mut() {
             writeln!(wtr, "avg high cov,avg low cov,high truth ratio,low truth ratio").unwrap();
         }
 
-        // iterate over nodes
-        for node_id in 0..self.len() {
+        // iterate over nodes, check in both directions
+        for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
             // check if node has outgoing edge(s) with both high and low coverage
-            let outs = self.get_node(node_id).data().edge_mults().expect("should have em").right();
+            let outs = self.get_node(node_id).data().edge_mults().expect("should have em").single_dir(out_dir).edge_mults;
 
             let Some((out_max_base, &out_max_cov)) = outs.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
             let smaller_outs = outs.iter().copied().rev().enumerate().filter(|&(_b, c)| (c > 0) & (out_max_cov > c)).collect::<Vec<_>>();
@@ -2016,18 +2347,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             if smaller_outs.is_empty() { continue; }
 
             // follow path with highest coverage until target length is reached
-            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, out_max_cov) else { continue; };
+            let Some((target_node, avg_high_cov, high_cc)) = self.follow_ladder_path_high(node_id, out_max_base as u8, out_max_cov, out_dir) else { continue; };
             
             // check all small outs
             for (s_base, s_cov) in smaller_outs {
-                let Some((target_paths, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov) else { continue; };
-                let other_target_node = *target_paths.last().expect("should have at least one element").last().expect("should have at least two elements");
+                let Some((target_paths, avg_low_cov, low_cc)) = self.follow_ladder_path_low(node_id, s_base as u8, s_cov, out_dir) else { continue; };
+                let other_target_node = target_paths.last().expect("should have at least one element").last().expect("should have at least two elements").0;
 
                 if target_node == other_target_node {
                     // the two paths landed on the same node -> remove all edges in the low coverage path
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
                         for path in target_paths.iter() {
-                            if self.remove_path(path.clone(), Dir::Right).is_err() {
+                            if self.remove_path(path.clone()).is_err() {
                                 warn!("removing ladders: partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
                             }
                         } 
@@ -2044,7 +2375,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow the presumably erroneous ladder path with low coverage
-    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(Vec<Vec<usize>>, f32, f32)> 
+    fn follow_ladder_path_low<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(Vec<Vec<(usize, Dir)>>, f32, f32)> 
     where SD: SummaryData<DI>
     {
         // state is switched if coverage rises by 20% + 2 (so it's at least 2 more)
@@ -2061,7 +2392,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         // path, including start and target node
         let mut paths = Vec::new();
         paths.push(Vec::new());
-        paths[0].push(start_node_id);
+        // add start node and start in dir as first element in path
+        paths[0].push((start_node_id, start_out_dir.flip()));
 
         let target_length = K::k();
         let mut path_length = 0;
@@ -2069,10 +2401,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(Dir::Right);
-        let next_kmer = term_kmer.extend(start_ext, Dir::Right);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
-        paths[0].push(current_node_id);
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+        paths[0].push((current_node_id, current_in_dir));
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2106,25 +2438,26 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let current_node = self.get_node(current_node_id);
             
             // get edges
-            let in_edges = current_node.l_edges();
-            let out_edges = current_node.r_edges();
+            let in_edges = current_node.edges(current_in_dir);
+            let out_edges = current_node.edges(current_in_dir.flip());
 
             // get coverage
             // edge cov must be available
-            let edge_coverages = current_node.data().edge_mults().expect("must have edge mults");
+            let out_edge_coverages = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip());
 
             // choose next edge by choosing coverage closest to current coverage
             let mut out_ext = None;
-            let mut out_node_id = None;
+            let mut next_node_id = None;
+            let mut next_in_dir = None;
             let mut cov_diff = i32::MAX;
-            for (e, id, _, _) in out_edges.iter() {
-                let cov = edge_coverages.edge_mult(*e, Dir::Right) as i32;
+            for (e, id, in_dir, _) in out_edges.iter() {
+                let cov = out_edge_coverages.edge_mult(*e) as i32;
                 let new_cov_diff = (current_cov as i32 - cov).abs();
                 if new_cov_diff < cov_diff {
-                    (out_ext, out_node_id, cov_diff) = (Some(*e), Some(*id), new_cov_diff);
+                    (out_ext, next_node_id, next_in_dir, cov_diff) = (Some(*e), Some(*id), Some(in_dir), new_cov_diff);
                 }
             }
-            let (Some(out_ext), Some(out_node_id)) = (out_ext, out_node_id) else { return None; };
+            let (Some(out_ext), Some(next_node_id), Some(next_in_dir)) = (out_ext, next_node_id, next_in_dir) else { return None; };
 
             // ideally, low path nodes should have one incoming and one outgoing edge
             // if two incoming edges, increase state from singular to double if possible
@@ -2145,14 +2478,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     LadderState::Singular => (), // could return None, but would kill if overlap is only one node long
                     LadderState::Double => {
                         state = LadderState::Singular;
-                        paths.push(vec![current_node_id]); // start new path
+                        paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                     }
                 }
                 _ => return None
             }
 
-            // check coverage, in theoretical ladder, coverage should be uniform
-            let coverage = edge_coverages.edge_mult(out_ext, Dir::Right) as f32;
+            // check coverage, in theoretical ladder coverage should be uniform
+            let coverage = out_edge_coverages.edge_mult(out_ext) as f32;
             match state {
                 LadderState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
@@ -2170,7 +2503,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     if coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // back in acceptable range
                         state = LadderState::Singular;
-                        paths.push(vec![current_node_id]); // start new path
+                        paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                         current_cov = coverage;
                     } // else continue on 
                     // TODO check if better to also interrupt if coverage increases further
@@ -2180,7 +2513,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
             match state {
                 LadderState::Singular => {
-                    if self.check_edge_truth(current_node_id, out_node_id) {
+                    if self.check_edge_truth(current_node_id, next_node_id) {
                         n_correct_edges += len;
                     }
                 }
@@ -2188,7 +2521,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = *next_in_dir;
 
             // add current node to path, unless state is double
             match state {
@@ -2197,7 +2531,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     sum_path_cov += current_cov;
                     coverage_counter += 1;
                     let last_path = paths.len() - 1;
-                    paths[last_path].push(current_node_id); // add node to latest path
+                    paths[last_path].push((current_node_id, current_in_dir)); // add node to latest path
                 }
             }
         }
@@ -2205,7 +2539,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     /// follow a path of the length 2*k - 1 by choosing the edges with the hightest coverage
     /// requres the graph to have edge mults
-    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32) -> Option<(usize, f32, f32)> 
+    fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(usize, f32, f32)> 
     where SD: SummaryData<DI>
     {
 
@@ -2217,9 +2551,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(Dir::Right);
-        let next_kmer = term_kmer.extend(start_ext, Dir::Right);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2241,22 +2575,23 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let current_node = self.get_node(current_node_id);
         
             // find outgoing edge with highest coverage
-            let em = current_node.data().edge_mults().expect("must have edge mults").right();
+            let em = current_node.data().edge_mults().expect("must have edge mults").single_dir(current_in_dir.flip()).edge_mults;
             let (max_cov_base, &max_cov) = em.iter().rev().enumerate().filter(|&(_, &c)| c > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2))?;
 
             // get next node id
             let sequence = self.base.sequences.get(current_node_id);
-            let term_kmer: K = sequence.term_kmer(Dir::Right);
-            let next_kmer = term_kmer.extend(max_cov_base as u8, Dir::Right);
-            let (out_node_id, _, _) = self.find_link(next_kmer, Dir::Right).expect("link should exist"); 
+            let term_kmer: K = sequence.term_kmer(current_in_dir.flip());
+            let next_kmer = term_kmer.extend(max_cov_base as u8, current_in_dir.flip());
+            let (next_node_id, next_in_dir, _) = self.find_link(next_kmer, current_in_dir.flip()).expect("link should exist"); 
 
             // try to check if edge is "correct", add extra length of current node to it to account for compression
-            if self.check_edge_truth(current_node_id, out_node_id) {
+            if self.check_edge_truth(current_node_id, next_node_id) {
                 n_correct_edges += len;
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
             sum_path_cov += max_cov;
             coverage_counter += 1;
         }
@@ -2272,7 +2607,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     {
         // interrupt if we dont have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
-        if !self.base.stranded { return Err(String::from("must be stranded")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
         if let Some(wtr) = writer.as_mut() {
@@ -2313,7 +2647,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     // remove path if coverage below threshold
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_tip_coverage <= max_avg_tip_cov) & (tip_len <= max_len) {
-                        self.remove_path(tip_path, dir)?;
+                        self.remove_path(tip_path)?;
                     }
                         
                     if let Some(wtr) = writer.as_mut() {
@@ -2327,7 +2661,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow a tip path, returns path, average coverage and ration of correct to incorrect connections
-    fn follow_tip_path<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, dir: Dir) -> Option<(Vec<usize>, f32, f32, usize)> 
+    fn follow_tip_path<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(Vec<(usize, Dir)>, f32, f32, usize)> 
     where 
         SD: SummaryData<DI>
     {
@@ -2336,17 +2670,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // path, including start and target node
         let mut path = Vec::new();
-        path.push(start_node_id);
+        path.push((start_node_id, start_out_dir.flip()));
 
         let mut path_length = 0;
         let mut n_correct_edges = 0;
 
         // get fist next node
         let sequence = self.base.sequences.get(start_node_id);
-        let term_kmer: K = sequence.term_kmer(dir);
-        let next_kmer = term_kmer.extend(start_ext, dir);
-        let (mut current_node_id, _, _) = self.find_link(next_kmer, dir).expect("link should exist"); 
-        path.push(current_node_id);
+        let term_kmer: K = sequence.term_kmer(start_out_dir);
+        let next_kmer = term_kmer.extend(start_ext, start_out_dir);
+        let (mut current_node_id, mut current_in_dir, _) = self.find_link(next_kmer, start_out_dir).expect("link should exist"); 
+        path.push((current_node_id, current_in_dir));
 
         if self.check_edge_truth(start_node_id, current_node_id) {
             n_correct_edges += 1;
@@ -2365,10 +2699,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             path_length += len;
 
             // low path nodes should have only one incoming and one outgoing edge
-            let in_edges = current_node.edges(dir.flip());
+            let in_edges = current_node.edges(current_in_dir);
             if in_edges.len() != 1 { return None; }
 
-            let out_edges = current_node.edges(dir);
+            let out_edges = current_node.edges(current_in_dir.flip());
             match out_edges.len() {
                 oe if oe > 1 => return None,
                 0 => return Some((path, (sum_path_cov / coverage_counter as f32), (n_correct_edges as f32 / path_length as f32), path_length)),
@@ -2376,9 +2710,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             }
 
             // if edge cov avalable, check for similarity
-            let (out_ext, out_node_id, _, _) = out_edges[0];
+            let (out_ext, next_node_id, next_in_dir, _) = out_edges[0];
             if let Some(em) = current_node.data().edge_mults() {
-                let coverage = em.edge_mult(out_ext, dir) as f32;
+                let coverage = em.edge_mult(out_ext, current_in_dir.flip()) as f32;
                 if coverage < current_cov - current_cov * COV_MARGIN - COV_ADD_MARGIN // extra two for small values
                     || coverage > current_cov + current_cov * COV_MARGIN + COV_ADD_MARGIN {
                     return None;
@@ -2387,110 +2721,70 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
 
+
+
             // try to check if edge is "correct", add extra length of current node to it to account for compression
-            if self.check_edge_truth(current_node_id, out_node_id) {
+            if self.check_edge_truth(current_node_id, next_node_id) {
                 n_correct_edges += len;
             }
 
             // set current node id to next node to be visited
-            current_node_id = out_node_id;
+            current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
             sum_path_cov += current_cov;
             coverage_counter += 1;
             // add current node to path
-            path.push(current_node_id);
-
+            path.push((current_node_id, current_in_dir));
         }
     }
 
-    /// remove the edges (not the nodes) of a path in the graph
-    fn remove_path<DI>(&mut self, path: Vec<usize>, base_dir: Dir) -> Result<(), String> 
+    /// remove the edges (not the nodes) of a path in the graph, the path has to contain 
+    /// the node ID and the direction the path is coming from moving through the node
+    fn remove_path<DI>(&mut self, path: Vec<(usize, Dir)>) -> Result<(), String> 
     where SD: SummaryData<DI>
     {
         let mut path_iter = path.clone().into_iter();
-        let Some(mut current_node_id) = path_iter.next() else { return Ok(()); };
+        let Some((mut current_node_id, mut current_in_dir)) = path_iter.next() else { return Ok(()); };
 
         loop {
             // get next node id
-            let Some(next_node_id) = path_iter.next() else { return Ok(()); }; // whole path has been covered
-            // remove ext to the right of current node
-            let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(base_dir).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
-                else { return Err(format!(
-"no edge to remove (base dir)
-path: {:?}
-dir: {:?}
-node1:
-    id: {current_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}
-node2:
-    id: {next_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}",
-                path,
-                base_dir,
-                self.get_node(current_node_id).l_edges(),
-                self.get_node(current_node_id).r_edges(),
-                self.get_node(current_node_id).exts(),
-                self.get_node(current_node_id).data(),
-                self.get_node(next_node_id).l_edges(),
-                self.get_node(next_node_id).r_edges(),
-                self.get_node(next_node_id).exts(),
-                self.get_node(next_node_id).data(),
-                ))
-            };
+            let Some((next_node_id, next_in_dir)) = path_iter.next() else { return Ok(()); }; // whole path has been covered
+            // find base to remove ext leaving the current node
+            let Some((out_base, _, _, _)) = self.get_node(current_node_id).edges(current_in_dir.flip()).iter().find(|&(_, id, _, _)| *id == next_node_id).copied()
+                else {
+                    return Err( format!("no edge to remove (other dir), node 1:  {:?}, node 2: {:?}",
+                        self.get_node(current_node_id),
+                        self.get_node(next_node_id)
+                    ))
+                };
 
             // remove ext 
-            self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(base_dir, out_base);
+            self.base.exts[current_node_id] = self.base.exts[current_node_id].remove(current_in_dir.flip(), out_base);
         
 
-            // remove ext to the left of the next node
-            let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(base_dir.flip()).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
-                else { return Err( format!(
-"no edge to remove (other dir)
-path: {:?}
-dir: {:?}
-node1:
-    id: {current_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}
-node2:
-    id: {next_node_id}
-    left e: {:?}
-    right e: {:?}
-    exts: {:?}
-    data: {:?}",
-                path,
-                base_dir,
-                self.get_node(current_node_id).l_edges(),
-                self.get_node(current_node_id).r_edges(),
-                self.get_node(current_node_id).exts(),
-                self.get_node(current_node_id).data(),
-                self.get_node(next_node_id).l_edges(),
-                self.get_node(next_node_id).r_edges(),
-                self.get_node(next_node_id).exts(),
-                self.get_node(next_node_id).data(),
+            // find base to remove ext entering the next node
+            let Some((in_base, _, _, _)) = self.get_node(next_node_id).edges(next_in_dir).iter().find(|&(_, id, _, _)| *id == current_node_id).copied() 
+                else { 
+                    return Err( format!("no edge to remove (other dir), node 1:  {:?}, node 2: {:?}",
+                    self.get_node(current_node_id),
+                    self.get_node(next_node_id)
                 ))
-            };
+                };
 
             // remove ext
-            self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(base_dir.flip(), in_base); 
+            self.base.exts[next_node_id] = self.base.exts[next_node_id].remove(next_in_dir, in_base); 
 
-            // use new exts to fix edge mults
-            self.base.data[current_node_id].fix_edge_mults(self.base.exts[current_node_id]);
-            self.base.data[next_node_id].fix_edge_mults(self.base.exts[next_node_id]);
+            // use new exts to fix edge mults and edge maps
+            self.base.data[current_node_id].fix_edge_data(self.base.exts[current_node_id]);
+            self.base.data[next_node_id].fix_edge_data(self.base.exts[next_node_id]);
 
 
             current_node_id = next_node_id;
+            current_in_dir = next_in_dir;
         }
     }
 
-    /// use mapped ids to check if the nodes of an edge were mapped to the same id
+    /// use ids mapped to nodes to check if the nodes of an edge were mapped to the same id
     /// returns false if mapped ids are not available
     pub fn check_edge_truth<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
     where 
@@ -2506,6 +2800,37 @@ node2:
                     return true;
                 }
             }
+        }
+
+        false
+    }
+
+    /// use ids mapped to edges to check if the edge is a true edge
+    /// returns false if mapped ids are not available
+    pub fn check_edge_truth_emap<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
+    where 
+        SD: SummaryData<DI>
+    {
+        let mapped_ids_1 = self.get_node(node_id_1).data().mapped_edge_ids();
+
+        if let Some(emap) = mapped_ids_1 {
+            let node_1 = self.get_node(node_id_1);
+
+            // find node 2 in edges of node 1, check in both dirs
+            if let Some((out_base, _nb_id, _nb_inc_dir, _flip)) = node_1.l_edges().iter().find(|(_b, nb, _d, _f)| *nb == node_id_2) {
+                let edge_map = emap.edge_map(*out_base, Dir::Left);
+                if !edge_map.is_empty() {
+                    return true
+                }
+            } else if let Some((out_base, _nb_id, _nb_inc_dir, _flip)) = node_1.r_edges().iter().find(|(_b, nb, _d, _f)| *nb == node_id_2) {
+                let edge_map = emap.edge_map(*out_base, Dir::Right);
+                if !edge_map.is_empty() {
+                    return true
+                }
+            } else {
+                panic!("missing neighbor")
+            };
+
         }
 
         false
@@ -2794,7 +3119,21 @@ impl<K: Kmer, SD: Debug> Node<'_, K, SD>  {
             let count = em.edge_mult(base, dir);
             let penwidth = colors.edge_width(count);
 
-            format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\", weight={count}]", bits_to_base(base))
+            if let Some(emap) = self.data().mapped_edge_ids() {
+                // if available, also print IDs mapped to edges
+                let mapped_ids = emap.edge_map(base, dir);
+
+                // change color according to edge truth
+                let color = match incoming_dir {
+                    Dir::Left => if mapped_ids.is_empty() {"deepskyblue"} else {"blue"},
+                    Dir::Right => if mapped_ids.is_empty() {"salmon"} else {"red"},
+                };
+
+                format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}, {:?}\", weight={count}]", bits_to_base(base), mapped_ids)
+            } else {
+                format!("[color={color}, penwidth={penwidth}, label=\"{}: {count}\", weight={count}]", bits_to_base(base))
+            }
+            
         } else {
             format!("[color={color}, penwidth={}]", colors.edge_width(1)) // since there should be no edge mults, this will return default value
         }
@@ -3111,7 +3450,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired}, serde::SerKmers, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -3165,7 +3504,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = uncompressed_graph(&kmers, true).finish();
+        let graph = uncompressed_graph(kmers, true).finish();
 
         let check_edges: Vec<(usize, Dir, u8, usize)> = vec![(0, Dir::Left, 2, 16), (0, Dir::Right, 1, 2), (1, Dir::Left, 0, 11), 
         (1, Dir::Right, 0, 16), (3, Dir::Left, 0, 13), (3, Dir::Right, 3, 10), (4, Dir::Left, 2, 21), (4, Dir::Right, 1, 17), (5, Dir::Left, 1, 27), 
@@ -3184,7 +3523,7 @@ mod test {
         let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
         let (kmers, mut translator, _) = ser_kmers.dissolve();
 
-        let unc_graph = uncompressed_graph(&kmers, true).finish();
+        let unc_graph = uncompressed_graph(kmers, true).finish();
 
         let mut id_strings = translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
         id_strings.sort();
@@ -3204,7 +3543,34 @@ mod test {
         assert_eq!(id_strings, new_id_strings);
     }
 
-    fn build_reads_quality_test() -> ReadsPaired<IDTag> {
+
+    #[test]
+    fn test_map_transcripts_to_edges() {
+        let t_ref_path = "test_data/test_transcriptome_reference.fasta";
+        let (_, ser_kmers, _) = build_test_graph::<Kmer22, u32, _>();
+        let (kmers, mut translator, _) = ser_kmers.dissolve();
+
+        let unc_graph = uncompressed_graph(kmers, true).finish();
+
+        let mut id_strings = translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        id_strings.sort();
+
+        let t_map = unc_graph.map_transcripts_to_edges(t_ref_path, &mut translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&emap| !emap.is_empty()).collect::<Vec<_>>().len(), 439);
+
+        // repeat the same without a previous existing translator
+        let mut new_translator = Translator::empty();
+        let t_map = unc_graph.map_transcripts(t_ref_path, &mut new_translator).unwrap();
+        assert_eq!(t_map.len(), unc_graph.len());
+        assert_eq!(t_map.iter().filter(|&ids| !ids.is_empty()).collect::<Vec<_>>().len(), 439);
+        let mut new_id_strings = new_translator.id_translator().clone().unwrap().into_iter().map(|(name, _id)| name).collect::<Vec<_>>();
+        new_id_strings.sort();
+
+        assert_eq!(id_strings, new_id_strings);
+    }
+
+    fn build_reads_quality_test(strand: Strandedness) -> ReadsPaired<IDTag> {
         let correct1 = "CGATGCTGCTGATGCTGAGTCTGACGTATGCGATCGATCGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTAGCTAGCTACGTGCTAGCTACTAGCACTGATGC";
         let qu_corr1 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         let incorrect1 =                                     "CGACGATCGTACTAGCTGACTGTGCAGCTAGCTGACTGATCGTGGCTAGCTACGTGCTAGCTA";
@@ -3223,7 +3589,7 @@ mod test {
         let qu_incorr5_tip =                                                             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-CCCCCCCCC";
 
 
-        let mut reads = Reads::new_with_quality(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new_with_quality(strand);
 
         for _i in 0..20 {
             reads.add_read(DnaString::from_acgt_bytes(correct1.as_bytes()), None, IDTag::new(1, 0), Some(qu_corr1.as_bytes()));
@@ -3244,19 +3610,30 @@ mod test {
     }
 
     #[test]
-    fn test_remove_lq_splits() {
+    fn test_remove_lq_splits_s() {
+        test_remove_lq_splits(true);
+    }
+
+    #[test]
+    fn test_remove_lq_splits_us() {
+        test_remove_lq_splits(false);
+    }
+
+    fn test_remove_lq_splits(stranded: bool) {
         let print = false;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test();
+        let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3273,17 +3650,17 @@ mod test {
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         unc_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 11);
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3300,29 +3677,39 @@ mod test {
 
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         c_graph.remove_lq_splits(BaseQuality::Medium).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-lq-splits.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 11);
     }
 
     #[test]
-    fn test_remove_lq_ladders_tips() {
+    fn test_remove_lq_paths_s() {
+        test_remove_lq_paths(true);
+    }
+
+    #[test]
+    fn test_remove_lq_paths_us() {
+        test_remove_lq_paths(false);
+    }
+
+    fn test_remove_lq_paths(stranded: bool) {
         let print = false;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
 
         type K = Kmer16;
 
-        let seqs = build_reads_quality_test();
+        let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
 
         // add "mapped" ids to graph
         for i in 0..unc_graph.len() {
@@ -3339,17 +3726,17 @@ mod test {
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        unc_graph.remove_lq_paths(BaseQuality::Medium, 4).unwrap();
+        if print { unc_graph.to_dot("uncompressed_af-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = unc_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 90);
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3366,20 +3753,30 @@ mod test {
 
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 7 });
 
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_lq_ladders_tips(BaseQuality::Medium, 4).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        c_graph.remove_lq_paths(BaseQuality::Medium, 4).unwrap();
+        if print { c_graph.to_dot("compressed_af-lq.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
     
         let n_edges_af = c_graph.iter_edges().count();
         assert_eq!(n_edges, n_edges_af + 15);
     }
 
     #[test]
-    fn test_remove_ladders() {
-        let print = false; 
-        let c_csv = if print { Some("c_ladders.csv") } else { None };
-        let uc_csv = if print { Some("uc_ladders.csv") } else { None };
+    fn test_remove_lc_paths_s() {
+        test_remove_lc_paths(true);
+    }
+
+    #[test]
+    fn test_remove_lc_paths_us() {
+        test_remove_lc_paths(false);
+    }
+    
+    fn test_remove_lc_paths(stranded: bool) {
+        let print = true; 
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
+        let (n_diff_uc, n_diff_c) = if stranded { (27, 8) } else { (27, 10) };
 
         let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
         let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
@@ -3389,7 +3786,7 @@ mod test {
 
         let insertion = "ACGATCGATCGCGATCGATAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new(strandedness);
         for _i in 0..1000 {
             reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
@@ -3422,7 +3819,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3433,15 +3830,15 @@ mod test {
             }
         }
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
-        unc_graph.remove_ladders(10, 10., uc_csv).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
+        unc_graph.remove_lc_paths(10, 10, 10.).unwrap();
+        if print { unc_graph.to_dot("uncompressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        assert_eq!(n_edges - n_diff_uc, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3452,17 +3849,123 @@ mod test {
             }
         }
         let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_bf-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
-        c_graph.remove_ladders(10, 10., c_csv).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        assert_eq!(n_edges - 6, c_graph.iter_edges().count());
+        c_graph.remove_lc_paths(10, 10, 10.).unwrap();
+        if print { c_graph.to_dot("compressed_af-lcp.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        assert_eq!(n_edges - n_diff_c, c_graph.iter_edges().count());
     }
 
     #[test]
-    fn test_remove_tips() {
+    fn test_remove_ladders_s() {
+        test_remove_ladders(true);
+    }
 
+    #[test]
+    fn test_remove_ladders_us() {
+        test_remove_ladders(false);
+    }
+
+    fn test_remove_ladders(stranded: bool) {
+        let print = true; 
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
+        let c_csv = if print { Some("c_ladders.csv") } else { None };
+        let uc_csv = if print { Some("uc_ladders.csv") } else { None };
+
+        let   correct = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
+        let incorrect = "ACGATCGATCGCGATCGTAGCTGACTGCTGACGGCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
+        let incorrec2 = "TGACAGCTGACGGCTGACTACTACGTCACTGACGATGCTGACAC".as_bytes();
+        let incorrec3 = "AAAAAAAAAGCTGACTGCTGACGGCTG".as_bytes();
+        let incorrec4 = "ACGGCTGACTACTGACTGAAAAAAAAAAA".as_bytes();
+
+        let insertion = "ACGATCGATCGCGATCGATAGCTGACTGCTGACGTCTGACTACTGACTGATGCTAGCTATCGTGAC".as_bytes();
+
+        let mut reads = Reads::new(strandedness);
+        for _i in 0..1000 {
+            reads.add_from_bytes(correct, None, IDTag::new(0, 0));
+        }
+
+        for _i in 0..2 {
+            reads.add_from_bytes(incorrect, None, IDTag::new(1, 1)); // should be removed
+        }
+
+        for _i in 0..15 {
+            reads.add_from_bytes(incorrec2, None, IDTag::new(2, 2)); // should be removed
+        }
+
+        for _i in 0..25 {
+            reads.add_from_bytes(incorrec3, None, IDTag::new(3, 3)); // should be removed
+        }
+
+        for _i in 0..30 {
+            reads.add_from_bytes(incorrec4, None, IDTag::new(4, 4)); // should be removed
+        }
+
+
+        for _i in 0..1 {
+            reads.add_from_bytes(insertion, None, IDTag::new(1, 3)); // should not be removed
+        }
+
+        let seqs = ReadsPaired::Unpaired { reads };
+        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
+        let summary_config = SummaryConfig::new(sample_info);
+        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
+
+
+        // test with uncompressed graph
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
+        // add ids to graph
+        for i in 0..unc_graph.len() {
+            let data = unc_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&0) {
+                    data.set_mapped_ids(vec![0].into());
+                }
+            }
+        }
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        if print { unc_graph.to_dot("uncompressed_bf-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let n_edges = unc_graph.iter_edges().count();
+        unc_graph.remove_ladders(10, 10., uc_csv).unwrap();
+        if print { unc_graph.to_dot("uncompressed_af-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        assert_eq!(n_edges - 10, unc_graph.iter_edges().count());
+
+        // test with compressed graph
+        let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        // add ids to graph
+        for i in 0..c_graph.len() {
+            let data = c_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&0) {
+                    data.set_mapped_ids(vec![0].into());
+                }
+            }
+        }
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        if print { c_graph.to_dot("compressed_bf-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let n_edges = c_graph.iter_edges().count();
+        c_graph.remove_ladders(10, 10., c_csv).unwrap();
+        if print { c_graph.to_dot("compressed_af-lad.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        assert_eq!(n_edges - 6, c_graph.iter_edges().count());
+    }
+
+
+    #[test]
+    fn test_remove_tips_s() {
+        test_remove_tips(true);
+    }
+
+    #[test]
+    fn test_remove_tips_us() {
+        test_remove_tips(false);
+    }
+
+    fn test_remove_tips(stranded: bool) {
         let print = false;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+
         let c_csv = if print { Some("c_tips.csv") } else { None };
         let uc_csv = if print { Some("uc_tips.csv") } else { None };
 
@@ -3472,7 +3975,7 @@ mod test {
 
 
 
-        let mut reads = Reads::new(crate::reads::Strandedness::Forward);
+        let mut reads = Reads::new(strandedness);
         for _i in 0..1000 {
             reads.add_from_bytes(correct, None, IDTag::new(0, 0));
         }
@@ -3492,7 +3995,7 @@ mod test {
 
 
         // test with uncompressed graph
-        let mut unc_graph = uncompressed_graph(&kmers, true).finish();
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
         // add ids to graph
         for i in 0..unc_graph.len() {
             let data = unc_graph.mut_data(i);
@@ -3504,16 +4007,16 @@ mod test {
         }
 
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
-        if print { unc_graph.to_dot("uncompressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_bf-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = unc_graph.iter_edges().count();
         
         unc_graph.remove_tips(10, 10., uc_csv).unwrap();
-        if print { unc_graph.to_dot("uncompressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { unc_graph.to_dot("uncompressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 11, unc_graph.iter_edges().count());
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(true, &spec, &kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3524,12 +4027,12 @@ mod test {
             }
         }
 
-        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::SampleGroups);
-        if print { c_graph.to_dot("compressed_bf.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        let colors = Colors::new(&c_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 3 });
+        if print { c_graph.to_dot("compressed_bf-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         let n_edges = c_graph.iter_edges().count();
         
         c_graph.remove_tips(10, 10., c_csv).unwrap();
-        if print { c_graph.to_dot("compressed_af.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        if print { c_graph.to_dot("compressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
     }
@@ -3547,7 +4050,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), &kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), kmers, false, false).finish();
 
         graph.to_tsv("test_graph_unstranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
 
@@ -3563,7 +4066,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info);
         let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), &kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), kmers, false, false).finish();
 
         graph.to_tsv("test_graph_stranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
     

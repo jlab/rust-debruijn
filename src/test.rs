@@ -9,8 +9,6 @@ use crate::compression::CheckCompress;
 use crate::compression::compress_kmers_with_hash;
 use crate::dna_string::DnaString;
 use crate::filter::filter_kmers;
-use crate::graph::BaseGraph;
-use crate::graph::DebruijnGraph;
 use crate::reads::ReadData;
 use crate::reads::Reads;
 use crate::reads::ReadsPaired;
@@ -18,7 +16,6 @@ use crate::serde::SerGraph;
 use crate::serde::SerKmers;
 use crate::serde::SerReads;
 use crate::summarizer::ID;
-use crate::summarizer::IDTag;
 use crate::summarizer::SampleInfo;
 use crate::summarizer::SummaryConfig;
 use crate::summarizer::SummaryData;
@@ -275,7 +272,7 @@ where
     let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
 
     let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
-    let graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
     let ser_graph = SerGraph::new(graph, translator, summary_config);
 
     (ser_reads, ser_kmers, ser_graph)
@@ -408,7 +405,7 @@ mod tests {
 
         let spec =
             SimpleCompress::new(|d1: u32, d2: &u32| (d1 + *d2) % 65535);
-        let from_kmers = compress_kmers_with_hash::<K, u32, _, _>(stranded, &spec, &valid_kmers, true, false).finish();
+        let from_kmers = compress_kmers_with_hash::<K, u32, _, _>(stranded, &spec, valid_kmers.clone(), true, false).finish();
         let is_cmp = from_kmers.is_compressed(&spec);
         if is_cmp.is_some() {
             println!("not compressed: nodes: {:?}", is_cmp);
@@ -432,8 +429,10 @@ mod tests {
         }
         let uncompressed_dbg = base_graph.finish();
 
+        let total_kmers = valid_kmers.len();
+        
         // comparison uncompressed graph
-        let uc_graph = uncompressed_graph(&valid_kmers, false).finish_serial();
+        let uc_graph = uncompressed_graph(valid_kmers, false).finish_serial();
         assert_eq!(uc_graph.base.sequences.sequence, uncompressed_dbg.base.sequences.sequence);
 
         // remove nodes from uncompressed graph
@@ -453,13 +452,11 @@ mod tests {
 
         assert!(simp_dbg.is_compressed(&spec).is_none());
 
-        let total_kmers = valid_kmers.len();
-
         // Test the Boomphf DBG indexing machinery
         // Make an MPHF of the kmers in the DBG.
         // Each kmer should hash to a unique slot.
         let mphf =
-            Mphf::from_chunked_iterator_parallel(1.7, &simp_dbg, None, valid_kmers.len() as u64, 2);
+            Mphf::from_chunked_iterator_parallel(1.7, &simp_dbg, None, total_kmers as u64, 2);
 
         let mut got_slot = vec![false; total_kmers];
 
@@ -561,7 +558,7 @@ mod tests {
         let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1.saturating_add(*d2));
 
         // Generate compress DBG for these kmers
-        let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers, true, false);
+        let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, valid_kmers, true, false);
 
         // Check that all the lines have valid kmers,
         // and have extensions into other valid kmers
@@ -642,7 +639,7 @@ mod tests {
             let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1.saturating_add(*d2));
 
             //print!("{:?}", valid_kmers);
-            let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers, true, false);
+            let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, valid_kmers, true, false);
             shard_asms.push(graph.clone());
             //graph.finish().print();
         }
@@ -734,7 +731,7 @@ mod tests {
             true,
         );
         let spec = SimpleCompress::new(|d1: u32, d2: &u32| d1 + d2);
-        let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, &valid_kmers_clean, true, false);
+        let graph = compress_kmers_with_hash::<K, u32, u8, _>(stranded, &spec, valid_kmers_clean, true, false);
         let graph1 = graph.finish();
         graph1.print();
         println!("components: {:?}", graph1.components_r());
@@ -779,12 +776,12 @@ mod tests {
 
         //let spec = SimpleCompress::new(|d1: u16, d2: &u16| d1 + d2);
         let spec = ScmapCompress::new();
-        let graph = compress_kmers_with_hash(stranded, &spec, &valid_kmers_errs, true, true);
+        let graph = compress_kmers_with_hash(stranded, &spec, valid_kmers_errs, true, true);
         println!("graph: {:?}", graph);
 
         let mut graph = graph.finish();
         graph.fix_exts(None);
-        graph.fix_edge_mults();
+        graph.fix_edge_data();
         let _ = graph.filter_edges(2);
         graph.print();
         /* graph.to_dot("test_out", &|d| format!("{:?}", d));

@@ -499,6 +499,11 @@ impl DnaString {
     //    }
     //    values[values.len() - 1] =
     // }
+
+    /// shrink the storage of the `DnaString` to fit its contents
+    pub fn shrink_to_fit(&mut self) {
+        self.storage.shrink_to_fit();
+    }
 }
 
 impl fmt::Display for DnaString {
@@ -857,6 +862,13 @@ impl PackedDnaStringSet {
         }
         self.length.push(length as u32);
         //debug!("add to sequence for loop {:?} iterations (pr seq len)", length);
+    }
+
+    /// shrink the storage of the `PackedDnaStringSet` to fit its contents
+    pub fn shrink_to_fit(&mut self) {
+        self.sequence.shrink_to_fit();
+        self.start.shrink_to_fit();
+        self.length.shrink_to_fit();
     }
 }
 
