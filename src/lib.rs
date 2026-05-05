@@ -1374,15 +1374,6 @@ impl EdgeMap {
         self.set_edge_map_at_index(em.into(), index);
     }
 
-    fn shrink_to_fit(&mut self) {
-        for mut emap in self.edge_maps.iter_mut() {
-            let mut emap_vec = emap.to_vec();
-            emap_vec.shrink_to_fit();
-
-            emap = &mut emap_vec.into(); // FIXME
-        }
-    }
-
     /// add an ID at an [`Exts`] to the `EdgeMap`
     pub fn add_id(&mut self, exts: Exts, id: ID) {
         let mut exts = exts.val;
@@ -1658,6 +1649,18 @@ impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
     }
 }
 
+/// add the alignment buffer to a structure
+/// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
+pub fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {
+    let empty = size_stack % align;
+    let buffer = match empty {
+        0 => 0,
+        _ => align - empty
+    };
+
+    buffer + size_heap + size_stack
+}
+
 pub fn build_test_graph<K, SD, DI>() -> (SerReads<DI>, SerKmers<K, SD>, SerGraph<K, SD>)
 where
     K: Kmer +  Send + Sync,
@@ -1793,7 +1796,7 @@ where
 mod tests {
     use bimap::BiMap;
 
-    use crate::{kmer::{Kmer17, Kmer4}, summarizer::{Marker, Tag, Translator}, Dir, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
+    use crate::{ALPHABET_SIZE, Dir, EdgeMap, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
 
     #[test]
     fn test_dir_index() {
@@ -1868,6 +1871,51 @@ mod tests {
         // reverse complement
         em.rc();
         assert_eq!(em.edge_mults, [1, 0, 1, 1, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_edge_map() {
+        let empty_emaps: [Box<[u16]>; 8] = Default::default();
+        let default_emap = EdgeMap::default();
+
+        let mut emap = EdgeMap::new(empty_emaps.clone());
+
+        assert!(emap.is_empty());
+
+        assert_eq!(emap.edge_maps, empty_emaps);
+        assert_eq!(emap, default_emap);
+
+        let m = vec![1, 2];
+        emap.set_edge_map_at_index(m.clone().into(), 1); // right G
+        let r = emap.edge_map(2, Dir::Right);
+
+        assert!(!emap.is_empty());
+
+        assert_eq!(&m, r);
+
+        emap.add_id_to_edge_map_at_index(3, 1);
+        let r = emap.edge_map(2, Dir::Right);
+        assert_eq!(&[1, 2, 3], r);
+
+        let exp_mem = 3*std::mem::size_of::<ID>();
+        let r_mem = emap.mem_heap();
+        assert_eq!(exp_mem, r_mem);
+
+        emap.add_id(Exts::new(0b01000010), 4); // right G and left C
+        assert_eq!(&[1, 2, 3, 4], emap.edge_map(2, Dir::Right));
+        assert_eq!(&[4], emap.edge_map(1, Dir::Left));
+
+        let left = emap.single_dir(Dir::Left);
+        let right = emap.single_dir(Dir::Right);
+        let new_emap = EdgeMap::from_single_dirs(&Some(left), &Some(right)).unwrap();
+        assert_eq!(emap, new_emap);
+
+        let mut clean_emap = EdgeMap::default();
+        clean_emap.add_id_to_edge_map_at_index(4, 6); // left C
+
+        emap.clean_edges(Exts::new(0b00000010));
+
+        assert_eq!(emap, clean_emap);
     }
 
     #[test]

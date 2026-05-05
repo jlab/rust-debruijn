@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMEmapQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, size_aligned, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMEmapQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -749,16 +749,4 @@ fn test_summary_data() {
     };
 
     assert_eq!(test_data, compare_data);
-}
-
-/// add the alignment buffer to a structure
-/// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
-fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {
-    let empty = size_stack % align;
-    let buffer = match empty {
-        0 => 0,
-        _ => align - empty
-    };
-
-    buffer + size_heap + size_stack
 }

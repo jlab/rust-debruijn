@@ -828,8 +828,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
 
-        // remove unncecessary memory from boxed slices
-        node_edge_transcript_ids.iter_mut().for_each(|emap| emap.shrink_to_fit());
+        // remove unncecessary memory from vector
         node_edge_transcript_ids.shrink_to_fit();
 
         Ok(node_edge_transcript_ids)
