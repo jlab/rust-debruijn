@@ -59,6 +59,7 @@ pub mod vmer;
 pub mod fastq;
 pub mod colors;
 pub mod serde;
+pub mod macros;
 
 const BUF: usize = 64*1024;
 const BUCKETS: usize = 256;
