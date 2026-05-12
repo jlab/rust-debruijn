@@ -234,7 +234,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::ID,
+        summarizer: Summarizers::IDData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -258,7 +258,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDSum,
+        summarizer: Summarizers::IDSumData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -282,7 +282,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::Tags,
+        summarizer: Summarizers::TagsData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -306,7 +306,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsSum,
+        summarizer: Summarizers::TagsSumData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -330,7 +330,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCountsSum,
+        summarizer: Summarizers::TagsCountsSumData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -354,7 +354,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCounts,
+        summarizer: Summarizers::TagsCountsData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -378,7 +378,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCountsP,
+        summarizer: Summarizers::TagsCountsPData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -402,7 +402,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCountsEM,
+        summarizer: Summarizers::TagsCountsEMData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -426,7 +426,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCountsPEM,
+        summarizer: Summarizers::TagsCountsPEMData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -450,7 +450,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::TagsCountsPEMQuality,
+        summarizer: Summarizers::TagsCountsPEMQualityData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -474,7 +474,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDTagsCounts,
+        summarizer: Summarizers::IDTagsCountsData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -498,7 +498,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDTagsCountsPEM,
+        summarizer: Summarizers::IDTagsCountsPEMData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -522,7 +522,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDEM,
+        summarizer: Summarizers::IDEMData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -546,7 +546,7 @@ fn test_summary_data() {
         mapped_ids: mapped_ids.clone(),
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDMapEM,
+        summarizer: Summarizers::IDMapEMData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -570,7 +570,7 @@ fn test_summary_data() {
         mapped_ids:  mapped_ids.clone(),
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::IDMapEMQuality,
+        summarizer: Summarizers::IDMapEMQualityData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -594,7 +594,7 @@ fn test_summary_data() {
         mapped_ids:  mapped_ids.clone(),
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::SumMapEMQuality,
+        summarizer: Summarizers::SumMapEMQualityData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -618,7 +618,7 @@ fn test_summary_data() {
         mapped_ids:  mapped_ids.clone(),
         mapped_edge_ids,
         valid,
-        summarizer: Summarizers::MapEMEmapQuality,
+        summarizer: Summarizers::MapEMEmapQualityData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -642,7 +642,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::GroupCount,
+        summarizer: Summarizers::GroupCountData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -666,7 +666,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::RelCount,
+        summarizer: Summarizers::RelCountData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -695,7 +695,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::Tags,
+        summarizer: Summarizers::TagsData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -720,7 +720,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid: false,
-        summarizer: Summarizers::Tags,
+        summarizer: Summarizers::TagsData,
     };
 
     assert_eq!(test_data, compare_data);
@@ -745,7 +745,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid: false,
-        summarizer: Summarizers::Tags,
+        summarizer: Summarizers::TagsData,
     };
 
     assert_eq!(test_data, compare_data);

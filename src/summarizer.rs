@@ -1050,7 +1050,7 @@ impl SummaryData<IDTag> for IDData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::ID
+        Summarizers::IDData
     }
 }
 
@@ -1114,7 +1114,7 @@ impl SummaryData<IDTag> for IDSumData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDSum
+        Summarizers::IDSumData
     }
 }
 
@@ -1178,7 +1178,7 @@ impl SummaryData<Tag> for TagsData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::Tags
+        Summarizers::TagsData
     }
 }
 
@@ -1253,7 +1253,7 @@ impl SummaryData<Tag> for TagsSumData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsSum
+        Summarizers::TagsSumData
     }
 }
 
@@ -1375,7 +1375,7 @@ impl SummaryData<Tag> for TagsCountsSumData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCountsSum
+        Summarizers::TagsCountsSumData
     }
 }
 
@@ -1498,7 +1498,7 @@ impl SummaryData<Tag> for TagsCountsData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCounts
+        Summarizers::TagsCountsData
     }
 }
 
@@ -1623,7 +1623,7 @@ impl SummaryData<Tag> for TagsCountsPData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCountsP
+        Summarizers::TagsCountsPData
     }
 }
 
@@ -1764,7 +1764,7 @@ impl SummaryData<Tag> for TagsCountsEMData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCountsEM
+        Summarizers::TagsCountsEMData
     }
 }
 
@@ -1909,7 +1909,7 @@ impl SummaryData<Tag> for TagsCountsPEMData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCountsPEM
+        Summarizers::TagsCountsPEMData
     }
 }
 
@@ -2084,7 +2084,7 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::TagsCountsPEMQuality
+        Summarizers::TagsCountsPEMQualityData
     }
 }
 
@@ -2223,7 +2223,7 @@ impl SummaryData<IDTag> for IDTagsCountsData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDTagsCounts
+        Summarizers::IDTagsCountsData
     }
 }
 
@@ -2398,7 +2398,7 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDTagsCountsPEM
+        Summarizers::IDTagsCountsPEMData
     }
 }
 
@@ -2475,7 +2475,7 @@ impl SummaryData<IDTag> for IDEMData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDEM
+        Summarizers::IDEMData
     }
 }
 
@@ -2570,7 +2570,7 @@ impl SummaryData<IDTag> for IDMapEMData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDMapEM
+        Summarizers::IDMapEMData
     }
 }
 
@@ -2679,7 +2679,7 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::IDMapEMQuality
+        Summarizers::IDMapEMQualityData
     }
 }
 
@@ -2790,7 +2790,7 @@ impl SummaryData<Tag> for SumMapEMQualityData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::SumMapEMQuality
+        Summarizers::SumMapEMQualityData
     }
 }
 
@@ -2899,7 +2899,7 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::MapEMEmapQuality
+        Summarizers::MapEMEmapQualityData
     }
 }
 
@@ -2978,7 +2978,7 @@ impl SummaryData<Tag> for GroupCountData {
     }
 
     fn summarizer() -> Summarizers {
-        Summarizers::GroupCount
+        Summarizers::GroupCountData
     }
 }
 
@@ -3053,7 +3053,7 @@ impl SummaryData<Tag> for RelCountData {
     }
     
     fn summarizer() -> Summarizers {
-        Summarizers::RelCount
+        Summarizers::RelCountData
     }
 }
 
@@ -3061,25 +3061,25 @@ impl SummaryData<Tag> for RelCountData {
 pub enum Summarizers {
     Sum,
     VecTags,
-    ID,
-    IDSum,
-    Tags,
-    TagsSum,
-    TagsCounts,
-    TagsCountsSum,
-    TagsCountsP,
-    TagsCountsEM,
-    TagsCountsPEM,
-    TagsCountsPEMQuality,
-    IDTagsCounts,
-    IDTagsCountsPEM,
-    IDEM,
-    IDMapEM,
-    IDMapEMQuality,
-    SumMapEMQuality,
-    MapEMEmapQuality,
-    GroupCount,
-    RelCount
+    IDData,
+    IDSumData,
+    TagsData,
+    TagsSumData,
+    TagsCountsData,
+    TagsCountsSumData,
+    TagsCountsPData,
+    TagsCountsEMData,
+    TagsCountsPEMData,
+    TagsCountsPEMQualityData,
+    IDTagsCountsData,
+    IDTagsCountsPEMData,
+    IDEMData,
+    IDMapEMData,
+    IDMapEMQualityData,
+    SumMapEMQualityData,
+    MapEMEmapQualityData,
+    GroupCountData,
+    RelCountData
 }
 
 #[cfg(test)]

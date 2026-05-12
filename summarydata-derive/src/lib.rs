@@ -82,6 +82,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let has_quality = fields.iter().filter(|f| **f == "quality").next().is_some();
 
             // conditional implementations
+            // TODO
             // print in multiple lines
             // print in one line
             // print for json
@@ -179,20 +180,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // add validity checks for each possible field, base starts with true in case no other checks
             // sample counts and sum are valid
             let valid_counts = if has_tags & (has_counts | has_sum) {
-                    // we have tags and counts or sum, use for valid_counts
-                    Some(quote! {
-                        && valid_counts(self.tags, Some(self.sum()), config)
-                    })
-                } else if has_tags {
-                    Some(quote! {
-                        && valid_counts(self.tags, None, config)
-                    })
-                } else if has_counts | has_sum {
-                    Some(quote! {
-                        && self.sum() as usize >= config.min_kmer_obs
-                    })
-                } else { None };
-
+                // we have tags and counts or sum, use for valid_counts
+                Some(quote! {
+                    && valid_counts(self.tags, Some(self.sum()), config)
+                })
+            } else if has_tags {
+                Some(quote! {
+                    && valid_counts(self.tags, None, config)
+                })
+            } else if has_counts | has_sum {
+                Some(quote! {
+                    && self.sum().expect("missing sum") as usize >= config.min_kmer_obs
+                })
+            } else { None };
             
             // p value is valid
             let valid_p = if has_p_value {
@@ -209,6 +209,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
                 })
             } else { None };
+
+            // quality is valid
+            let valid_q = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| {
+            quote! { && self.quality >= config.min_quality }
+            });
 
             // edge mult methods
             let edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| {
@@ -259,7 +264,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // ids
-
             let ids = fields.iter().filter(|f| **f == "ids").next().map(|_f| { 
                 quote! {
                     fn ids(&self) -> Option<&[ID]> {
@@ -280,6 +284,33 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     }
                 }
             });
+
+            // TODO join test
+            // edge_maps and edge_mults are ignored for join test
+            let join_test = if has_edge_maps | has_edge_mults {
+                let valid_fields = fields.iter().filter(|f| **f != "edge_maps" && **f != "edge_mults").collect::<Vec<_>>();
+
+                Some(quote! {
+                    fn join_test(&self, other: &Self) -> bool {
+                        true
+                        #(
+                            && self.#valid_fields == other.#valid_fields
+                        )*
+                    }
+                })
+            } else { None };
+
+            // TODO summarize
+
+            // summarizer
+            let summarizer = if ident == "u32" {
+                quote! {Sum}
+            } else if ident == "Vec<u32>" {
+                quote! {VecTags}
+            } else {
+                quote! {#ident}
+            };
+
 
 
             // TODO exclude certain fields from writing getters for them
@@ -305,7 +336,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     #fold_change
 
                     fn valid(&self, config: &SummaryConfig) -> bool {
-                        true #valid_counts #valid_p
+                        true #valid_counts #valid_p #valid_q
                     }
 
                     #edge_mults
@@ -313,6 +344,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     #fix_edge_data
                     #ids
                     #mapped_ids
+                    #join_test
+
+                    fn summarizer() -> Summarizers {
+                        Summarizers::#summarizer
+                    }
 
                 }
             }
