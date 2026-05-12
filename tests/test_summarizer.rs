@@ -11,7 +11,7 @@ struct SummaryTest {
     print_json: String, 
     tags: Option<Tags>,
     mem: usize,
-    sum: Option<usize>,
+    sum: Option<u32>,
     ids: Option<Vec<ID>>,
     p_value: Option<f32>,
     fold_change: Option<f32>,
@@ -127,7 +127,7 @@ fn test_summary_data() {
     let (input_tags, mut config, translator) = get_summary_input();
     let (input_id_tags, _, _) = get_summary_input();
 
-    let sum = Some(input_tags.len());
+    let sum = Some(input_tags.len() as u32);
     let s_m = 4; // u32
     
     let tags = Some(Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8]));

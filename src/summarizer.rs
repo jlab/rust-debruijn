@@ -858,7 +858,7 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     /// get the size of the structure, including contents of boxed slices
     fn mem(&self) -> usize;
     /// get the number of observations, returns `None` if data is insufficient
-    fn sum(&self) -> Option<usize> { None }
+    fn sum(&self) -> Option<u32> { None }
     /// get the IDs, returns `None` if data is insufficient
     fn ids(&self) -> Option<&[ID]> { None }
     /// get the p-value, returns `None` if data is insufficient
@@ -912,8 +912,8 @@ impl SummaryData<Tag> for u32 {
         mem::align_of_val(self)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(*self as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(*self)
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -1081,8 +1081,8 @@ impl SummaryData<IDTag> for IDSumData {
         mem::size_of_val(self) + mem::size_of_val(&*self.ids)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.sum as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum)
     }
 
     fn ids(&self) -> Option<&[ID]> {
@@ -1222,8 +1222,8 @@ impl SummaryData<Tag> for TagsSumData {
         mem::size_of_val(self)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.sum as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum)
     }
 
     fn sample_count(&self) -> Option<usize> {
@@ -1329,15 +1329,15 @@ impl SummaryData<Tag> for TagsCountsSumData {
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.sum as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum)
     }
 
     fn sample_count(&self) -> Option<usize> {
         Some(self.counts.len())
     }
 
-    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
+    fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
         p_value(&self.tags.to_tag_vec(), &self.counts, config).ok()
     }
 
@@ -1457,8 +1457,8 @@ impl SummaryData<Tag> for TagsCountsData {
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {      
@@ -1581,8 +1581,8 @@ impl SummaryData<Tag> for TagsCountsPData {
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.sum() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
@@ -1706,8 +1706,8 @@ impl SummaryData<Tag> for TagsCountsEMData {
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
 
@@ -1726,7 +1726,6 @@ impl SummaryData<Tag> for TagsCountsEMData {
     fn edge_mults(&self) -> Option<&EdgeMult> {
         Some(&self.edge_mults)
     }
-
 
     fn fix_edge_data(&mut self, exts: Exts) {
         self.edge_mults.clean_edges(exts);
@@ -1849,8 +1848,8 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
@@ -2017,8 +2016,8 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
         mem::size_of_val(self) + mem::size_of_val(&*self.counts)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn p_value(&self, config: &SummaryConfig) -> Option<f32> {
@@ -2175,8 +2174,8 @@ impl SummaryData<IDTag> for IDTagsCountsData {
         mem::size_of_val(self) + mem::size_of_val(&*self.counts) + mem::size_of_val(&*self.ids)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn ids(&self) -> Option<&[ID]> {
@@ -2332,8 +2331,8 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         mem::size_of_val(self) + mem::size_of_val(&*self.counts) + mem::size_of_val(&*self.ids)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.counts.iter().sum::<u32>() as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum())
     }
 
     fn ids(&self) -> Option<&[ID]> {
@@ -2730,8 +2729,8 @@ impl SummaryData<Tag> for SumMapEMQualityData{
         mem::size_of_val(self) + mem::size_of_val(&*self.map_ids)
     }
 
-    fn sum(&self) -> Option<usize> { 
-        Some(self.sum as usize)
+    fn sum(&self) -> Option<u32> { 
+        Some(self.sum)
     }
 
     fn edge_mults(&self) -> Option<&EdgeMult> {
@@ -2938,8 +2937,8 @@ impl SummaryData<Tag> for GroupCountData {
         mem::size_of_val(self)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some((self.group1 + self.group2) as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.group1 + self.group2)
     }
 
     fn valid(&self, config: &SummaryConfig) -> bool {
@@ -2990,32 +2989,32 @@ impl SummaryData<Tag> for GroupCountData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelCountData {
     percent: u32,
-    count: u32
+    sum: u32
 }
 
 impl SummaryData<Tag> for RelCountData {    
     fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        format!("relative amount group 1: {}\ncount both: {}", self.percent, self.count)
+        format!("relative amount group 1: {}\nsum both: {}", self.percent, self.sum)
     }
 
     fn print_ol(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        format!("relative amount group 1: {}, count both: {}", self.percent, self.count)
+        format!("relative amount group 1: {}, sum both: {}", self.percent, self.sum)
     }
 
     fn print_json(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"rel_count_1\": {}, \"sum\": {}", self.percent, self.count)
+        format!("\"rel_count_1\": {}, \"sum\": {}", self.percent, self.sum)
     }
 
     fn mem(&self) -> usize {
         mem::size_of_val(self)
     }
 
-    fn sum(&self) -> Option<usize> {
-        Some(self.count as usize)
+    fn sum(&self) -> Option<u32> {
+        Some(self.sum)
     }
     
     fn valid(&self, config: &SummaryConfig) -> bool {
-        self.count >= config.min_kmer_obs as u32
+        self.sum >= config.min_kmer_obs as u32
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
@@ -3045,12 +3044,12 @@ impl SummaryData<Tag> for RelCountData {
 
 
         let percent = (count1 as f64 / nobs as f64 * 100.) as u32;
-        let count = match config.significant {
+        let sum = match config.significant {
             Some(digits) => round_digits(nobs, digits),
             None => nobs
         };
 
-        (nobs as usize >= config.min_kmer_obs, all_exts, RelCountData { percent, count }) 
+        (nobs as usize >= config.min_kmer_obs, all_exts, RelCountData { percent, sum }) 
     }
     
     fn summarizer() -> Summarizers {
