@@ -285,7 +285,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 }
             });
 
-            // TODO join test
+            // join test
             // edge_maps and edge_mults are ignored for join test
             let join_test = if has_edge_maps | has_edge_mults {
                 let valid_fields = fields.iter().filter(|f| **f != "edge_maps" && **f != "edge_mults").collect::<Vec<_>>();
@@ -301,6 +301,43 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // TODO summarize
+
+            // Tag or IDTag?
+            let summary_item = if has_ids { quote! {IDTag} } else {quote! {Tag}};
+
+            let summary = if has_ids {
+                quote! {let summary = summarize_tags_ids_edge_q(items, config);}
+            } else {
+                quote! {let summary = summarize_tags_edge_q(items, config);}
+            };
+
+            let valid_p = if has_p_value {
+                quote! {
+                    // calculate p-value with chosen test
+                    let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
+                    let valid_p = valid_p(PInfo::PValue { p: p_value }, config);
+                }
+            } else {
+                quote! {let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);}
+            };
+
+            // base summarize method
+            let summarize = quote! {
+                fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, #summary_item>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
+                    #summary
+
+                    let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
+                    let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
+
+                    let counts: Box<[u32]> = summary.tag_counts.into();
+                    let tags = Tags::from_tag_vec(summary.tag_vec);
+
+                    let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
+
+                    (valid && valid_p, summary.all_exts, TagsCountsData { tags, counts }) 
+                }
+            };
+
 
             // summarizer
             let summarizer = if ident == "u32" {
@@ -318,7 +355,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
             // final implementation for all
             quote! {
-                impl SummaryData for #ident {
+                impl SummaryData<#summary_item> for #ident {
                     #(
                         fn #fields(&self) -> Option<#types> {
                             Some(self.#fields)
@@ -345,6 +382,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     #ids
                     #mapped_ids
                     #join_test
+                    #summarize
 
                     fn summarizer() -> Summarizers {
                         Summarizers::#summarizer
