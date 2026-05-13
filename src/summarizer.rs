@@ -1494,7 +1494,7 @@ impl SummaryData<Tag> for TagsCountsData {
 
         let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
-        (valid && valid_p, summary.all_exts, TagsCountsData { tags, counts }) 
+        (valid, summary.all_exts, TagsCountsData { tags, counts }) 
     }
 
     fn summarizer() -> Summarizers {
@@ -2895,7 +2895,7 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
 
         let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
-        (valid, summary.all_exts, MapEMEmapQualityData { map_ids: Vec::new().into(), edge_mults: summary.edge_mults, edge_maps: EdgeMap::default(), quality }) 
+        (valid, summary.all_exts, MapEMEmapQualityData { map_ids: Vec::new().into(), edge_mults: summary.edge_mults, edge_maps: EdgeMap::default(), quality, }) 
     }
 
     fn summarizer() -> Summarizers {

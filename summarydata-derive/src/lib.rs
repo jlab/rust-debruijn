@@ -14,6 +14,8 @@ mod tests {
 } */
 
 
+use std::collections::HashSet;
+
 use proc_macro::{self, TokenStream};
 use quote::quote;
 use syn::{Data, DeriveInput, parse_macro_input};
@@ -77,9 +79,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let has_p_value = fields.iter().filter(|f| **f == "p_value").next().is_some();
             let has_edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().is_some();
             let has_ids = fields.iter().filter(|f| **f == "ids").next().is_some();
-            let has_map_ids = fields.iter().filter(|f| **f == "map_ids").next().is_some();
             let has_edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().is_some();
             let has_quality = fields.iter().filter(|f| **f == "quality").next().is_some();
+            let has_groups = fields.iter().filter(|f| **f == "group1").next().is_some()
+                && fields.iter().filter(|f| **f == "group2").next().is_some();
 
             // conditional implementations
             // TODO
@@ -99,14 +102,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // sum for summarizers which only have counts (no sum)
-            let counts_sum = if !has_sum {
-                fields.iter().filter(|f| **f == "counts").next().map(|_f| {
-                    quote! {
+            let counts_sum = if has_sum { None } else if has_counts {
+                Some(quote! {
                         fn sum(&self) -> Option<u32> {
                             Some(self.sum())
                         }
                     }
-                })
+                )
+            } else if has_groups { 
+                Some(quote! {
+                        fn sum(&self) -> Option<u32> {
+                            Some(self.group1 + self.group2)
+                        }
+                })   
             } else { None };
 
             // include heap memory for
@@ -300,18 +308,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 })
             } else { None };
 
-            // TODO summarize
+            // summarize
 
             // Tag or IDTag?
             let summary_item = if has_ids { quote! {IDTag} } else {quote! {Tag}};
-
+            // summarize items with or without quality
             let summary = if has_ids {
                 quote! {let summary = summarize_tags_ids_edge_q(items, config);}
             } else {
                 quote! {let summary = summarize_tags_edge_q(items, config);}
             };
 
-            let valid_p = if has_p_value {
+            // is p-value valid?
+            let summary_valid_p = if has_p_value {
                 quote! {
                     // calculate p-value with chosen test
                     let p_value = p_value(&summary.tag_vec, &summary.tag_counts, config).unwrap();
@@ -321,20 +330,48 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 quote! {let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);}
             };
 
+            // is quality valid?
+            let summary_valid_q = if has_quality {
+                quote! {
+                    let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
+                    let valid_q = quality >= config.min_quality;
+                }
+            } else {
+                quote! {let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };}
+            };
+
+            // rename and initialize values so we can construct with just the field names
+            let summarized_ids = fields.iter().filter(|f| **f == "ids").next().map(|_f| { 
+                quote! {let ids: Box<[ID]> = summary.id_vec.into();}
+            });
+            let summarized_edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| { 
+                quote! {let edge_mults = summary.edge_mults;}
+            });
+            let summarized_edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().map(|_f| { 
+                quote! {let edge_maps = EdgeMap::default();}
+            });
+            let summarized_map_ids = fields.iter().filter(|f| **f == "map_ids").next().map(|_f| { 
+                quote! {let map_ids = Vec::new().into();}
+            });
+
             // base summarize method
             let summarize = quote! {
                 fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, #summary_item>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
                     #summary
-
-                    let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-                    let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
+                    #summary_valid_p
+                    #summary_valid_q
 
                     let counts: Box<[u32]> = summary.tag_counts.into();
                     let tags = Tags::from_tag_vec(summary.tag_vec);
 
                     let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
-                    (valid && valid_p, summary.all_exts, TagsCountsData { tags, counts }) 
+                    #summarized_ids
+                    #summarized_edge_mults
+                    #summarized_edge_maps
+                    #summarized_map_ids
+
+                    (valid && valid_p, summary.all_exts, #ident { #(#fields, )* })
                 }
             };
 
@@ -350,15 +387,20 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
 
 
-            // TODO exclude certain fields from writing getters for them
-            // edge mults, counts, edge maps, ids -> all getters as reference
+            // exclude certain fields from writing getters for them
+            // edge mults, edge maps, ids, map_ids -> all getters as reference
+            // group1, group2, percent, counts -> do not get getters
+            // buf, len -> fields of Vec<u32> -> also no getters
+            const INVALID_FIELDS: [&str; 10] = ["edge_mults", "edge_maps", "ids", "map_ids", "group1", "group2", "percent", "counts", "buf", "len"];
+
+            let (getter_fields, getter_types) = fields.iter().zip(&types).filter(|(f, _t)| INVALID_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<(Vec<_>, Vec<_>)>();
 
             // final implementation for all
             quote! {
                 impl SummaryData<#summary_item> for #ident {
                     #(
-                        fn #fields(&self) -> Option<#types> {
-                            Some(self.#fields)
+                        fn #getter_fields(&self) -> Option<#getter_types> {
+                            Some(self.#getter_fields)
                         }
                     )*
 
