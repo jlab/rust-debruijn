@@ -2,7 +2,8 @@ use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
-use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, TagsCountsFormatter, TagsFormatter};
+use summarydata_derive::SummaryData;
+use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags};
 use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
 
 /// inner type for [`Tags`] and group markers
@@ -475,7 +476,7 @@ struct TagSummary {
     tag_counts: Vec<u32>,
     sum: u32,
     edge_mults: EdgeMult,
-    highest_quality: Option<BaseQuality>    
+    highest_quality: Option<BaseQuality>,
 }
 
 /// summarize the k-mers, exts and labels, also include an [`EdgeMult`]
@@ -534,7 +535,7 @@ struct IDTagSummary {
     sum: u32,
     id_vec: Vec<ID>,
     edge_mults: EdgeMult,
-    highest_quality: Option<BaseQuality>
+    highest_quality: Option<BaseQuality>,
 }
 
 /// summarize the k-mers, exts and labels
@@ -1006,13 +1007,13 @@ impl SummaryData<Tag> for Vec<Tag> {
 
 /// the IDs the k-mer was observed with and its number of observations
 /// ID could be gene-, read-, or orthogroup-ID
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct IDData {
     ids: Box<[ID]>,
 }
 
-impl SummaryData<IDTag> for IDData {
+/* impl SummaryData<IDTag> for IDData {
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {       
         format!("IDs: {}", id_format(&self.ids, translator, id_group_translator)).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
@@ -1053,17 +1054,17 @@ impl SummaryData<IDTag> for IDData {
         Summarizers::IDData
     }
 }
-
+ */
 /// the IDs the k-mer was observed with and its number of observations
 /// ID could be gene-, read-, or orthogroup-ID
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct IDSumData {
     ids: Box<[ID]>,
     sum: u32,
 }
 
-impl SummaryData<IDTag> for IDSumData {
+/* impl SummaryData<IDTag> for IDSumData {
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {       
         format!("IDs: {}, sum: {}", id_format(&self.ids, translator, id_group_translator), self.sum).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
     }
@@ -1117,14 +1118,14 @@ impl SummaryData<IDTag> for IDSumData {
         Summarizers::IDSumData
     }
 }
-
+ */
 /// the tags the k-mer was observed with
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsData {
     tags: Tags,
 }
 
-impl SummaryData<Tag> for TagsData {
+/* impl SummaryData<Tag> for TagsData {
     fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("{}", TagsFormatter::new(self.tags, translator)).replace("\"", "\'")
@@ -1182,15 +1183,15 @@ impl SummaryData<Tag> for TagsData {
     }
 }
 
-/// the tags the k-mer was observed with and its number of observations
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ *//// the tags the k-mer was observed with and its number of observations
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagsSumData {
     tags: Tags,
     sum: u32,
 }
 
-impl SummaryData<Tag> for TagsSumData {
+/* impl SummaryData<Tag> for TagsSumData {
     fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         // replace " with ' to avoid conflicts in dot file
         format!("{}sum: {}", TagsFormatter::new(self.tags, translator), self.sum).replace("\"", "\'")
@@ -1256,19 +1257,19 @@ impl SummaryData<Tag> for TagsSumData {
         Summarizers::TagsSumData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and how many times it was observed overall
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsSumData {
     tags: Tags,
     sum: u32,
     counts: Box<[u32]>,
 }
 
-impl SummaryData<Tag> for TagsCountsSumData {
+/* impl SummaryData<Tag> for TagsCountsSumData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -1378,12 +1379,12 @@ impl SummaryData<Tag> for TagsCountsSumData {
         Summarizers::TagsCountsSumData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with and how many times it 
 /// was observed with each label
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsData {
     tags: Tags,
     counts: Box<[u32]>
@@ -1396,7 +1397,7 @@ impl TagsCountsData {
     }
 }
 
-impl SummaryData<Tag> for TagsCountsData {
+/* impl SummaryData<Tag> for TagsCountsData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -1501,12 +1502,12 @@ impl SummaryData<Tag> for TagsCountsData {
         Summarizers::TagsCountsData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and a p-value
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsPData {
     tags: Tags,
     counts: Box<[u32]>,
@@ -1520,7 +1521,7 @@ impl TagsCountsPData {
     }
 }
 
-impl SummaryData<Tag> for TagsCountsPData {
+/* impl SummaryData<Tag> for TagsCountsPData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -1626,12 +1627,12 @@ impl SummaryData<Tag> for TagsCountsPData {
         Summarizers::TagsCountsPData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, and the edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsEMData {
     tags: Tags,
     counts: Box<[u32]>,
@@ -1645,7 +1646,7 @@ impl TagsCountsEMData {
     }
 }
 
-impl SummaryData<Tag> for TagsCountsEMData {
+/* impl SummaryData<Tag> for TagsCountsEMData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -1767,12 +1768,12 @@ impl SummaryData<Tag> for TagsCountsEMData {
         Summarizers::TagsCountsEMData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, a p-value, and the edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsPEMData {
     tags: Tags,
     counts: Box<[u32]>,
@@ -1787,7 +1788,7 @@ impl TagsCountsPEMData {
     }
 }
 
-impl SummaryData<Tag> for TagsCountsPEMData{
+/* impl SummaryData<Tag> for TagsCountsPEMData{
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -1912,12 +1913,12 @@ impl SummaryData<Tag> for TagsCountsPEMData{
         Summarizers::TagsCountsPEMData
     }
 }
-
+ */
 // Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, a p-value, and the edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsPEMQualityData {
     tags: Tags,
     counts: Box<[u32]>,
@@ -1933,7 +1934,7 @@ impl TagsCountsPEMQualityData {
     }
 }
 
-impl SummaryData<Tag> for TagsCountsPEMQualityData{
+/* impl SummaryData<Tag> for TagsCountsPEMQualityData{
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -2088,12 +2089,12 @@ impl SummaryData<Tag> for TagsCountsPEMQualityData{
     }
 }
 
-
+ */
 /// Implementation of [`SummaryData<IDTag>`]
 /// 
 /// Contains the tags the k-mer was observed with and how many times it 
 /// was observed with each label
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDTagsCountsData {
     ids: Box<[ID]>,
     tags: Tags,
@@ -2107,7 +2108,7 @@ impl IDTagsCountsData {
     }
 }
 
-impl SummaryData<IDTag> for IDTagsCountsData {
+/* impl SummaryData<IDTag> for IDTagsCountsData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -2226,12 +2227,12 @@ impl SummaryData<IDTag> for IDTagsCountsData {
         Summarizers::IDTagsCountsData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
 /// was observed with each label, a p-value, and the edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDTagsCountsPEMData {
     tags: Tags,
     counts: Box<[u32]>,
@@ -2247,7 +2248,7 @@ impl IDTagsCountsPEMData {
     }
 }
 
-impl SummaryData<IDTag> for IDTagsCountsPEMData{
+/* impl SummaryData<IDTag> for IDTagsCountsPEMData{
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
@@ -2401,17 +2402,17 @@ impl SummaryData<IDTag> for IDTagsCountsPEMData{
         Summarizers::IDTagsCountsPEMData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with and the edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDEMData {
     ids: Box<[ID]>,
     edge_mults: EdgeMult,
 }
 
-impl SummaryData<IDTag> for IDEMData{
+/* impl SummaryData<IDTag> for IDEMData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let ids_format = id_format(&self.ids, translator, id_group_translator);
 
@@ -2479,17 +2480,17 @@ impl SummaryData<IDTag> for IDEMData{
     }
 }
 
-/// Implementation of [`SummaryData<Tag>`]
+ *//// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDMapEMData {
     ids: Box<[ID]>,
     map_ids: Box<[ID]>,
     edge_mults: EdgeMult,
 }
 
-impl SummaryData<IDTag> for IDMapEMData{
+/* impl SummaryData<IDTag> for IDMapEMData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
@@ -2573,11 +2574,11 @@ impl SummaryData<IDTag> for IDMapEMData{
         Summarizers::IDMapEMData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDMapEMQualityData {
     ids: Box<[ID]>,
     map_ids: Box<[ID]>,
@@ -2585,7 +2586,7 @@ pub struct IDMapEMQualityData {
     quality: BaseQuality
 }
 
-impl SummaryData<IDTag> for IDMapEMQualityData{
+/* impl SummaryData<IDTag> for IDMapEMQualityData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let ids_format = id_format(&self.ids, translator, id_group_translator);
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
@@ -2682,11 +2683,11 @@ impl SummaryData<IDTag> for IDMapEMQualityData{
         Summarizers::IDMapEMQualityData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct SumMapEMQualityData {
     sum: u32,
     map_ids: Box<[ID]>,
@@ -2694,7 +2695,7 @@ pub struct SumMapEMQualityData {
     quality: BaseQuality
 }
 
-impl SummaryData<Tag> for SumMapEMQualityData{
+/* impl SummaryData<Tag> for SumMapEMQualityData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
@@ -2793,11 +2794,11 @@ impl SummaryData<Tag> for SumMapEMQualityData{
         Summarizers::SumMapEMQualityData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct MapEMEmapQualityData {
     map_ids: Box<[ID]>,
     edge_mults: EdgeMult,
@@ -2805,7 +2806,7 @@ pub struct MapEMEmapQualityData {
     quality: BaseQuality
 }
 
-impl SummaryData<Tag> for MapEMEmapQualityData{
+/* impl SummaryData<Tag> for MapEMEmapQualityData{
     fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
         let map_ids_format = id_format(&self.map_ids, translator, id_group_translator);
 
@@ -2902,12 +2903,12 @@ impl SummaryData<Tag> for MapEMEmapQualityData{
         Summarizers::MapEMEmapQualityData
     }
 }
-
+ */
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains how many times the k-mer was observed in each group, only validates count
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct GroupCountData {
     group1: u32,
     group2: u32,
@@ -2920,7 +2921,7 @@ impl GroupCountData {
     }
 }
 
-impl SummaryData<Tag> for GroupCountData {
+/* impl SummaryData<Tag> for GroupCountData {
     fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         format!("count 1: {}\ncount 2: {}", self.group1, self.group2)
     }
@@ -2946,53 +2947,62 @@ impl SummaryData<Tag> for GroupCountData {
     }
 
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let mut all_exts = Exts::empty();
+        let summary = summarize_tags_edge_q(items, config);
+
+        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
+        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
+
+        let counts: Box<[u32]> = summary.tag_counts.into();
+
+
         let mut count1 = 0;
         let mut count2 = 0;
 
-        let mut nobs = 0u32;
-        for item in items {
-            let tag = (2 as Marker).pow(item.data as u32);
-            let group1 = ((config.sample_info.marker0 & tag) > 0) as u32;
-            let group2 = ((config.sample_info.marker1 & tag) > 0) as u32;
+        for (count, tag) in counts.iter().zip(summary.tag_vec.clone()) {
+            let bin_tag = (2 as Marker).pow(tag as u32);
+            let group1 = ((config.sample_info.marker0 & bin_tag) > 0) as u32;
+            let group2 = ((config.sample_info.marker1 & bin_tag) > 0) as u32;
 
             if (group1 + group2) != 1 { 
                 panic!(
                     "should not happen\n tag: {:#066b}\n m1:  {:#066b}\n m2:  {:#066b}\n g1:  {}\n g2:  {}", 
-                    tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
+                    bin_tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
                 )
             }
-            count1 += group1;
-            count2 += group2;
-            nobs += 1;
-            all_exts = all_exts.add(item.exts);
+            count1 += group1 * count;
+            count2 += group2 * count;
         }
+        
 
         let (group1, group2) = match config.significant {
             Some(digits) => (round_digits(count1, digits), round_digits(count2, digits)),
             None => (count1, count2)
         };
 
-        assert_eq!((count1 + count2),nobs);
-        (nobs as usize >= config.min_kmer_obs, all_exts, GroupCountData { group1, group2 })
+        let tags = Tags::from_tag_vec(summary.tag_vec);
+
+        let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
+
+        assert_eq!((count1 + count2),summary.sum);
+        (summary.sum as usize >= config.min_kmer_obs, summary.all_exts, GroupCountData { group1, group2 })
     }
 
     fn summarizer() -> Summarizers {
         Summarizers::GroupCountData
     }
 }
-
+ */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the relative number of observations for the k-mer (in percent) 
 /// in group 1 and the absolute overall count, only validates count
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct RelCountData {
     percent: u32,
     sum: u32
 }
 
-impl SummaryData<Tag> for RelCountData {    
+/* impl SummaryData<Tag> for RelCountData {    
     fn print(&self, _: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         format!("relative amount group 1: {}\nsum both: {}", self.percent, self.sum)
     }
@@ -3056,7 +3066,7 @@ impl SummaryData<Tag> for RelCountData {
         Summarizers::RelCountData
     }
 }
-
+ */
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Summarizers {
     Sum,

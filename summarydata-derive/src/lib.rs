@@ -83,12 +83,25 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let has_quality = fields.iter().filter(|f| **f == "quality").next().is_some();
             let has_groups = fields.iter().filter(|f| **f == "group1").next().is_some()
                 && fields.iter().filter(|f| **f == "group2").next().is_some();
+            let has_percent = fields.iter().filter(|f| **f == "percent").next().is_some();
 
             // conditional implementations
+            // format (translate) IDs and mapped IDs
+            let id_format = fields.iter().filter(|f| **f == "ids").next().map(|_|
+                quote! {id_format(&self.ids, translator, id_group_translator)}
+            );
+            let map_id_format = fields.iter().filter(|f| **f == "map_ids").next().map(|_|
+                quote! {id_format(&self.map_ids, translator, id_group_translator)}
+            );
+            let tag_format_ol = fields.iter().filter(|f| **f == "ids").next().map(|_|
+                quote! {id_format(&self.ids, translator, id_group_translator)}
+            );
             // TODO
             // print in multiple lines
             // print in one line
             // print for json
+
+
 
             // tags for in vec // TODO check if this works, if not, check for capacity field instead
             let tags_from_vec = if ident == "Vec<Tag>" {
@@ -101,20 +114,15 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 )   
             } else { None };
 
-            // sum for summarizers which only have counts (no sum)
-            let counts_sum = if has_sum { None } else if has_counts {
+            // sum for summarizers which only have counts or group sums (no regular sum)
+            // have to have a separate Self::sum() impl
+            let counts_sum = if has_sum { None } else if has_counts | has_groups {
                 Some(quote! {
                         fn sum(&self) -> Option<u32> {
                             Some(self.sum())
                         }
                     }
                 )
-            } else if has_groups { 
-                Some(quote! {
-                        fn sum(&self) -> Option<u32> {
-                            Some(self.group1 + self.group2)
-                        }
-                })   
             } else { None };
 
             // include heap memory for
@@ -187,26 +195,21 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
             // add validity checks for each possible field, base starts with true in case no other checks
             // sample counts and sum are valid
-            let valid_counts = if has_tags & (has_counts | has_sum) {
-                // we have tags and counts or sum, use for valid_counts
-                Some(quote! {
-                    && valid_counts(self.tags, Some(self.sum()), config)
-                })
+            let valid_counts = if has_tags & has_sum {
+                // we have tags and sum, use for valid_counts
+                Some(quote! {&& valid_counts(self.tags, Some(self.sum), config)})
+            } else if has_tags & has_counts {
+                // we have tags and counts, use for valid_counts
+                Some(quote! {&& valid_counts(self.tags, Some(self.sum()), config)})
             } else if has_tags {
-                Some(quote! {
-                    && valid_counts(self.tags, None, config)
-                })
+                Some(quote! {&& valid_counts(self.tags, None, config)})
             } else if has_counts | has_sum {
-                Some(quote! {
-                    && self.sum().expect("missing sum") as usize >= config.min_kmer_obs
-                })
+                Some(quote! {&& self.sum().expect("missing sum") as usize >= config.min_kmer_obs})
             } else { None };
             
             // p value is valid
             let valid_p = if has_p_value {
-                Some(quote! {
-                    && valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)
-                })
+                Some(quote! {&& valid_p(PInfo::PValue { p: self.p_value(config).expect("error getting p-values") }, config)})
             } else if has_counts & has_tags {
                 // we have to calculate p // TODO hope this works
                 Some(quote! {
@@ -219,8 +222,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // quality is valid
-            let valid_q = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| {
-            quote! { && self.quality >= config.min_quality }
+            let valid_q = fields.iter().filter(|f| **f == "quality").next().map(|_f| {
+                quote! { && self.quality >= config.min_quality }
             });
 
             // edge mult methods
@@ -353,6 +356,43 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let summarized_map_ids = fields.iter().filter(|f| **f == "map_ids").next().map(|_f| { 
                 quote! {let map_ids = Vec::new().into();}
             });
+            let summarized_sum = fields.iter().filter(|f| **f == "sum").next().map(|_f| { 
+                quote! {
+                    let sum = match config.significant {
+                        Some(digits) => round_digits(summary.sum, digits),
+                        None => summary.sum  
+                    };
+                }
+            });
+            let summarized_groups = if has_groups | has_percent {
+                Some(quote! {
+                    let mut count1 = 0;
+                    let mut count2 = 0;
+
+                    for (count, tag) in counts.iter().zip(summary.tag_vec.clone()) {
+                        let bin_tag = (2 as Marker).pow(tag as u32);
+                        let group1 = ((config.sample_info.marker0 & bin_tag) > 0) as u32;
+                        let group2 = ((config.sample_info.marker1 & bin_tag) > 0) as u32;
+
+                        if (group1 + group2) != 1 { 
+                            panic!(
+                                "should not happen\n tag: {:#066b}\n m1:  {:#066b}\n m2:  {:#066b}\n g1:  {}\n g2:  {}", 
+                                bin_tag, config.sample_info.marker0, config.sample_info.marker1, group1, group2
+                            )
+                        }
+                        count1 += group1 * count;
+                        count2 += group2 * count;
+                    }
+
+                    let (group1, group2) = match config.significant {
+                        Some(digits) => (round_digits(count1, digits), round_digits(count2, digits)),
+                        None => (count1, count2)
+                    };
+                })
+            } else { None };
+            let summarized_percent = fields.iter().filter(|f| **f == "percent").next().map(|_f| { 
+                quote! {let percent = (group1 as f32 / (group1 + group2) as f32 * 100.) as u32;}
+            });
 
             // base summarize method
             let summarize = quote! {
@@ -362,19 +402,21 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     #summary_valid_q
 
                     let counts: Box<[u32]> = summary.tag_counts.into();
-                    let tags = Tags::from_tag_vec(summary.tag_vec);
-
-                    let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
                     #summarized_ids
                     #summarized_edge_mults
                     #summarized_edge_maps
                     #summarized_map_ids
+                    #summarized_sum
+                    #summarized_groups
+                    #summarized_percent
+
+                    let tags = Tags::from_tag_vec(summary.tag_vec);
+                    let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
                     (valid && valid_p, summary.all_exts, #ident { #(#fields, )* })
                 }
             };
-
 
             // summarizer
             let summarizer = if ident == "u32" {
@@ -385,19 +427,31 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 quote! {#ident}
             };
 
-
-
             // exclude certain fields from writing getters for them
             // edge mults, edge maps, ids, map_ids -> all getters as reference
+            // p_value -> more complicated getter
             // group1, group2, percent, counts -> do not get getters
             // buf, len -> fields of Vec<u32> -> also no getters
-            const INVALID_FIELDS: [&str; 10] = ["edge_mults", "edge_maps", "ids", "map_ids", "group1", "group2", "percent", "counts", "buf", "len"];
+            const INVALID_FIELDS: [&str; 11] = ["edge_mults", "edge_maps", "ids", "map_ids", "group1", "group2", "percent", "counts", "buf", "len", "p_value"];
 
             let (getter_fields, getter_types) = fields.iter().zip(&types).filter(|(f, _t)| INVALID_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<(Vec<_>, Vec<_>)>();
 
             // final implementation for all
             quote! {
                 impl SummaryData<#summary_item> for #ident {
+
+                    fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
+                        String::from("")
+                    }
+
+                    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
+                        String::from("")
+                    }
+
+                    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
+                        String::from("")
+                    }
+                    
                     #(
                         fn #getter_fields(&self) -> Option<#getter_types> {
                             Some(self.#getter_fields)
