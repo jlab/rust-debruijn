@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use summarydata_derive::SummaryData;
-use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags};
+use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, TagsCountsFormatter};
 use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
 
 /// inner type for [`Tags`] and group markers
@@ -1271,6 +1271,9 @@ pub struct TagsCountsSumData {
 
 /* impl SummaryData<Tag> for TagsCountsSumData {
     fn print(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
+        let mut string = String::new();
+
+        string.push_str(&format!("vnvb  {}", "sjdhf"));
         let p = match self.p_value(config) {
             Some(p) => format!(", p-value: {}", p),
             None => "".to_string()

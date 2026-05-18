@@ -86,25 +86,86 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let has_percent = fields.iter().filter(|f| **f == "percent").next().is_some();
 
             // conditional implementations
-            // format (translate) IDs and mapped IDs
+            // format (translate) IDs, mapped IDs and tags
             let id_format = fields.iter().filter(|f| **f == "ids").next().map(|_|
-                quote! {id_format(&self.ids, translator, id_group_translator)}
+                quote! {string.push_str(&id_format(&self.ids, translator, id_group_translator));}
             );
             let map_id_format = fields.iter().filter(|f| **f == "map_ids").next().map(|_|
-                quote! {id_format(&self.map_ids, translator, id_group_translator)}
+                quote! {string.push_str(&id_format(&self.map_ids, translator, id_group_translator));}
             );
-            let tag_format_ol = fields.iter().filter(|f| **f == "ids").next().map(|_|
-                quote! {id_format(&self.ids, translator, id_group_translator)}
+            let tag_format_ol = fields.iter().filter(|f| **f == "tags").next().map(|_|
+                quote! {
+                    let tags = if let Some(tag_translator) = translator.tag_translator() {
+                        format!("samples: {:?}", self.tags.to_string_vec(tag_translator))
+                    } else {
+                        format!("samples: {:?}", self.tags.to_tag_vec())
+                    };
+                    string.push_str(&tags);
+                }
             );
-            // TODO
-            // print in multiple lines
+            // print in potentially multiple lines
+            let print = {
+                // edge_mults, edge_maps, ids, map_ids, tags are formatted separately
+                // vec fields len and buf should not be included
+                const NOPRINT_FIELDS: [&str; 7] = ["edge_mults", "edge_maps", "ids", "map_ids", "buf", "len", "tags"];
+                let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
+
+                quote! {
+                    fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+                        let mut string = String::new();
+                        #(
+                            string.push_str(&format!("{}, {:?}", stringify!(#print_fields), self.#print_fields));
+                        )*
+                        #id_format
+                        #map_id_format
+                        #tag_format_ol
+                        string.replace("\"", "\'")
+                    }
+                }
+            };
             // print in one line
+            let print_ol = {
+                // ids, map_ids, tags are formatted separately
+                // vec fields len and buf should not be included
+                const NOPRINT_FIELDS: [&str; 5] = ["ids", "map_ids", "buf", "len", "tags"];
+                let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
+
+                quote! {
+                    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+                        let mut string = String::new();
+                        #(
+                            string.push_str(&format!("{}, {:?}", stringify!(#print_fields), self.#print_fields));
+                        )*
+                        #id_format
+                        #map_id_format
+                        #tag_format_ol
+                        string.replace("\"", "\'")
+                    }
+                }
+            };
             // print for json
+            let print_json = {
+                // ids, map_ids, tags are formatted separately
+                // vec fields len and buf should not be included
+                const NOPRINT_FIELDS: [&str; 5] = ["ids", "map_ids", "buf", "len", "tags"];
+                let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
-
+                quote! {
+                    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
+                        let mut string = String::new();
+                        #(
+                            string.push_str(&format!("\"{}\", {:?}", stringify!(#print_fields), self.#print_fields));
+                        )*
+                        #id_format
+                        #map_id_format
+                        #tag_format_ol
+                        string
+                    }
+                }
+            };
 
             // tags for in vec // TODO check if this works, if not, check for capacity field instead
-            let tags_from_vec = if ident == "Vec<Tag>" {
+            let tags_from_vec: Option<proc_macro2::TokenStream> = if ident == "Vec<Tag>" {
                 Some(
                     quote! {
                         fn tags(&self) -> Option<Tags> { 
@@ -440,17 +501,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
             quote! {
                 impl SummaryData<#summary_item> for #ident {
 
-                    fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
-                        String::from("")
-                    }
-
-                    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
-                        String::from("")
-                    }
-
-                    fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String { 
-                        String::from("")
-                    }
+                    #print
+                    #print_ol
+                    #print_json
                     
                     #(
                         fn #getter_fields(&self) -> Option<#getter_types> {
