@@ -75,10 +75,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // check presence of fields
             let has_sum = fields.iter().filter(|f| **f == "sum").next().is_some();
             let has_tags = fields.iter().filter(|f| **f == "tags").next().is_some();
+            let has_tag_vec  = fields.iter().filter(|f| **f == "buf").next().is_some();
             let has_counts = fields.iter().filter(|f| **f == "counts").next().is_some();
             let has_p_value = fields.iter().filter(|f| **f == "p_value").next().is_some();
             let has_edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().is_some();
             let has_ids = fields.iter().filter(|f| **f == "ids").next().is_some();
+            let has_map_ids = fields.iter().filter(|f| **f == "map_ids").next().is_some();
             let has_edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().is_some();
             let has_quality = fields.iter().filter(|f| **f == "quality").next().is_some();
             let has_groups = fields.iter().filter(|f| **f == "group1").next().is_some()
@@ -87,38 +89,82 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
             // conditional implementations
             // format (translate) IDs, mapped IDs and tags
-            let id_format = fields.iter().filter(|f| **f == "ids").next().map(|_|
-                quote! {string.push_str(&id_format(&self.ids, translator, id_group_translator));}
-            );
-            let map_id_format = fields.iter().filter(|f| **f == "map_ids").next().map(|_|
-                quote! {string.push_str(&id_format(&self.map_ids, translator, id_group_translator));}
-            );
+            let id_format = if has_ids { Some(quote! {id_format(&self.ids, translator, id_group_translator)}) } else { None };
+            let id_format_ol = id_format.as_ref().map(|f| quote! {string.push_str(&format!("IDs: {}, ", #f));});
+            let id_format_json = id_format.as_ref().map(|f| quote! {string.push_str(&format!("\"ids\": {}, ", #f));});
+            
+            let map_id_format = if has_map_ids { Some(quote! {id_format(&self.map_ids, translator, id_group_translator)}) } else { None };
+            let map_id_format_ol = map_id_format.as_ref().map(|f| quote! {string.push_str(&format!("mapped IDs (node): {}, ", #f));});
+            let map_id_format_json = map_id_format.as_ref().map(|f| quote! {string.push_str(&format!("\"mapped_ids_nodes\": {}, \"has_mapped_ids\": {}, ", #f, !self.map_ids.is_empty() as usize));});
+            
             let tag_format_ol = fields.iter().filter(|f| **f == "tags").next().map(|_|
                 quote! {
                     let tags = if let Some(tag_translator) = translator.tag_translator() {
-                        format!("samples: {:?}", self.tags.to_string_vec(tag_translator))
+                        format!("samples: {:?}, ", self.tags.to_string_vec(tag_translator))
                     } else {
-                        format!("samples: {:?}", self.tags.to_tag_vec())
+                        format!("samples: {:?}, ", self.tags.to_tag_vec())
                     };
                     string.push_str(&tags);
                 }
             );
+            let tag_format_json = fields.iter().filter(|f| **f == "tags").next().map(|_|
+                quote! {
+                    let tags = if let Some(tag_translator) = translator.tag_translator() {
+                        format!("\"samples\": {:?}, ", self.tags.to_string_vec(tag_translator))
+                    } else {
+                        format!("\"samples\": {:?}, ", self.tags.to_tag_vec())
+                    };
+                    string.push_str(&tags);
+                }
+            );
+
+            let sum_format = if has_sum { Some(quote! {self.sum}) } else if has_counts {Some(quote! {self.sum()})} else { None };
+            let sum_format_ol = sum_format.as_ref().map(|s| Some(quote! { string.push_str(&format!("sum: {}, ", #s)); }));
+            let sum_format_json = sum_format.as_ref().map(|s| Some(quote! { string.push_str(&format!("\"sum\": {}, ", #s)); }));
+
+            let quality_format_json = if has_quality { Some(quote! { string.push_str(&format!("\"quality\": {}, ", self.quality as usize)); })} else { None };
+
+            let stats_format = if has_tags & has_counts { Some(quote! { 
+                let p = match self.p_value(config) {
+                    Some(p) => format!("{}", p),
+                    None => "".to_string()
+                };
+
+                let fc = match self.fold_change(config) {
+                    Some(fc) => format!("{}", fc),
+                    None => "".to_string()
+                };
+            }) } else { None };
+            let stat_format_ol = stats_format.as_ref().map(|sf| quote! { 
+                #sf
+                string.push_str(&format!("p-value: {}, log2(fold change): {}, ", p, fc));
+            });
+            let stat_format_json = stats_format.as_ref().map(|sf| quote! { 
+                #sf
+                string.push_str(&format!("\"p_value\": {}, \"fold_change\": {}, ", p, fc)); 
+            });
+
             // print in potentially multiple lines
             let print = {
                 // edge_mults, edge_maps, ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 7] = ["edge_mults", "edge_maps", "ids", "map_ids", "buf", "len", "tags"];
+                const NOPRINT_FIELDS: [&str; 9] = ["edge_mults", "edge_maps", "ids", "map_ids", "buf", "len", "tags", "sum", "p_value"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
                     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
                         let mut string = String::new();
-                        #(
-                            string.push_str(&format!("{}, {:?}", stringify!(#print_fields), self.#print_fields));
-                        )*
-                        #id_format
-                        #map_id_format
+                        #id_format_ol
+                        #map_id_format_ol
                         #tag_format_ol
+                        #(
+                            string.push_str(&format!("{}: {:?}, ", stringify!(#print_fields), self.#print_fields));
+                        )*
+                        #sum_format_ol
+                        #stat_format_ol
+                        // remove last two characters ", "
+                        string.pop();
+                        string.pop();
                         string.replace("\"", "\'")
                     }
                 }
@@ -127,18 +173,23 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let print_ol = {
                 // ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 5] = ["ids", "map_ids", "buf", "len", "tags"];
+                const NOPRINT_FIELDS: [&str; 7] = ["ids", "map_ids", "buf", "len", "tags", "sum", "p_value"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
                     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
                         let mut string = String::new();
-                        #(
-                            string.push_str(&format!("{}, {:?}", stringify!(#print_fields), self.#print_fields));
-                        )*
-                        #id_format
-                        #map_id_format
+                        #id_format_ol
+                        #map_id_format_ol
                         #tag_format_ol
+                        #(
+                            string.push_str(&format!("{}: {:?}, ", stringify!(#print_fields), self.#print_fields));
+                        )*
+                        #sum_format_ol
+                        #stat_format_ol
+                        // remove last two characters ", "
+                        string.pop();
+                        string.pop();
                         string.replace("\"", "\'")
                     }
                 }
@@ -147,18 +198,24 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let print_json = {
                 // ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 5] = ["ids", "map_ids", "buf", "len", "tags"];
+                const NOPRINT_FIELDS: [&str; 10] = ["ids", "map_ids", "buf", "len", "tags", "sum", "p_value", "edge_mults", "quality", "edge_maps"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
                     fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
                         let mut string = String::new();
+                        #id_format_json
+                        #map_id_format_json
+                        #tag_format_json
                         #(
-                            string.push_str(&format!("\"{}\", {:?}", stringify!(#print_fields), self.#print_fields));
+                            string.push_str(&format!("\"{}\": {:?}, ", stringify!(#print_fields), self.#print_fields));
                         )*
-                        #id_format
-                        #map_id_format
-                        #tag_format_ol
+                        #quality_format_json
+                        #sum_format_json
+                        #stat_format_json
+                        // remove last two characters ", "
+                        string.pop();
+                        string.pop();
                         string
                     }
                 }
@@ -187,26 +244,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // include heap memory for
-            // Vec<Tag>
-            let heap_vec_tag = if ident == "Vec<Tag>" { 
-                Some( quote! { + mem::size_of_val(&**self) } )   
-            } else { None };
-            // ids
-            let heap_ids = fields.iter().filter(|f| **f == "ids").next().map(|_f| {
-                quote! { + mem::size_of_val(&*self.ids) }
-            });
-            // map_ids
-            let heap_map_ids = fields.iter().filter(|f| **f == "map_ids").next().map(|_f| {
-                quote! { + mem::size_of_val(&*self.map_ids) }
-            });
-            // counts
-            let heap_counts = fields.iter().filter(|f| **f == "counts").next().map(|_f| {
-                quote! { + mem::size_of_val(&*self.counts) }
-            });
-            // edge_maps
-            let heap_edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().map(|_f| {
-                quote! { + self.edge_maps.mem_heap() }
-            });
+            let heap_vec_tag = if ident == "Vec<Tag>" { Some(quote! { + mem::size_of_val(&**self) }) } else { None }; // TODO does this work?
+            let heap_ids = if has_ids { Some(quote! { + mem::size_of_val(&*self.ids) }) } else {None};
+            let heap_map_ids = if has_map_ids { Some(quote! { + mem::size_of_val(&*self.map_ids) }) } else {None};
+            let heap_counts = if has_counts { Some(quote! { + mem::size_of_val(&*self.counts) }) } else {None};
+            let heap_edge_maps = if has_edge_maps { Some(quote! { + self.edge_maps.mem_heap() }) } else {None};
 
             // get or calculate the p-value
             let p_value = if has_p_value {
@@ -240,7 +282,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // add sample count
-            if has_tags {
+            let sample_count = if has_tags {
                 Some(quote! {
                     fn sample_count(&self) -> Option<usize> {
                         Some(self.tags.len())
@@ -252,7 +294,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
                         Some(self.counts.len())
                     }
                 })
-            } else { None };
+            } else if has_tag_vec {
+                Some(quote! {
+                    fn sample_count(&self) -> Option<usize> {
+                        Some(self.len())
+                    }
+                })
+            }else { None };
 
             // add validity checks for each possible field, base starts with true in case no other checks
             // sample counts and sum are valid
@@ -283,9 +331,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // quality is valid
-            let valid_q = fields.iter().filter(|f| **f == "quality").next().map(|_f| {
-                quote! { && self.quality >= config.min_quality }
-            });
+            let valid_q = if has_quality { Some(quote! { && self.quality >= config.min_quality }) }  else { None };
 
             // edge mult methods
             let edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| {
@@ -301,8 +347,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
             });
 
             // edge map methods
-            let edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().map(|_f| { 
-                quote! {
+            let edge_maps = if has_edge_maps {
+                Some(quote! {
                     fn mapped_edge_ids(&self) -> Option<&EdgeMap> {
                         Some(&self.edge_maps)
                     }
@@ -310,43 +356,42 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     fn set_mapped_edge_ids(&mut self, mapped_edge_ids: Option<EdgeMap>) {
                         self.edge_maps = mapped_edge_ids.expect("Error: no mapped edge IDs")
                     }
-                }
-            });
+                })
+            } else { None };
 
             // fix edge data
-            let fix_edge_data = if has_edge_mults & has_edge_maps {
-                Some(quote! {
-                    fn fix_edge_data(&mut self, exts: Exts) {
+            let fix_edge_data = if has_edge_mults | has_edge_maps {
+
+                let edge_data_inner = if has_edge_maps & has_edge_mults {
+                    quote!{
                         self.edge_mults.clean_edges(exts);
                         self.edge_maps.clean_edges(exts);
                     }
-                })
-            } else if has_edge_mults {
+                } else if has_edge_mults {
+                    quote! {self.edge_mults.clean_edges(exts);}
+                } else {
+                    quote! { self.edge_maps.clean_edges(exts); }
+                };
+
                 Some(quote! {
                     fn fix_edge_data(&mut self, exts: Exts) {
-                        self.edge_mults.clean_edges(exts);
-                    }
-                })
-            } else if has_edge_maps {
-                Some(quote! {
-                    fn fix_edge_data(&mut self, exts: Exts) {
-                        self.edge_maps.clean_edges(exts);
+                        #edge_data_inner
                     }
                 })
             } else { None };
 
             // ids
-            let ids = fields.iter().filter(|f| **f == "ids").next().map(|_f| { 
-                quote! {
+            let ids = if has_ids {
+                Some(quote! {
                     fn ids(&self) -> Option<&[ID]> {
                         Some(&self.ids)
                     }
-                }
-            });
+                })
+            } else { None };
 
             // mapped ids
-            let mapped_ids = fields.iter().filter(|f| **f == "map_ids").next().map(|_f| { 
-                quote! {
+            let mapped_ids = if has_map_ids {
+                Some(quote! {
                     fn mapped_ids(&self) -> Option<&[ID]> {
                         Some(&self.map_ids)
                     }
@@ -354,8 +399,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     fn set_mapped_ids(&mut self, mapped_ids: Box<[ID]>) {
                         self.map_ids = mapped_ids
                     }
-                }
-            });
+                })
+            } else { None };
 
             // join test
             // edge_maps and edge_mults are ignored for join test
@@ -405,26 +450,18 @@ pub fn derive(input: TokenStream) -> TokenStream {
             };
 
             // rename and initialize values so we can construct with just the field names
-            let summarized_ids = fields.iter().filter(|f| **f == "ids").next().map(|_f| { 
-                quote! {let ids: Box<[ID]> = summary.id_vec.into();}
-            });
-            let summarized_edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| { 
-                quote! {let edge_mults = summary.edge_mults;}
-            });
-            let summarized_edge_maps = fields.iter().filter(|f| **f == "edge_maps").next().map(|_f| { 
-                quote! {let edge_maps = EdgeMap::default();}
-            });
-            let summarized_map_ids = fields.iter().filter(|f| **f == "map_ids").next().map(|_f| { 
-                quote! {let map_ids = Vec::new().into();}
-            });
-            let summarized_sum = fields.iter().filter(|f| **f == "sum").next().map(|_f| { 
-                quote! {
+            let summarized_ids = if has_ids { Some(quote! {let ids: Box<[ID]> = summary.id_vec.into();}) } else { None };
+            let summarized_edge_mults = if has_edge_mults { Some(quote! {let edge_mults = summary.edge_mults;}) } else { None };
+            let summarized_edge_maps = if has_edge_maps { Some(quote! {let edge_maps = EdgeMap::default();}) } else { None };
+            let summarized_map_ids = if has_map_ids { Some(quote! {let map_ids = Vec::new().into();}) } else { None };
+            let summarized_sum = if has_sum { 
+                Some(quote! {
                     let sum = match config.significant {
                         Some(digits) => round_digits(summary.sum, digits),
                         None => summary.sum  
                     };
-                }
-            });
+                })
+            } else { None };
             let summarized_groups = if has_groups | has_percent {
                 Some(quote! {
                     let mut count1 = 0;
@@ -498,7 +535,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let (getter_fields, getter_types) = fields.iter().zip(&types).filter(|(f, _t)| INVALID_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<(Vec<_>, Vec<_>)>();
 
             // final implementation for all
-            quote! {
+            let sd = quote! {
                 impl SummaryData<#summary_item> for #ident {
 
                     #print
@@ -513,6 +550,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
                     #tags_from_vec
                     #counts_sum
+                    #sample_count
 
                     fn mem(&self) -> usize {
                         mem::size_of_val(self) #heap_vec_tag #heap_ids #heap_map_ids #heap_counts #heap_edge_maps
@@ -525,7 +563,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                         true #valid_counts #valid_p #valid_q
                     }
 
-                    #edge_mults
+                    #edge_mults 
                     #edge_maps
                     #fix_edge_data
                     #ids
@@ -538,7 +576,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     }
 
                 }
-            }
+            };
+        println!("{}", sd);
+        sd
         }
         _ => todo!()
     };

@@ -1349,8 +1349,8 @@ pub struct TagsCountsPEMQualityData {
     tags: Tags,
     counts: Box<[u32]>,
     p_value: f32,
-    edge_mults: EdgeMult,
     quality: BaseQuality,
+    edge_mults: EdgeMult,
 }
 
 impl TagsCountsPEMQualityData {
@@ -1492,8 +1492,9 @@ pub struct IDMapEMData {
 pub struct IDMapEMQualityData {
     ids: Box<[ID]>,
     map_ids: Box<[ID]>,
+    quality: BaseQuality,
     edge_mults: EdgeMult,
-    quality: BaseQuality
+    
 }
 
 /// Implementation of [`SummaryData<Tag>`]
@@ -1503,8 +1504,8 @@ pub struct IDMapEMQualityData {
 pub struct SumMapEMQualityData {
     sum: u32,
     map_ids: Box<[ID]>,
+    quality: BaseQuality,
     edge_mults: EdgeMult,
-    quality: BaseQuality
 }
 
 /// Implementation of [`SummaryData<Tag>`]
@@ -1515,7 +1516,7 @@ pub struct MapEMEmapQualityData {
     map_ids: Box<[ID]>,
     edge_mults: EdgeMult,
     edge_maps: EdgeMap,
-    quality: BaseQuality
+    quality: BaseQuality,
 }
 
 /// Implementation of [`SummaryData<Tag>`]

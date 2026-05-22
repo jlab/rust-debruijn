@@ -127,10 +127,10 @@ fn test_summary_data() {
     let (input_tags, mut config, translator) = get_summary_input();
     let (input_id_tags, _, _) = get_summary_input();
 
-    let sum = Some(input_tags.len() as u32);
+    let sum = Some(input_tags.len() as u32); 
     let s_m = 4; // u32
     
-    let tags = Some(Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8]));
+    let tags = Some(Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8])); 
     let t_m = tags.as_ref().unwrap().mem(); // Marker
 
     let c_m_s = 16; // Boxed slice
@@ -267,7 +267,7 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples:\n0\n1\n2\n3\n7\n8\n".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"]".to_string(),
         tags,
@@ -291,7 +291,7 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsSumData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples:\n0\n1\n2\n3\n7\n8\nsum: 6".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8'], sum: 6".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"sum\": 6".to_string(),
         tags,
@@ -315,9 +315,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsSumData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + s_m, c_m_h, t_m),
         sum,
@@ -339,9 +339,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s, c_m_h, t_m),
         sum,
@@ -363,9 +363,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsPData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + p_m, c_m_h, t_m),
         sum,
@@ -387,9 +387,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsEMData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + em_m, c_m_h, t_m),
         sum,
@@ -411,9 +411,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsPEMData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + p_m + em_m, c_m_h, t_m),
         sum,
@@ -435,9 +435,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsCountsPEMQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, quality: medium, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405, \"quality\": 2".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], quality: Medium, sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        print_ol: "samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], quality: Medium, edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"quality\": 2, \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + p_m + em_m + q_m, c_m_h, t_m),
         sum,
@@ -459,9 +459,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<IDTagsCountsData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "IDs: ['0', '1', '2', '3', '7', '8'], samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        print: "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
         print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
-        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + i_m_s, c_m_h + i_m_h, t_m),
         sum,
@@ -483,9 +483,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<IDTagsCountsPEMData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "IDs: ['0', '1', '2', '3', '7', '8'], samples              - counts\n0                    - 1\n1                    - 1\n2                    - 1\n3                    - 1\n7                    - 1\n8                    - 1\nsum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"sum\": 6, \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
+        print: "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(), 
+        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], samples: ['0', '1', '2', '3', '7', '8'], counts: [1, 1, 1, 1, 1, 1], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, sum: 6, p-value: 0.39023498, log2(fold change): 5.4498405".to_string(),
+        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"counts\": [1, 1, 1, 1, 1, 1], \"sum\": 6, \"p_value\": 0.39023498, \"fold_change\": 5.4498405".to_string(),
         tags,
         mem: size_aligned(t_m + c_m_s + i_m_s + p_m + em_m, c_m_h + i_m_h, t_m),
         sum,
@@ -507,8 +507,8 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<IDEMData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "IDs: ['0', '1', '2', '3', '7', '8'], edge coverage: \nA: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print: "IDs: ['0', '1', '2', '3', '7', '8']".to_string(), 
+        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
         print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"]".to_string(),
         tags: None,
         mem: size_aligned(i_m_s + em_m, i_m_h, 8),
@@ -531,9 +531,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<IDMapEMData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1".to_string(),
+        print: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs (node): ['1', '2', '3']".to_string(), 
+        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs (node): ['1', '2', '3'], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1".to_string(),
         tags: None,
         mem: size_aligned(i_m_s + mi_m_s + em_m, i_m_h + mi_m_h, 8), 
         sum: None,
@@ -555,9 +555,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<IDMapEMQualityData, Kmer8, _, _>(input_id_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        print: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs (node): ['1', '2', '3'], quality: Medium".to_string(), 
+        print_ol: "IDs: ['0', '1', '2', '3', '7', '8'], mapped IDs (node): ['1', '2', '3'], quality: Medium, edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
+        print_json: "\"ids\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"], \"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
         tags: None,
         mem: size_aligned(i_m_s + mi_m_s + em_m + q_m, i_m_h + mi_m_h, 8),
         sum: None,
@@ -579,9 +579,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<SumMapEMQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "sum: 6, mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "sum: 6, mapped IDs: ['1', '2', '3'], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"sum\": 6, \"mapped_ids\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        print: "mapped IDs (node): ['1', '2', '3'], quality: Medium, sum: 6".to_string(), 
+        print_ol: "mapped IDs (node): ['1', '2', '3'], quality: Medium, edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, sum: 6".to_string(),
+        print_json: "\"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2, \"sum\": 6".to_string(),
         tags: None,
         mem: size_aligned(s_m + mi_m_s + em_m + q_m, mi_m_h, 8),
         sum,
@@ -603,9 +603,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<MapEMEmapQualityData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3] | [2]\nC: [1, 2, 3] | [1, 3]\nG: [] | []\nT: [1] | []\n, quality: medium, edge coverage: A: 1 | 0\nC: 0 | 0\nG: 0 | 0\nT: 0 | 0\n".to_string(), 
-        print_ol: "mapped IDs (node): ['1', '2', '3'], mapped IDs (edges): A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: [], quality: medium, edge coverage: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0".to_string(),
-        print_json: "\"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"mapped_ids_edges\": \"A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: []\", \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
+        print: "mapped IDs (node): ['1', '2', '3'], quality: Medium".to_string(), 
+        print_ol: "mapped IDs (node): ['1', '2', '3'], edge_mults: A: 1, C: 0, G: 0, T: 0 | A: 0, C: 0, G: 0, T: 0, edge_maps: A: [3], C: [1, 2, 3], G: [], T: [1] | A: [2], C: [1, 3], G: [], T: [], quality: Medium".to_string(),
+        print_json: "\"mapped_ids_nodes\": [\"1\", \"2\", \"3\"], \"has_mapped_ids\": 1, \"quality\": 2".to_string(),
         tags: None,
         mem: size_aligned(mi_m_s + em_m + q_m + emap_m_s, mi_m_h + emap_m_h, 8),
         sum: None,
@@ -627,9 +627,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<GroupCountData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "count 1: 4\ncount 2: 2".to_string(), 
-        print_ol: "count 1: 4, count 2: 2".to_string(),
-        print_json: "\"count1\": 4, \"count2\": 2".to_string(),
+        print: "group1: 4, group2: 2".to_string(), 
+        print_ol: "group1: 4, group2: 2".to_string(),
+        print_json: "\"group1\": 4, \"group2\": 2".to_string(),
         tags: None,
         mem: 2*4,
         sum,
@@ -651,9 +651,9 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<RelCountData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "relative amount group 1: 66\ncount both: 6".to_string(), 
-        print_ol: "relative amount group 1: 66, count both: 6".to_string(),
-        print_json: "\"rel_count_1\": 66, \"sum\": 6".to_string(),
+        print: "percent: 66, sum: 6".to_string(), 
+        print_ol: "percent: 66, sum: 6".to_string(),
+        print_json: "\"percent\": 66, \"sum\": 6".to_string(),
         tags: None,
         mem: 2*4,
         sum,
@@ -680,7 +680,7 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples:\n0\n1\n2\n3\n7\n8\n".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"]".to_string(),
         tags,
@@ -705,7 +705,7 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples:\n0\n1\n2\n3\n7\n8\n".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"]".to_string(),
         tags,
@@ -730,7 +730,7 @@ fn test_summary_data() {
 
     let test_data = test_summarize::<TagsData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
-        print: "samples:\n0\n1\n2\n3\n7\n8\n".to_string(),
+        print: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_json: "\"samples\": [\"0\", \"1\", \"2\", \"3\", \"7\", \"8\"]".to_string(),
         tags,
