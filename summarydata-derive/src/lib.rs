@@ -535,7 +535,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let (getter_fields, getter_types) = fields.iter().zip(&types).filter(|(f, _t)| INVALID_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<(Vec<_>, Vec<_>)>();
 
             // final implementation for all
-            let sd = quote! {
+            quote! {
                 impl SummaryData<#summary_item> for #ident {
 
                     #print
@@ -576,9 +576,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     }
 
                 }
-            };
-        println!("{}", sd);
-        sd
+            }
         }
         _ => todo!()
     };
