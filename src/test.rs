@@ -826,8 +826,8 @@ mod tests {
         assert_eq!(tag.to_string_vec(&str_map), vec!["tag1", "tag2", "tag5", "tag7"]);
         
         // build tags from u8 vec
-        let vec = Tags::from_tag_vec(vec![0, 1, 4, 6]);
-        let vec2 = Tags::from_tag_vec(vec![1, 2, 3, 4, 6]);
+        let vec = Tags::from_tag_vec(&vec![0, 1, 4, 6]);
+        let vec2 = Tags::from_tag_vec(&vec![1, 2, 3, 4, 6]);
 
         assert_eq!(vec.val, 83);
         assert_eq!(vec2.val, 94);
@@ -841,26 +841,26 @@ mod tests {
     #[should_panic]
     #[cfg(not(feature = "sample128"))]
     fn test_tags_overflow() {
-        let _tags = Tags::from_tag_vec(vec![5, 64]);
+        let _tags = Tags::from_tag_vec(&vec![5, 64]);
     }
 
     #[test]
     #[cfg(not(feature = "sample128"))]
     fn test_tags_no_overflow() {
-        let _tags = Tags::from_tag_vec(vec![5, 63]);
+        let _tags = Tags::from_tag_vec(&vec![5, 63]);
     }
 
     #[test]
     #[should_panic]
     #[cfg(feature = "sample128")]
     fn test_tags_overflow() {
-        let _tags = Tags::from_tag_vec(vec![5, 128]);
+        let _tags = Tags::from_tag_vec(&vec![5, 128]);
     }
 
     #[test]
     #[cfg(feature = "sample128")]
     fn test_tags_no_overflow() {
-        let _tags = Tags::from_tag_vec(vec![5, 127]);
+        let _tags = Tags::from_tag_vec(&vec![5, 127]);
     }
 
     #[test]

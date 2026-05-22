@@ -3,7 +3,7 @@ use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use summarydata_derive::SummaryData;
-use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, TagsCountsFormatter};
+use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags};
 use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
 
 /// inner type for [`Tags`] and group markers
@@ -926,7 +926,7 @@ impl SummaryData<Tag> for u32 {
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
         let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
 
-        let tags = Tags::from_tag_vec(summary.tag_vec);
+        let tags = Tags::from_tag_vec(&summary.tag_vec);
 
         let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
 
@@ -944,7 +944,15 @@ impl SummaryData<Tag> for u32 {
 }
 
 /// data the k-mer was observed with
-impl SummaryData<Tag> for Vec<Tag> {
+/// 
+/// the IDs the k-mer was observed with and its number of observations
+/// ID could be gene-, read-, or orthogroup-ID
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
+// aligned would be 16 Bytes, packed would be 12 Bytes
+pub struct TagVecData {
+    tag_vec: Vec<Tag>,
+}
+/* impl SummaryData<Tag> for Vec<Tag> {
     fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
         if let Some(tag_translator) = translator.tag_translator() {
             let samples = self
@@ -1003,7 +1011,7 @@ impl SummaryData<Tag> for Vec<Tag> {
         Summarizers::VecTags
     }
 } 
-
+ */
 /// the IDs the k-mer was observed with and its number of observations
 /// ID could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
@@ -1548,7 +1556,7 @@ pub struct RelCountData {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Summarizers {
     Sum,
-    VecTags,
+    TagVecData,
     IDData,
     IDSumData,
     TagsData,
@@ -1697,12 +1705,12 @@ mod test {
 
         let mut graph: BaseGraph<Kmer8, TagsCountsSumData> = BaseGraph::new(false);
 
-        let tags = Tags::from_tag_vec(vec![0, 2, 6]);
+        let tags = Tags::from_tag_vec(&vec![0, 2, 6]);
         let counts: Box<[u32]> = [1, 3, 5].into();
         let sum = counts.iter().sum::<u32>();
         graph.add(&DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()), Exts::empty(), TagsCountsSumData { tags, counts, sum });
 
-        let tags = Tags::from_tag_vec(vec![0]);
+        let tags = Tags::from_tag_vec(&vec![0]);
         let counts: Box<[u32]> = [1].into();
         let sum = counts.iter().sum::<u32>();
         graph.add(&DnaString::from_acgt_bytes("CCCCCCCC".as_bytes()), Exts::empty(), TagsCountsSumData { tags, counts, sum });
@@ -1749,27 +1757,27 @@ mod test {
         //let summary_config = SummaryConfig::new(1, None, GroupFrac::None, 0.33, sample_info.clone(), None, summarizer::StatTest::WelchsTTest);
 
         let labels = vec![0, 1, 2, 3, 7, 8];
-        let tags = Tags::from_tag_vec(labels);
+        let tags = Tags::from_tag_vec(&labels);
         let counts = vec![1, 6, 9, 3, 6, 10];
         let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, 5.286_453_2);
 
         let labels = vec![0, 6, 7, 8, 10, 11];
-        let tags = Tags::from_tag_vec(labels);
+        let tags = Tags::from_tag_vec(&labels);
         let counts = vec![12, 3, 7, 1, 22, 6];
         let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, -1.339_324_5);
 
         // x/0 = inf -> log(inf) = inf
         let labels = vec![0, 1];
-        let tags = Tags::from_tag_vec(labels);
+        let tags = Tags::from_tag_vec(&labels);
         let counts = vec![12, 3];
         let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, f32::INFINITY);
 
         // 0/x = 0 -> log2(0) = -inf
         let labels = vec![7, 8];
-        let tags = Tags::from_tag_vec(labels);
+        let tags = Tags::from_tag_vec(&labels);
         let counts = vec![12, 3];
         let fold_change = log2_fold_change(tags, &counts, &sample_info);
         assert_eq!(fold_change, f32::NEG_INFINITY);       

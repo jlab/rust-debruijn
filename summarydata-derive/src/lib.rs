@@ -75,7 +75,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // check presence of fields
             let has_sum = fields.iter().filter(|f| **f == "sum").next().is_some();
             let has_tags = fields.iter().filter(|f| **f == "tags").next().is_some();
-            let has_tag_vec  = fields.iter().filter(|f| **f == "buf").next().is_some();
+            let has_tag_vec  = fields.iter().filter(|f| **f == "tag_vec").next().is_some();
             let has_counts = fields.iter().filter(|f| **f == "counts").next().is_some();
             let has_p_value = fields.iter().filter(|f| **f == "p_value").next().is_some();
             let has_edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().is_some();
@@ -97,24 +97,34 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let map_id_format_ol = map_id_format.as_ref().map(|f| quote! {string.push_str(&format!("mapped IDs (node): {}, ", #f));});
             let map_id_format_json = map_id_format.as_ref().map(|f| quote! {string.push_str(&format!("\"mapped_ids_nodes\": {}, \"has_mapped_ids\": {}, ", #f, !self.map_ids.is_empty() as usize));});
             
-            let tag_format_ol = fields.iter().filter(|f| **f == "tags").next().map(|_|
-                quote! {
+            let tag_format = if has_tags {
+                Some(quote! {
                     let tags = if let Some(tag_translator) = translator.tag_translator() {
-                        format!("samples: {:?}, ", self.tags.to_string_vec(tag_translator))
+                        format!("{:?}", self.tags.to_string_vec(tag_translator))
                     } else {
-                        format!("samples: {:?}, ", self.tags.to_tag_vec())
+                        format!("{:?}", self.tags.to_tag_vec())
                     };
-                    string.push_str(&tags);
+                })
+            } else if has_tag_vec { 
+                Some(quote! {
+                    let tags = if let Some(tag_translator) = translator.tag_translator() {
+                        format!("{:?}", Tags::from_tag_vec(&self.tag_vec).to_string_vec(tag_translator))
+                    } else {
+                        format!("{:?}", self.tag_vec)
+                    };
+                }) 
+            } else { None };
+
+            let tag_format_ol = tag_format.as_ref().map(|f|
+                quote! {
+                    #f
+                    string.push_str(&format!("samples: {}, ", tags));
                 }
             );
-            let tag_format_json = fields.iter().filter(|f| **f == "tags").next().map(|_|
+            let tag_format_json = tag_format.as_ref().map(|f|
                 quote! {
-                    let tags = if let Some(tag_translator) = translator.tag_translator() {
-                        format!("\"samples\": {:?}, ", self.tags.to_string_vec(tag_translator))
-                    } else {
-                        format!("\"samples\": {:?}, ", self.tags.to_tag_vec())
-                    };
-                    string.push_str(&tags);
+                    #f
+                    string.push_str(&format!("\"samples\": {}, ", tags));
                 }
             );
 
@@ -148,7 +158,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let print = {
                 // edge_mults, edge_maps, ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 9] = ["edge_mults", "edge_maps", "ids", "map_ids", "buf", "len", "tags", "sum", "p_value"];
+                const NOPRINT_FIELDS: [&str; 8] = ["edge_mults", "edge_maps", "ids", "map_ids", "tag_vec", "tags", "sum", "p_value"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
@@ -173,7 +183,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let print_ol = {
                 // ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 7] = ["ids", "map_ids", "buf", "len", "tags", "sum", "p_value"];
+                const NOPRINT_FIELDS: [&str; 6] = ["ids", "map_ids", "tag_vec", "tags", "sum", "p_value"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
@@ -198,7 +208,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let print_json = {
                 // ids, map_ids, tags are formatted separately
                 // vec fields len and buf should not be included
-                const NOPRINT_FIELDS: [&str; 10] = ["ids", "map_ids", "buf", "len", "tags", "sum", "p_value", "edge_mults", "quality", "edge_maps"];
+                const NOPRINT_FIELDS: [&str; 9] = ["ids", "map_ids", "tag_vec", "tags", "sum", "p_value", "edge_mults", "quality", "edge_maps"];
                 let print_fields = fields.iter().filter(|f| NOPRINT_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<Vec<_>>();
 
                 quote! {
@@ -222,11 +232,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
             };
 
             // tags for in vec // TODO check if this works, if not, check for capacity field instead
-            let tags_from_vec: Option<proc_macro2::TokenStream> = if ident == "Vec<Tag>" {
+            let tags_from_vec: Option<proc_macro2::TokenStream> = if has_tag_vec {
                 Some(
                     quote! {
                         fn tags(&self) -> Option<Tags> { 
-                            Some(Tags::from_tag_vec(self.clone()))
+                            Some(Tags::from_tag_vec(&self.tag_vec))
                         }
                     }
                 )   
@@ -244,7 +254,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // include heap memory for
-            let heap_vec_tag = if ident == "Vec<Tag>" { Some(quote! { + mem::size_of_val(&**self) }) } else { None }; // TODO does this work?
+            let heap_vec_tag = if has_tag_vec { Some(quote! { + mem::size_of_val(&*self.tag_vec) }) } else { None }; // TODO does this work?
             let heap_ids = if has_ids { Some(quote! { + mem::size_of_val(&*self.ids) }) } else {None};
             let heap_map_ids = if has_map_ids { Some(quote! { + mem::size_of_val(&*self.map_ids) }) } else {None};
             let heap_counts = if has_counts { Some(quote! { + mem::size_of_val(&*self.counts) }) } else {None};
@@ -297,7 +307,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else if has_tag_vec {
                 Some(quote! {
                     fn sample_count(&self) -> Option<usize> {
-                        Some(self.len())
+                        Some(self.tag_vec.len())
                     }
                 })
             }else { None };
@@ -334,8 +344,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let valid_q = if has_quality { Some(quote! { && self.quality >= config.min_quality }) }  else { None };
 
             // edge mult methods
-            let edge_mults = fields.iter().filter(|f| **f == "edge_mults").next().map(|_f| {
-                quote! {
+            let edge_mults = if has_edge_mults {
+                Some(quote! {
                     fn edge_mults(&self) -> Option<&EdgeMult> {
                         Some(&self.edge_mults)
                     }
@@ -343,8 +353,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
                         self.edge_mults = edge_mults.expect("Error: no edge mults")
                     }
-                }
-            });
+                })
+            } else { None };
 
             // edge map methods
             let edge_maps = if has_edge_maps {
@@ -451,6 +461,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
             // rename and initialize values so we can construct with just the field names
             let summarized_ids = if has_ids { Some(quote! {let ids: Box<[ID]> = summary.id_vec.into();}) } else { None };
+            let summarized_tag_vec = if has_tag_vec { Some(quote! {let tag_vec = summary.tag_vec;}) } else { None };
             let summarized_edge_mults = if has_edge_mults { Some(quote! {let edge_mults = summary.edge_mults;}) } else { None };
             let summarized_edge_maps = if has_edge_maps { Some(quote! {let edge_maps = EdgeMap::default();}) } else { None };
             let summarized_map_ids = if has_map_ids { Some(quote! {let map_ids = Vec::new().into();}) } else { None };
@@ -509,8 +520,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     #summarized_groups
                     #summarized_percent
 
-                    let tags = Tags::from_tag_vec(summary.tag_vec);
+                    let tags = Tags::from_tag_vec(&summary.tag_vec);
                     let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
+
+                    #summarized_tag_vec
 
                     (valid && valid_p, summary.all_exts, #ident { #(#fields, )* })
                 }
@@ -519,8 +532,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // summarizer
             let summarizer = if ident == "u32" {
                 quote! {Sum}
-            } else if ident == "Vec<u32>" {
-                quote! {VecTags}
             } else {
                 quote! {#ident}
             };
@@ -530,7 +541,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // p_value -> more complicated getter
             // group1, group2, percent, counts -> do not get getters
             // buf, len -> fields of Vec<u32> -> also no getters
-            const INVALID_FIELDS: [&str; 11] = ["edge_mults", "edge_maps", "ids", "map_ids", "group1", "group2", "percent", "counts", "buf", "len", "p_value"];
+            const INVALID_FIELDS: [&str; 10] = ["edge_mults", "edge_maps", "ids", "map_ids", "group1", "group2", "percent", "counts", "tag_vec", "p_value"];
 
             let (getter_fields, getter_types) = fields.iter().zip(&types).filter(|(f, _t)| INVALID_FIELDS.iter().filter(|invf| f == invf).next().is_none()).collect::<(Vec<_>, Vec<_>)>();
 

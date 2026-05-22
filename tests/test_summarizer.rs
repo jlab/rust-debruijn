@@ -2,7 +2,7 @@
 use std::mem;
 
 use bimap::BiHashMap;
-use debruijn::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, size_aligned, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMEmapQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
+use debruijn::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags, kmer::Kmer8, reads::ReadData, size_aligned, summarizer::{GroupCountData, GroupFrac, ID, IDData, IDEMData, IDMapEMData, IDMapEMQualityData, IDSumData, IDTagsCountsData, IDTagsCountsPEMData, MapEMEmapQualityData, RelCountData, SampleInfo, SumMapEMQualityData, Summarizers, SummaryConfig, SummaryData, Tag, TagVecData, TagsCountsData, TagsCountsEMData, TagsCountsPData, TagsCountsPEMData, TagsCountsPEMQualityData, TagsCountsSumData, TagsData, TagsSumData, Translator}};
 
 #[derive(Debug, PartialEq)]
 struct SummaryTest {
@@ -130,7 +130,7 @@ fn test_summary_data() {
     let sum = Some(input_tags.len() as u32); 
     let s_m = 4; // u32
     
-    let tags = Some(Tags::from_tag_vec(vec![0, 1, 2, 3, 7, 8])); 
+    let tags = Some(Tags::from_tag_vec(&vec![0, 1, 2, 3, 7, 8])); 
     let t_m = tags.as_ref().unwrap().mem(); // Marker
 
     let c_m_s = 16; // Boxed slice
@@ -193,7 +193,7 @@ fn test_summary_data() {
 
     // Vec<Tag>
 
-    let test_data = test_summarize::<Vec<Tag>, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
+    let test_data = test_summarize::<TagVecData, Kmer8, _, _>(input_tags.into_iter(), &config, &translator);
     let compare_data = SummaryTest {
         print: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
         print_ol: "samples: ['0', '1', '2', '3', '7', '8']".to_string(),
@@ -210,7 +210,7 @@ fn test_summary_data() {
         mapped_ids: None,
         mapped_edge_ids: None,
         valid,
-        summarizer: Summarizers::VecTags,
+        summarizer: Summarizers::TagVecData,
     };
 
     assert_eq!(test_data, compare_data);
