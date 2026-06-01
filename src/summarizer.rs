@@ -962,48 +962,6 @@ pub struct IDData {
     ids: Box<[ID]>,
 }
 
-/* impl SummaryData<IDTag> for IDData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {       
-        format!("IDs: {}", id_format(&self.ids, translator, id_group_translator)).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-    }
-
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        // print is only one line anyways
-        self.print(translator, config, id_group_translator)
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // remove " to avoid conflicts in json file
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
-    }
-
-    fn ids(&self) -> Option<&[ID]> {
-        Some(&self.ids[..])
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-                let summary = summarize_tags_ids_edge_q(items, config);
-
-        // calculate p-value with chosen test
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };            
-
-        let ids = summary.id_vec.into();
-        let tags = Tags::from_tag_vec(summary.tag_vec);
-
-        let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-
-        (valid, summary.all_exts, IDData { ids }) 
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::IDData
-    }
-}
- */
 /// the IDs the k-mer was observed with and its number of observations
 /// ID could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
@@ -1013,126 +971,13 @@ pub struct IDSumData {
     sum: u32,
 }
 
-/* impl SummaryData<IDTag> for IDSumData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {       
-        format!("IDs: {}, sum: {}", id_format(&self.ids, translator, id_group_translator), self.sum).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-    }
-
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        // print is only one line anyways
-        self.print(translator, config, id_group_translator)
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}, \"sum\": {}", id_format(&self.ids, translator, id_group_translator), self.sum) // remove " to avoid conflicts in json file
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
-    }
-
-    fn sum(&self) -> Option<u32> {
-        Some(self.sum)
-    }
-
-    fn ids(&self) -> Option<&[ID]> {
-        Some(&self.ids[..])
-    }
-
-    fn valid(&self, config: &SummaryConfig) -> bool {
-        self.sum >= config.min_kmer_obs as u32
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let summary = summarize_tags_ids_edge_q(items, config);
-
-        // calculate p-value with chosen test
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };            
-
-        let ids = summary.id_vec.into();
-        let tags = Tags::from_tag_vec(summary.tag_vec);
-
-        let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-
-        let sum = match config.significant {
-            Some(digits) => round_digits(summary.sum, digits),
-            None => summary.sum  
-        };
-
-        (valid, summary.all_exts, IDSumData { ids, sum }) 
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::IDSumData
-    }
-}
- */
 /// the tags the k-mer was observed with
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsData {
     tags: Tags,
 }
 
-/* impl SummaryData<Tag> for TagsData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        format!("{}", TagsFormatter::new(self.tags, translator)).replace("\"", "\'")
-    }
-
-    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        if let Some(tag_translator) = translator.tag_translator() {
-            format!("samples: {:?}", self.tags.to_string_vec(tag_translator))
-        } else {
-            format!("samples: {:?}", self.tags.to_tag_vec())
-        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        let labels = if let Some(tag_translator) = translator.tag_translator() {
-            format!("{:?}", self.tags.to_string_vec(tag_translator))
-        } else {
-            format!("{:?}", self.tags.to_tag_vec())
-        }; // remove " to avoid conflicts in json file
-
-        format!("\"samples\": {labels}")
-    }
-
-    fn tags(&self) -> Option<Tags> { 
-        Some(self.tags)
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(self)
-    }
-
-    fn sample_count(&self) -> Option<usize> {
-        Some(self.tags.len())
-    }
-
-    fn valid(&self, config: &SummaryConfig) -> bool {
-        valid_counts(self.tags, None, config)
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let summary = summarize_tags_edge_q(items, config);
-
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
-
-        let tags = Tags::from_tag_vec(summary.tag_vec);
-
-        let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-        
-        (valid, summary.all_exts, TagsData { tags })
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::TagsData
-    }
-}
-
- *//// the tags the k-mer was observed with and its number of observations
+/// the tags the k-mer was observed with and its number of observations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagsSumData {
@@ -1140,73 +985,6 @@ pub struct TagsSumData {
     sum: u32,
 }
 
-/* impl SummaryData<Tag> for TagsSumData {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        // replace " with ' to avoid conflicts in dot file
-        format!("{}sum: {}", TagsFormatter::new(self.tags, translator), self.sum).replace("\"", "\'")
-    }
-
-    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        if let Some(tag_translator) = translator.tag_translator() {
-            format!("samples: {:?}, sum: {}", self.tags.to_string_vec(tag_translator), self.sum)
-        } else {
-            format!("samples: {:?}, sum: {}", self.tags.to_tag_vec(), self.sum)
-        }.replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        let labels = if let Some(tag_translator) = translator.tag_translator() {
-            format!("{:?}", self.tags.to_string_vec(tag_translator))
-        } else {
-            format!("{:?}", self.tags.to_tag_vec())
-        }; // remove " to avoid conflicts in json file
-
-        format!("\"samples\": {labels}, \"sum\": {}", self.sum)
-    }
-
-    fn tags(&self) -> Option<Tags> {
-        Some(self.tags)
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(self)
-    }
-
-    fn sum(&self) -> Option<u32> {
-        Some(self.sum)
-    }
-
-    fn sample_count(&self) -> Option<usize> {
-        Some(self.tags.len())
-    }
-
-    fn valid(&self, config: &SummaryConfig) -> bool {
-        valid_counts(self.tags, Some(self.sum), config)
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let summary = summarize_tags_edge_q(items, config);
-
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
-
-        let tags = Tags::from_tag_vec(summary.tag_vec);
-
-        let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-
-        let sum = match config.significant {
-            Some(digits) => round_digits(summary.sum, digits),
-            None => summary.sum  
-        };
-        
-        (valid, summary.all_exts, TagsSumData { tags, sum })
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::TagsSumData
-    }
-}
- */
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
@@ -1357,75 +1135,7 @@ pub struct IDEMData {
     edge_mults: EdgeMult,
 }
 
-/* impl SummaryData<IDTag> for IDEMData{
-    fn print(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        let ids_format = id_format(&self.ids, translator, id_group_translator);
-
-        format!("IDs: {}, edge coverage: \n{}", 
-            ids_format, 
-            self.edge_mults
-        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-    }
-
-    fn print_ol(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        let ids_format = id_format(&self.ids, translator, id_group_translator);
-
-        format!("IDs: {}, edge coverage: {:?}", 
-            ids_format, 
-            self.edge_mults
-        ).replace("\"", "\'") // replace " with ' to avoid conflicts in dot file
-
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String {
-        format!("\"ids\": {}", id_format(&self.ids, translator, id_group_translator)) // remove " to avoid conflicts in json file
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(self) + mem::size_of_val(&*self.ids)
-    }
-
-    fn ids(&self) -> Option<&[ID]> {
-        Some(&self.ids)
-    }
-
-    fn edge_mults(&self) -> Option<&EdgeMult> {
-        Some(&self.edge_mults)
-    }
-
-    fn fix_edge_data(&mut self, exts: Exts) {
-        self.edge_mults.clean_edges(exts);
-    }
-
-    fn set_edge_mults(&mut self, edge_mults: Option<EdgeMult>) {
-        self.edge_mults = edge_mults.expect("Error: no edge mults")
-    }
-
-    fn join_test(&self, other: &Self) -> bool {
-        self.ids == other.ids
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let summary = summarize_tags_ids_edge_q(items, config);
-
-        // calculate p-value with chosen test, valid if not enough samples
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality  } else { true };
-
-        let ids = summary.id_vec.into();
-        let tags = Tags::from_tag_vec(summary.tag_vec);
-
-        let valid = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-
-        (valid, summary.all_exts, IDEMData { ids, edge_mults: summary.edge_mults }) 
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::IDEMData
-    }
-}
-
- *//// Implementation of [`SummaryData<Tag>`]
+/// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
