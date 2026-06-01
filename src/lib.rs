@@ -35,7 +35,7 @@ use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::mem;
+use std::{array, mem};
 use std::ops::Range;
 
 use crate::compression::{CheckCompress, compress_kmers_with_hash};
@@ -280,7 +280,7 @@ pub trait Kmer: Mer + Sized + Copy + PartialEq + PartialOrd + Eq + Ord + Hash {
 
     /// Test if this Kmer and it's reverse complement are the same
     fn is_palindrome(&self) -> bool {
-        self.len() % 2 == 0 && *self == self.rc()
+        self.len().is_multiple_of(2) && *self == self.rc()
     }
 
     /// Create a Kmer from the first K bytes of `bytes`, which must be encoded as the integers 0-4.
@@ -962,6 +962,9 @@ impl Tags {
     /// encodes a sorted (!) Vec<Tag> and encodes it as a u64
     pub fn from_tag_vec(vec: Vec<Tag>) -> Self {
         let mut x = 0;
+        
+        // if the vector is empty, return an empty Tags
+        if vec.is_empty() { return Tags { val: 0 } }
 
         // panic if Tags would overflow
         if ( *vec.last().expect("vector empty when it shouldn't be") ) / 8 as Tag >= mem::size_of::<Tags>() as Tag { 
@@ -988,7 +991,7 @@ impl Tags {
         // do bit-wise right shifts trough u64
         // each time first digit is 1 (is an odd number), push i to vec
         for i in 0..(mem::size_of::<Tags>()*8) as Tag {
-            if x % 2 != 0 {
+            if !x.is_multiple_of(2) {
                 vec.push(i)
             }
             x >>= 1;
@@ -1006,7 +1009,7 @@ impl Tags {
         // iterate through bits of the u64
         for i in 0..(mem::size_of::<Tags>()*8) as Tag {
             // check if odd number: current first bit is 1
-            if x % 2 != 0 {
+            if !x.is_multiple_of(2) {
                 match str_map.get_by_right(&{ i }) {
                     Some(label) => vec.push(label),
                     None => panic!("tried to access label that does not exist!"),
@@ -1070,7 +1073,7 @@ impl Iterator for TagsIterator {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.i as usize == mem::size_of::<Tags>()*8 { return None }
-            let result = self.tags.val % 2 != 0;
+            let result = !self.tags.val.is_multiple_of(2);
             self.tags.val >>= 1;
             self.i += 1;
             if result { return Some(self.i - 1); }
@@ -1216,7 +1219,7 @@ impl EdgeMult {
     pub fn add_exts(&mut self, exts: Exts) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
-            if exts % 2 != 0 {
+            if !exts.is_multiple_of(2) {
                 self.edge_mults[index] += 1
             }
             exts >>= 1;
@@ -1263,7 +1266,7 @@ impl EdgeMult {
     pub fn clean_edges(&mut self, exts: Exts) {
         let mut exts = exts.val;
         for index in (0..(2 * ALPHABET_SIZE)).rev() {
-            if exts % 2 == 0 {
+            if exts.is_multiple_of(2) {
                 self.edge_mults[index] = 0;
             }
             exts >>= 1;
@@ -1327,6 +1330,185 @@ impl SingleDirEdgeMult {
         let mut reverse = self.edge_mults;
         reverse.reverse();
         SingleDirEdgeMult::new(reverse)
+    }
+
+    /// get the multiplicity of a certain edge
+    pub fn edge_mult(&self, base: u8) -> u32 {
+        self.edge_mults[(ALPHABET_SIZE as u8 - 1 - base) as usize]
+    }
+}
+
+// would be more intuitive with left and right switched but Exts were built this way
+/// mapped transcript/gene/chromosome IDs for each of the 8 possible edges
+/// indices: 
+/// 0: T right
+/// 1: G right
+/// 2: C right
+/// 3: A right
+/// 4: T left
+/// 5: G left
+/// 6: C left
+/// 7: A left
+#[derive(PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Clone)]
+pub struct EdgeMap {
+    edge_maps: [Box<[ID]>; 2*ALPHABET_SIZE],
+}
+
+impl EdgeMap {
+    /// create a new [`EdgeMap`] by supplying the underlying mapped IDs.
+    pub fn new(edge_maps: [Box<[ID]>; 2*ALPHABET_SIZE]) -> EdgeMap {
+        EdgeMap { edge_maps }
+    }
+
+    /// get the IDs mapped to the specified edge
+    fn edge_map(&self, base: u8, dir: Dir) -> &[ID] {
+        &self.edge_maps[dir.index(base) as usize]
+    }
+
+    /// set the IDs mapped to the edge at the specified index
+    fn set_edge_map_at_index(&mut self, edge_map: Box<[ID]>, index: usize) {
+        self.edge_maps[index] = edge_map;
+    }
+
+    /// add an ID to the edge at the specified index
+    fn add_id_to_edge_map_at_index(&mut self, id: ID, index: usize) {
+        let mut em = self.edge_maps[index].to_vec();
+        em.push(id);
+
+        self.set_edge_map_at_index(em.into(), index);
+    }
+
+    /// add an ID at an [`Exts`] to the [`EdgeMap`]
+    pub fn add_id(&mut self, exts: Exts, id: ID) {
+        let mut exts = exts.val;
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
+            if !exts.is_multiple_of(2) {
+                self.add_id_to_edge_map_at_index(id, index);
+            }
+            exts >>= 1;
+        }
+    }
+
+    /// returns true if the [`EdgeMap`] does not contain any IDs
+    pub fn is_empty(&self) -> bool {
+        let mut empty = true;
+
+        for emap in self.edge_maps.iter() {
+            if !emap.is_empty() { empty = false }
+        }
+
+        empty
+    }
+
+    /// returns the heap memory used by the [`EdgeMap`] - the stack memory size
+    /// is always 128 bytes (8 edges * (8 byte pointer + 8 byte length))
+    pub fn mem_heap(&self) -> usize {
+        let mut heap = 0;
+
+        for emap in self.edge_maps.iter() {
+            heap += mem::size_of_val(&**emap);
+        }
+
+        heap
+    }
+
+    /// create an [`EdgeMap`] from two [`SingleDirEdgeMap`]s
+    pub fn from_single_dirs(left: &Option<SingleDirEdgeMap>, right: &Option<SingleDirEdgeMap>) -> Option<EdgeMap> {
+        if let Some(l_em) = left {
+            if let Some(r_em) = right {
+                let mut combined = EdgeMap::default().edge_maps;
+                (0..ALPHABET_SIZE).for_each(|i| combined[i] = r_em.edge_maps[i].clone());
+                (0..ALPHABET_SIZE).for_each(|i| combined[i + ALPHABET_SIZE] = l_em.edge_maps[i].clone());
+        
+                return Some(EdgeMap::new(combined))
+            }
+        }
+
+        None
+    }
+
+    /// get the [`SingleDirEdgeMap`] in the specified [`Dir`]
+    pub fn single_dir(&self, dir: Dir) -> SingleDirEdgeMap {
+        let singe_dir: &[Box<[ID]>; 4] = match dir {
+            Dir::Left => self.edge_maps[ALPHABET_SIZE..(2*ALPHABET_SIZE)].try_into().expect("Error: slice has incorrect length"),
+            Dir::Right => self.edge_maps[0..ALPHABET_SIZE].try_into().expect("Error: slice has incorrect length"),
+        };
+
+        SingleDirEdgeMap::new(singe_dir.clone())
+    }
+
+    /// clean the edge maps by removing IDs mapped to edges that led to filtered kmers,
+    /// based on a correct [`Exts`]
+    pub fn clean_edges(&mut self, exts: Exts) {
+        let mut exts = exts.val;
+        for index in (0..(2 * ALPHABET_SIZE)).rev() {
+            if exts.is_multiple_of(2) {
+                self.edge_maps[index] = [].into();
+            }
+            exts >>= 1;
+        }
+        
+    }
+}
+
+impl Default for EdgeMap {
+    fn default() -> Self {
+        let edge_maps = array::from_fn(|_n| Vec::new().into());
+        Self { edge_maps }
+    }
+}
+
+impl Debug for EdgeMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let edge_f = ["A:", ", C:", ", G:", ", T:", " | A:", ", C:", ", G:", ", T:"];
+        for (ef, em) in edge_f.iter().zip(self.edge_maps.iter().rev()) {
+             write!(f, "{} {:?}", ef, em)?
+        }
+        Ok(())
+    }
+}
+
+impl Display for EdgeMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let base = ["A", "C", "G", "T"];
+        for (i, b) in (0..ALPHABET_SIZE).rev().zip(base) {
+            writeln!(f, "{}: {:?} | {:?}", 
+                b, 
+                self.edge_maps[i + ALPHABET_SIZE], 
+                self.edge_maps[i]
+            )?
+        }
+
+        Ok(())
+    }
+}
+
+/// mapped transcript/gene/chromosome IDs for each of the 4 possible edges
+/// indices in one direction: 
+/// 
+/// 0: T 
+/// 1: G 
+/// 2: C 
+/// 3: A 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SingleDirEdgeMap {
+    edge_maps: [Box<[ID]>; ALPHABET_SIZE]
+}
+
+impl SingleDirEdgeMap {
+    pub fn new(edge_maps: [Box<[ID]>; ALPHABET_SIZE]) -> Self {
+        SingleDirEdgeMap { edge_maps }
+    }
+
+    pub fn complement(&self) -> Self {
+        let mut reverse = self.edge_maps.clone();
+        reverse.reverse();
+        SingleDirEdgeMap::new(reverse)
+    }
+
+    /// get the IDs mapped to the specified edge
+    pub fn edge_map(&self, base: u8) -> &[ID] {
+        &self.edge_maps[(ALPHABET_SIZE as u8 - 1 - base) as usize]
     }
 }
 
@@ -1483,6 +1665,18 @@ impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
     }
 }
 
+/// add the alignment buffer to a structure
+/// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
+pub fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {
+    let empty = size_stack % align;
+    let buffer = match empty {
+        0 => 0,
+        _ => align - empty
+    };
+
+    buffer + size_heap + size_stack
+}
+
 pub fn build_test_graph<K, SD, DI>() -> (SerReads<DI>, SerKmers<K, SD>, SerGraph<K, SD>)
 where
     K: Kmer +  Send + Sync,
@@ -1608,7 +1802,7 @@ where
     let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
 
     let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
-    let graph = compress_kmers_with_hash(true, &comp_spec, &kmers, false, false).finish();
+    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
     let ser_graph = SerGraph::new(graph, translator, summary_config);
 
     (ser_reads, ser_kmers, ser_graph)
@@ -1618,7 +1812,7 @@ where
 mod tests {
     use bimap::BiMap;
 
-    use crate::{kmer::{Kmer17, Kmer4}, summarizer::{Marker, Tag, Translator}, Dir, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, ALPHABET_SIZE};
+    use crate::{ALPHABET_SIZE, Dir, EdgeMap, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
 
     #[test]
     fn test_dir_index() {
@@ -1693,6 +1887,51 @@ mod tests {
         // reverse complement
         em.rc();
         assert_eq!(em.edge_mults, [1, 0, 1, 1, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_edge_map() {
+        let empty_emaps: [Box<[ID]>; 8] = Default::default();
+        let default_emap = EdgeMap::default();
+
+        let mut emap = EdgeMap::new(empty_emaps.clone());
+
+        assert!(emap.is_empty());
+
+        assert_eq!(emap.edge_maps, empty_emaps);
+        assert_eq!(emap, default_emap);
+
+        let m = vec![1, 2];
+        emap.set_edge_map_at_index(m.clone().into(), 1); // right G
+        let r = emap.edge_map(2, Dir::Right);
+
+        assert!(!emap.is_empty());
+
+        assert_eq!(&m, r);
+
+        emap.add_id_to_edge_map_at_index(3, 1);
+        let r = emap.edge_map(2, Dir::Right);
+        assert_eq!(&[1, 2, 3], r);
+
+        let exp_mem = 3*std::mem::size_of::<ID>();
+        let r_mem = emap.mem_heap();
+        assert_eq!(exp_mem, r_mem);
+
+        emap.add_id(Exts::new(0b01000010), 4); // right G and left C
+        assert_eq!(&[1, 2, 3, 4], emap.edge_map(2, Dir::Right));
+        assert_eq!(&[4], emap.edge_map(1, Dir::Left));
+
+        let left = emap.single_dir(Dir::Left);
+        let right = emap.single_dir(Dir::Right);
+        let new_emap = EdgeMap::from_single_dirs(&Some(left), &Some(right)).unwrap();
+        assert_eq!(emap, new_emap);
+
+        let mut clean_emap = EdgeMap::default();
+        clean_emap.add_id_to_edge_map_at_index(4, 6); // left C
+
+        emap.clean_edges(Exts::new(0b00000010));
+
+        assert_eq!(emap, clean_emap);
     }
 
     #[test]
