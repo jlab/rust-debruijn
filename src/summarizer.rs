@@ -909,7 +909,7 @@ impl SummaryData<Tag> for u32 {
     }
 
     fn mem(&self) -> usize {
-        mem::align_of_val(self)
+        mem::size_of::<Self>()
     }
 
     fn sum(&self) -> Option<u32> {
@@ -945,73 +945,15 @@ impl SummaryData<Tag> for u32 {
 
 /// data the k-mer was observed with
 /// 
-/// the IDs the k-mer was observed with and its number of observations
-/// ID could be gene-, read-, or orthogroup-ID
+/// the samples the k-mer was observed with, stored in a Vec -
+/// unlike [`TagsData`], this can hold 256 uniqe sample IDs, but uses 
+/// more memory (min 3x)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
 pub struct TagVecData {
     tag_vec: Vec<Tag>,
 }
-/* impl SummaryData<Tag> for Vec<Tag> {
-    fn print(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        if let Some(tag_translator) = translator.tag_translator() {
-            let samples = self
-                .iter()
-                .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
-                .collect::<Vec<_>>();
-            format!("samples: {:?}", samples).replace("\"", "\'")
-        } else {
-            format!("samples: {:?}", self).replace("\"", "\'")
-        }         
-    }
 
-    fn print_ol(&self, translator: &Translator, config: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        // print is only one line anyways
-        self.print(translator, config, None)
-    }
-
-    fn print_json(&self, translator: &Translator, _: &SummaryConfig, _: Option<&HashMap<ID, ID>>) -> String {
-        if let Some(tag_translator) = translator.tag_translator() {
-            let samples = self
-                .iter()
-                .map(|sample_id| tag_translator.get_by_right(sample_id).expect("Error: sample does not exist"))
-                .collect::<Vec<_>>();
-            format!("\"samples\": {:?}", samples)
-        } else {
-            format!("\"samples\": {:?}", self)
-        } 
-    }
-
-    fn tags(&self) -> Option<Tags> { 
-        Some(Tags::from_tag_vec(self.clone()))
-    }
-
-    fn mem(&self) -> usize {
-        mem::size_of_val(&**self) + mem::size_of_val(self)
-    }
-
-    fn sample_count(&self) -> Option<usize> {
-        Some(self.len())
-    }
-
-    fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self) {
-        let summary = summarize_tags_edge_q(items, config);
-
-        let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
-
-        let tags = Tags::from_tag_vec(summary.tag_vec.clone());
-
-        let valid  = valid_counts(tags, Some(summary.sum), config) && valid_p && valid_q;
-        
-        (valid, summary.all_exts, summary.tag_vec)
-    }
-
-    fn summarizer() -> Summarizers {
-        Summarizers::VecTags
-    }
-} 
- */
 /// the IDs the k-mer was observed with and its number of observations
 /// ID could be gene-, read-, or orthogroup-ID
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
