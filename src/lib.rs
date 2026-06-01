@@ -960,7 +960,7 @@ impl Tags {
     }
 
     /// encodes a sorted (!) Vec<Tag> and encodes it as a u64
-    pub fn from_tag_vec(vec: Vec<Tag>) -> Self {
+    pub fn from_tag_vec(vec: &Vec<Tag>) -> Self {
         let mut x = 0;
         
         // if the vector is empty, return an empty Tags
@@ -1932,6 +1932,10 @@ mod tests {
         emap.clean_edges(Exts::new(0b00000010));
 
         assert_eq!(emap, clean_emap);
+
+        assert_eq!("A: [] | []\nC: [4] | []\nG: [] | []\nT: [] | []\n", &format!("{}", emap));
+        assert_eq!("A: [], C: [4], G: [], T: [] | A: [], C: [], G: [], T: []", &format!("{:?}", emap));
+
     }
 
     #[test]
@@ -1939,31 +1943,31 @@ mod tests {
         let marker: Marker = 0b1111000011110000111100001111000011110000111100001111000011110000;
         println!("marker:   {:064b}", marker);
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 3);
 
-        let tags = Tags::from_tag_vec(vec![1, 5, 19, 25, 32]);
+        let tags = Tags::from_tag_vec(&vec![1, 5, 19, 25, 32]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 5);
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 2, 3, 4, 5, 6, 7, 63]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 9);
 
-        let tags = Tags::from_tag_vec(vec![31]);
+        let tags = Tags::from_tag_vec(&vec![31]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
         assert_eq!(tags.len(), 1);
 
-        let tags = Tags::from_tag_vec(vec![63]);
+        let tags = Tags::from_tag_vec(&vec![63]);
         println!("tags:     {:064b}", tags.val);
         let dist = tags.bit_and_dist(marker);
         println!("dist: {}", dist);
@@ -1981,25 +1985,25 @@ mod tests {
 
         let translator = Translator::new_tag_translator(tag_translator);
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4]);
         let counts = vec![1, 2, 3].into_boxed_slice();
         print!("{}", TagsCountsFormatter::new(tags, &counts, &translator));
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4, 6]);
         let counts = vec![1, 2, 3, 0].into_boxed_slice();
         print!("{}", TagsCountsFormatter::new(tags, &counts, &translator));
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 4]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4]);
         print!("{}", TagsFormatter::new(tags, &translator));
 
-        let tags = Tags::from_tag_vec(vec![0, 1, 4, 6]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4, 6]);
         print!("{}", TagsFormatter::new(tags, &translator));
 
     }
 
     #[test]
     fn test_iter_tags() {
-        let tags = Tags::from_tag_vec(vec![0, 1, 4, 12, 32, 63]);
+        let tags = Tags::from_tag_vec(&vec![0, 1, 4, 12, 32, 63]);
         for tag in tags.iter() {
             println!("tag: {tag}")
         }

@@ -275,7 +275,7 @@ mod test {
         assert_eq!(cloned_ser_kmers.kmers().len(), all.0.len());
         assert_eq!(cloned_ser_kmers.translator(), &all.1);
         assert_eq!(cloned_ser_kmers.config(), &all.2);
-        assert_eq!(cloned_ser_kmers.parameters(), (16, Summarizers::IDSum));
+        assert_eq!(cloned_ser_kmers.parameters(), (16, Summarizers::IDSumData));
 
         let ser_kmers = SerKmers::new(all.0, all.1, all.2);
         let ser_path = "test_data/new_ser_kmers";
@@ -303,7 +303,7 @@ mod test {
         assert_eq!(ser_graph.graph().len(), new_ser_kmers.graph().len());
         assert_eq!(ser_graph.translator(), new_ser_kmers.translator());
         assert_eq!(ser_graph.config(), new_ser_kmers.config());
-        assert_eq!(ser_graph.parameters(), (16, Summarizers::IDSum));
+        assert_eq!(ser_graph.parameters(), (16, Summarizers::IDSumData));
 
         remove_file(ser_path).unwrap();
     }
