@@ -1812,7 +1812,7 @@ where
 mod tests {
     use bimap::BiMap;
 
-    use crate::{ALPHABET_SIZE, Dir, EdgeMap, EdgeMult, Exts, Kmer, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
+    use crate::{ALPHABET_SIZE, BaseQuality, Dir, EdgeMap, EdgeMult, Exts, Kmer, QualityBins, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
 
     #[test]
     fn test_dir_index() {
@@ -1936,6 +1936,30 @@ mod tests {
         assert_eq!("A: [] | []\nC: [4] | []\nG: [] | []\nT: [] | []\n", &format!("{}", emap));
         assert_eq!("A: [], C: [4], G: [], T: [] | A: [], C: [], G: [], T: []", &format!("{:?}", emap));
 
+    }
+
+    #[test]
+    fn test_base_quality() {
+        let bq = BaseQuality::from_u64(0);
+        assert_eq!(&format!("{bq} {}", bq.as_char()), "no-call #");
+
+        let bq = BaseQuality::from_u64(1);
+        assert_eq!(&format!("{bq} {}", bq.as_char()), "marginal -");
+
+        let bq = BaseQuality::from_u64(2);
+        assert_eq!(&format!("{bq} {}", bq.as_char()), "medium ;");
+
+        let bq = BaseQuality::from_u64(3);
+        assert_eq!(&format!("{bq} {}", bq.as_char()), "high C");
+
+        let bins = QualityBins::new(15, 30);
+        assert_eq!(bins, QualityBins::default());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_base_quality_panic() {
+        let _bq = BaseQuality::from_u64(5);
     }
 
     #[test]
