@@ -20,7 +20,7 @@ jobs:
       - name: build docs
         run: cargo doc --no-deps
       - name: add redirect
-        run: echo '<meta http-equiv="refresh" content="0;url=index.html">' > target/doc/index.html
+        run: echo '<meta http-equiv="refresh" content="0;url=rust-debruijn/index.html">' > target/doc/debruijn/index.html
       - name: remove lock file
         run: rm target/doc/.lock
       - name: upload artifact
