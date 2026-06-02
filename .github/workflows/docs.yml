@@ -19,8 +19,6 @@ jobs:
         run: cargo clean --doc
       - name: build docs
         run: cargo doc --no-deps
-      - name: remove lock file
-        run: rm target/doc/debruijn/.lock
       - name: upload artifact
         uses: actions/upload-pages-artifact@v3
         with: 
