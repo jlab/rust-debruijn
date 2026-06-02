@@ -7,7 +7,7 @@ De Bruijn graph construction & path compression libraries.
 
 Forked from [10XGenomics/rust-debruijn](https://github.com/10XGenomics/rust-debruijn/) -- [Docs](https://docs.rs/debruijn/)
 
-[Docs](https://jlab.github.io/rust-debruijn/rust-debruijn/index.html)
+[Docs](https://jlab.github.io/rust-debruijn/debruijn/index.html)
 
 ## Key features
 * 2-bit packed fixed-length (Kmer) and variable-length (DnaString) sequence containers
