@@ -19,10 +19,14 @@ jobs:
         run: cargo clean --doc
       - name: build docs
         run: cargo doc --no-deps
+      - name: add redirect
+        run: echo '<meta http-equiv="refresh" content="0;url=debruijn/index.html">' > target/doc/index.html
+      - name: remove lock file
+        run: rm target/doc/.lock
       - name: upload artifact
         uses: actions/upload-pages-artifact@v3
         with: 
-          path: target/doc/debruijn
+          path: target/doc
   deploy: 
     name: deploy
     environment:
