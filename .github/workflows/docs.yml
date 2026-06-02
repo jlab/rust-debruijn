@@ -24,7 +24,7 @@ jobs:
       - name: upload artifact
         uses: actions/upload-pages-artifact@v3
         with: 
-          path: target/doc/debuijn
+          path: target/doc/debruijn
   deploy: 
     name: deploy
     environment:
