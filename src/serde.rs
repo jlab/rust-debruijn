@@ -1,3 +1,5 @@
+//! Serialization and deserialization options for reads, k-mer collections and compressed graphs 
+
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::path::Path;

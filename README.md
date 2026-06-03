@@ -1,6 +1,7 @@
 [![unit tests](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml/badge.svg)](https://github.com/jlab/rust-debruijn/actions/workflows/test.yml) 
 [![Coverage Status (master)](https://coveralls.io/repos/github/jlab/rust-debruijn/badge.svg?branch=master)](https://coveralls.io/github/jlab/rust-debruijn?branch=master)
 [![Coverage Status (dev)](https://coveralls.io/repos/github/jlab/rust-debruijn/badge.svg?branch=dev)](https://coveralls.io/github/jlab/rust-debruijn?branch=dev)
+[![docs](https://github.com/jlab/rust-debruijn/actions/workflows/docs.yml/badge.svg)](https://jlab.github.io/rust-debruijn/debruijn/index.html) 
 
 # rust-debruijn
 De Bruijn graph construction & path compression libraries.
@@ -18,7 +19,7 @@ Forked from [10XGenomics/rust-debruijn](https://github.com/10XGenomics/rust-debr
 * Minimum-substring partitioning to shard kmers for memory efficient counting and DeBruijn graph compression
 * Configurable for stranded and non-stranded input sequence
 * Extensive unit test suite
-* In production use in Supernova, Long Ranger, Cell Ranger, and Cell Ranger VDJ pipelines from 10x Genomics.
+* Original in production use in Supernova, Long Ranger, Cell Ranger, and Cell Ranger VDJ pipelines from 10x Genomics.
 
 ### Notable changes in this fork
 * improved memory efficiency

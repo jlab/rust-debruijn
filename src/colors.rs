@@ -1,3 +1,5 @@
+//! Color formatting for JSON and DOT files.
+
 use std::{collections::HashMap, fmt::Display, iter::Sum, marker::PhantomData};
 
 use log::debug;

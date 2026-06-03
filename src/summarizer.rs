@@ -1,3 +1,5 @@
+//! Types for summary data which can be collected in the filter step.
+
 use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -175,9 +177,8 @@ impl Display for NotEnoughSamplesError {
 /// to be re-calculated.
 /// 
 /// ```
-/// use debruijn::summarizer::{SummaryConfig, SampleInfo, StatTest};
-/// use debruijn::BaseQuality;
-/// 
+/// # use debruijn::summarizer::{SummaryConfig, SampleInfo, StatTest};
+/// # use debruijn::BaseQuality;
 /// let sample_info = SampleInfo::new(0b1100, 0b0011, vec![100, 100, 100, 100]);
 /// let mut summary_config = SummaryConfig::new(sample_info);
 /// 
@@ -845,7 +846,44 @@ fn log2_fold_change(tags: Tags, counts: &[u32], sample_info: &SampleInfo) -> f32
 
     (norm_count_g0 / norm_count_g1).log2() as f32
 }
-/// Trait for summarizing k-mers, determines the data saved in the graph nodes
+/// Trait for summarizing k-mers. It determines the data saved in the graph nodes which is collected 
+/// during the filtering step. 
+/// 
+/// Supply an implementation of `SummaryData` to [`crate::filter::filter_kmers`] 
+/// or [`crate::filter::filter_kmers_parallel`]:
+/// 
+/// ```
+/// 
+/// ```
+/// 
+/// `SummaryData` is implemented for a range of types in [`crate::summarizer`]. 
+/// With the exception of [`u32`], they are built from the same components. 
+/// The names of the implementations contain its fields.
+/// 
+/// The possible fields are:
+/// * `sum`: the sum of observations of the k-mer in the data (coverage). [`u32`] equals just this field.
+/// * `vec_tags`: tags/labels/sample IDs the k-mer was observed with, stored as [`Tag`]s in a vector, 
+///   can hold up to 256 unique tags.
+/// * `tags`: tags/labels the k-mer was observed with, 1-bit encoded in a [`u64`], 
+///   can hold up to 64 unique tags, but is more memory efficient. With the feature `sample128`, 
+///   the capacity can be increased to 128 unique tags, which also increases memory usage.
+/// * `counts`: how often the k-mer was observed with a tag (e.g. within a sample). 
+///   This field makes `sum` redudant. It requires `tags` so we can tell with which tags
+///   the k-mer occured the given amount of times.
+/// * `ids`: a separate set of [`ID`]s (e.g. gene IDs), stored in a boxed slice. 
+///   This usually requires `DI` to be of type [`IDTag`]. There can be up to 65k unique IDs, 
+///   which can be increased to 4b with the feature `id4b`.
+/// * `map_ids`: a boxed slice of [`ID`]s, which remains empty during data summary and can
+///   be filled later with the results of [`crate::graph::DebruijnGraph::map_transcripts`],
+//    where sequences from a FASTA file can be mapped to an uncompressed DBG
+/// * `edge_mults`: Separately from `sum`, which collects the node coverage, this
+///   collects the edge coverage for each of the eight possible edges of the node
+/// * `edge_maps`: similarly to `map_ids`, this is a placeholder for the results of 
+///   [`crate::graph::DebruijnGraph::map_transcripts_to_edges`].
+/// 
+/// 
+/// <DI>
+// TODO
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
     /// format the node data 
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
@@ -1519,7 +1557,7 @@ mod test {
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: TagsData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {
@@ -1545,7 +1583,7 @@ mod test {
         let (kmers, _) = filter_kmers::<IDData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: IDData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {

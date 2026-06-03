@@ -1,23 +1,18 @@
 // Copyright 2017 10x Genomics
 
 //! # debruijn: a De Bruijn graph library for DNA seqeunces in Rust.
-//! This library provides tools for efficient construction DeBruijn graphs (dBG)
+//! This library provides tools for efficient construction DeBruijn graphs (DBG)
 //! from DNA sequences, tracking arbitrary metadata associated with kmers in the
 //! graph, and performing path-compression of unbranched graph paths to improve
 //! speed and reduce memory consumption.
 //!
 //! Most applications of `debruijn` will follow this general workflow:
-//! 1. You generate a set of sequences to make a dBG from.
-//! 2. You pass those sequences to the `filter_kmers` function, which converts the sequences into kmers, while tracking 'metadata' about each kmer in a very customizable way. The metadata could be read count, a set of colors, a set of read counts split by haplotype, a UMI count, etc.
-//! 3. The the library will convert the kmers to a compressed dBG. You can also customize the rules for how to compress the dBG and how to 'combine' the per-kmer metadata.
+//! 1. You generate a set of sequences to make a DBG from. Using [`reads::ReadsPaired`], you can track a piece of information with each read which can later used for the graph metadata.
+//! 2. You pass those sequences to the [`filter::filter_kmers`]/[`filter::filter_kmers_parallel`] function, which converts the sequences into kmers, while tracking 'metadata' about each kmer in a very customizable way. The metadata could be read count, a set of colors, a set of read counts split by haplotype, a UMI count, etc.
+//! 3. The resulting hashed k-mers can be converted to a compressed DBG ([`graph::DebruijnGraph`]) with the [`compression::compress_kmers_with_hash`] function. You can also customize the rules for how to compress the DBG and how to 'combine' the per-kmer metadata.
 //!
-//! Then you can use the final compressed dBG how you like. There are some methods for simplifying and re-building the  graph, but those could be developed more.
-//!
-//! ## Examples
-//! - [Local phased SV assembly tool in our Long Ranger package](https://github.com/10XGenomics/longranger/blob/master/lib/pvc/src/asm_caller.rs#L205)
-//! - [Single-cell VDJ assember](https://github.com/10XGenomics/cellranger/blob/master/lib/rust/vdj_asm/src/asm.rs#L191)
-//! - [Build a colored, compressed dBG of a transcriptome reference](https://github.com/10XGenomics/rust-pseudoaligner/blob/master/src/build_index.rs#L40)
-//!
+//! Then you can use the final compressed DBG how you like. This crate offers multiple error removal algorithms to simplify the graph and several ways to save a [`graph::DebruijnGraph`] to a file.
+//! 
 //! All the data structures in debruijn-rs are specialized to the 4 base DNA alphabet,
 //! and use 2-bit packed encoding of base-pairs into integer types, and efficient methods for
 //! reverse complement, enumerating kmers from longer sequences, and transfering data between
@@ -1802,7 +1797,7 @@ where
     let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
 
     let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
-    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
     let ser_graph = SerGraph::new(graph, translator, summary_config);
 
     (ser_reads, ser_kmers, ser_graph)
@@ -1812,7 +1807,7 @@ where
 mod tests {
     use bimap::BiMap;
 
-    use crate::{ALPHABET_SIZE, BaseQuality, Dir, EdgeMap, EdgeMult, Exts, Kmer, QualityBins, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
+    use crate::{ALPHABET_SIZE, BaseQuality, Dir, EdgeMap, EdgeMult, Exts, Kmer, QualityBins, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, summarizer::{ID, Marker, Tag, Translator}};
 
     #[test]
     fn test_dir_index() {

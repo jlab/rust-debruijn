@@ -1,3 +1,5 @@
+//! Containers for sequencing reads, paired or unpaired, stranded or unstranded.
+
 use std::collections::HashMap;
 use std::mem::take;
 use std::ops::Range;

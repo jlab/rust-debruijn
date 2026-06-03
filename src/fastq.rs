@@ -1,3 +1,5 @@
+//! Fastq reader
+
 use std::io::BufRead;
 use std::vec::IntoIter;
 
