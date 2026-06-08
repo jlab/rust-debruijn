@@ -5,3 +5,4 @@ Cargo.lock
 lcov.info
 *compressed*
 *c_ladders.csv
+.vscode
