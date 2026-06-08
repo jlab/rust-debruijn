@@ -1,7 +1,7 @@
 name: Docs
 on: 
   push:
-    branches: [main, merge/docs-gh-pages]
+    branches: [ master ]
 permissions: 
   contents: read
   pages: write
