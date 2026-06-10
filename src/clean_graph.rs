@@ -50,3 +50,16 @@ where
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{build_test_graph, clean_graph::CleanGraph, graph::Node, kmer::Kmer16, summarizer::TagsCountsData};
+
+    #[test]
+    fn test_clean_graph() {
+        let (_ser_reads, _ser_kmers, ser_graph) = build_test_graph::<Kmer16, TagsCountsData, _>();
+        let cleaner = CleanGraph::<Kmer16, TagsCountsData, _>::new(|node: &Node<'_, _, TagsCountsData>| (node.l_edges().is_empty() | node.r_edges().is_empty()) & (node.data().sum() == 1));
+        let bad_nodes = cleaner.find_bad_nodes(ser_graph.graph());
+        assert_eq!(vec![4, 18, 20, 23, 34, 44, 66, 73, 76, 88], bad_nodes);
+    }
+}
