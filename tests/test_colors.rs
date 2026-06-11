@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fs::remove_file};
+use std::{collections::HashMap, fs::{File, remove_file}, io::BufWriter};
 
-use debruijn::{build_test_graph, colors::{ColorMode, Colors}, compression::uncompressed_graph, filter::filter_kmers, graph::{self}, kmer::{Kmer8, Kmer16}, reads::{Reads, ReadsPaired}, summarizer::{ID, IDMapEMData, IDTag, IDTagsCountsPEMData, SampleInfo, SummaryConfig, SummaryData, Translator}};
+use debruijn::{build_test_graph, colors::{ColorMode, Colors}, compression::uncompressed_graph, filter::filter_kmers, graph::{self}, kmer::{Kmer8, Kmer16}, reads::{Reads, ReadsPaired}, summarizer::{ID, IDMapEMData, IDTag, IDTagsCountsPEMData, MapEMEmapQualityData, SampleInfo, SummaryConfig, SummaryData, Translator}};
 
 #[test]
 fn test_colors() {
@@ -71,7 +71,7 @@ fn test_colors() {
     assert_eq!("[shape=rectangle, style=striped, color=\"0.5 1 1\", fontcolor=black, label=\"id: 36, len: 20, exts: C|C, seq:\nTATATTACGCGATAAAGAGC\nIDs: ['gene3'], samples: ['sample3'],\ncounts: [6], sum: 6, p-value: 0.5,\nlog2(fold change): inf\"]", node.node_dot_default(&colors_ids, &config, &translator, false, false));
 
     // with json
-    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"samples\": [\"sample3\"], \"counts\": [6], \"sum\": 6, \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors, &config, &translator, false));
+    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 182, \"ids\": [\"gene3\"], \"samples\": [\"sample3\"], \"counts\": [6], \"sum\": 6, \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors_ids, &config, &translator, false));
 
     // test with color mode IDGroups
 
@@ -96,7 +96,7 @@ fn test_colors() {
     assert_eq!("[shape=rectangle, style=striped, color=\"0.2 1 1\", fontcolor=black, label=\"id: 36, len: 20, exts: C|C, seq:\nTATATTACGCGATAAAGAGC\nIDs: [1], samples: ['sample3'], counts:\n[6], sum: 6, p-value: 0.5, log2(fold\nchange): inf\"]", node.node_dot_default(&colors_ids, &config, &translator, false, true));
 
     // with json
-    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 121, \"ids\": [\"gene3\"], \"samples\": [\"sample3\"], \"counts\": [6], \"sum\": 6, \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors, &config, &translator, false));
+    assert_eq!("\"id\": 36, \"len\": 20, \"seq\": \"TATATTACGCGATAAAGAGC\", \"hue\": 73, \"ids\": [\"gene3\"], \"samples\": [\"sample3\"], \"counts\": [6], \"sum\": 6, \"p_value\": 0.5, \"fold_change\": inf", node.node_json_default(&colors_ids, &config, &translator, false));
     
     // write node to dot
 
@@ -205,6 +205,32 @@ fn test_colors_mapped_ids() {
 
     let node = graph.get_node(1);
     assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1\", fontcolor=black, label=\"id: 1, len: 8, exts: A|, seq: AAAAAAAC\nIDs: ['ID A'], mapped IDs (node): ['ID\nA']\"]", node.node_dot_default(&colors, &summary_config, &translator, false, false));
-    
+}
 
+#[test]
+fn test_colors_only_mapped_ids() {
+    // test for map IDs without IDs
+    // currently only implemented for dot and not for json
+    let (_, _, ser_graph) = build_test_graph::<Kmer16, MapEMEmapQualityData, _>(); 
+    let (mut graph, translator, config) = ser_graph.dissolve();
+
+    // add map Ids to first node
+    graph.mut_data(0).set_mapped_ids(vec![0, 1].into());
+
+    // color mode IDs
+    let colors_ids = Colors::new(&graph, &config, ColorMode::IDS { n_ids: translator.id_translator().as_ref().unwrap().len() });
+
+    let node = graph.get_node(0);
+    assert_eq!("[shape=rectangle, style=striped, color=\"0.125 1 0.6\", penwidth=30, fillcolor=\"0 1 1:0.25 1 1\", fontcolor=black, label=\"id: 0, len: 91, exts: CG|, seq:\nAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA\nmapped IDs (node): ['gene1', 'gene2'], quality: High\"]", 
+        node.node_dot_default(&colors_ids, &config, &translator, false, false)
+    );
+
+    // color mode GroupIDs
+    let id_ids = (0..4).zip(vec![0, 0, 1, 1]).collect::<HashMap<ID, ID>>(); // 4 genes in test graph
+    let colors_ids = Colors::new(&graph, &config, ColorMode::IDGroups { id_group_ids: &id_ids, n_id_groups: 5 });
+
+    let node = graph.get_node(0);
+    assert_eq!("[shape=rectangle, style=striped, color=\"0 1 0.6\", penwidth=30, fillcolor=\"0 1 1:0 1 1\", fontcolor=black, label=\"id: 0, len: 91, exts: CG|, seq:\nAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA\nmapped IDs (node): ['gene1', 'gene2'], quality: High\"]", 
+        node.node_dot_default(&colors_ids, &config, &translator, false, false)
+    );
 }
