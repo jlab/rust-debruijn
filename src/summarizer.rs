@@ -851,16 +851,41 @@ fn log2_fold_change(tags: Tags, counts: &[u32], sample_info: &SampleInfo) -> f32
 /// Trait for summarizing k-mers. It determines the data saved in the graph nodes which is collected 
 /// during the filtering step. 
 /// 
-/// Supply an implementation of `SummaryData` to [`crate::filter::filter_kmers`] 
-/// or [`crate::filter::filter_kmers_parallel`]:
+/// Supply an implementation of `SummaryData` (e.g. [`TagsCountsData`]) to [`crate::filter::filter_kmers`]
+/// or [`crate::filter::filter_kmers_parallel`]. After building the graph, you can access the data of each
+/// node with the [`crate::graph::Node::data()`]` method and apply summary data methods to it.
 /// 
 /// ```
+/// # use debruijn::build_test_graph;
+/// # use debruijn::serde::{SerGraph, SerReads};
+/// use debruijn::summarizer::{TagsCountsData, SummaryData};
+/// use debruijn::filter::filter_kmers;
+/// use debruijn::kmer::Kmer22;
 /// 
+/// # let (ser_reads, _, ser_graph) = build_test_graph::<Kmer22, TagsCountsData, _>();
+/// # let (reads, _) = ser_reads.dissolve();
+/// # let (graph, _, summary_config) = ser_graph.dissolve();
+/// 
+/// // the returned hash map will contain an instance of TagsCountsData for each unique k-mer
+/// let (hashed_kmers, _) = filter_kmers::<Kmer22, TagsCountsData, _>(
+///     &reads,
+///     &summary_config,
+///     false, 
+///     10., 
+///     false
+/// );
+/// 
+/// // ...
+/// 
+/// // data of the node with index 10
+/// let data_n10 = graph.get_node(10).data();
+/// let tags = data_n10.tags();
 /// ```
 /// 
-/// `SummaryData` is implemented for a range of types in [`crate::summarizer`]. 
-/// With a few exceptions, they are built from the same components. 
-/// The names of the implementations contain its fields.
+/// 
+/// `SummaryData` is implemented for a range of structs in [`crate::summarizer`]. 
+/// With a few exceptions, they are built from the same components and 
+/// the names of the implementations contain its fields.
 /// 
 /// The possible fields are:
 /// * `sum`: the sum of observations of the k-mer in the data (coverage). [`u32`] equals just this field.
@@ -1574,7 +1599,7 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info)
             .with_min_quality_for_edge(crate::BaseQuality::Medium);
 
-        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, TagsData, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: TagsData, _b| a, |a, b| a.join_test(b));
         let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
@@ -1600,7 +1625,7 @@ mod test {
 
         let reads_paired = ReadsPaired::Unpaired { reads };
 
-        let (kmers, _) = filter_kmers::<IDData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, IDData, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: IDData, _b| a, |a, b| a.join_test(b));
         let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();

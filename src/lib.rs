@@ -1786,7 +1786,7 @@ where
     let sample_info = SampleInfo::new(0b1100, 0b0011, sample_kmers);
     let summary_config = SummaryConfig::new(sample_info);
 
-    let (kmers, _) = filter_kmers::<SD, K, _>(
+    let (kmers, _) = filter_kmers::<K, SD, _>(
         ser_reads.reads(), 
         &summary_config, 
         false, 

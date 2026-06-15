@@ -173,7 +173,7 @@ fn test_colors_mapped_ids() {
 
     let sample_info = SampleInfo::new(0b1, 0b0, vec![2]);
     let summary_config = SummaryConfig::new(sample_info);
-    let (kmers, _) = filter_kmers::<IDMapEMData, Kmer8, _>(&reads, &summary_config, false, 1., false);
+    let (kmers, _) = filter_kmers::<Kmer8, IDMapEMData, _>(&reads, &summary_config, false, 1., false);
     let mut graph = uncompressed_graph(kmers, true).finish();
 
     graph.print();

@@ -586,7 +586,7 @@ DI: Clone + Copy + Send + Sync
 /// );
 /// ```
 #[inline(never)]
-pub fn filter_kmers<SD, K, DI>(
+pub fn filter_kmers<K, SD, DI>(
     seqs: &ReadsPaired<DI>,
     summary_config: &SummaryConfig,
     report_all_kmers: bool,
