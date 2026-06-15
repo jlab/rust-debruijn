@@ -1320,67 +1320,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(())
     }
 
-    pub fn to_json_rest<W: Write, F: Fn(&D) -> Value>(
-        &self,
-        fmt_func: F,
-        mut writer: &mut W,
-        rest: Option<Value>,
-    ) {
-        writeln!(writer, "{{\n\"nodes\": [").unwrap();
-        for i in 0..self.len() {
-            let node = self.get_node(i);
-            node.to_json(&fmt_func, writer);
-            if i == self.len() - 1 {
-                writeln!(writer).unwrap();
-            } else {
-                writeln!(writer, ",").unwrap();
-            }
-        }
-        writeln!(writer, "],").unwrap();
-
-        writeln!(writer, "\"links\": [").unwrap();
-        for i in 0..self.len() {
-            let node = self.get_node(i);
-            match node.edges_to_json(writer) {
-                true => {
-                    if i == self.len() - 1 {
-                        writeln!(writer).unwrap();
-                    } else {
-                        writeln!(writer, ",").unwrap();
-                    }
-                }
-                _ => continue,
-            }
-        }
-        writeln!(writer, "]").unwrap();
-
-        match rest {
-            Some(Value::Object(v)) => {
-                for (k, v) in v.iter() {
-                    writeln!(writer, ",").expect("io error");
-                    write!(writer, "\"{}\": ", k).expect("io error");
-                    serde_json::to_writer(&mut writer, v).expect("io error");
-                    writeln!(writer).expect("io error");
-                }
-            }
-            _ => {
-                writeln!(writer).expect("io error");
-            }
-        }
-
-        writeln!(writer, "}}").expect("io error");
-    }
-
-    /// Write the graph to JSON
-    pub fn to_json<W: Write, F: Fn(&D) -> Value, RF: Fn(&mut W)>(
-        &self,
-        fmt_func: F,
-        writer: &mut W,
-    ) {
-        self.to_json_rest(fmt_func, writer, None);
-    }
-
-    // iterate over graph or parial node IDs while leaving out the last node
+    // iterate over graph or partial node IDs while leaving out the last node
     fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
         if let Some(partial) = partial_nodes {
             Box::new(partial[..(partial.len()-1)].iter().copied())
@@ -2813,7 +2753,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// use ids mapped to edges to check if the edge is a true edge
-    /// returns false if mapped ids are not available
+    /// returns false if mapped ids are not available or if the nodes are not connected
     pub fn check_edge_truth_emap<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
     where 
         SD: SummaryData<DI>
@@ -2834,10 +2774,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if !edge_map.is_empty() {
                     return true
                 }
-            } else {
-                panic!("missing neighbor")
-            };
-
+            }
         }
 
         false
@@ -3062,43 +2999,6 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn edges(&self, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, dir)
-    }
-
-    fn to_json<F: Fn(&D) -> Value>(&self, func: &F, f: &mut dyn Write) {
-        write!(
-            f,
-            "{{\"id\":\"{}\",\"L\":{},\"D\":{},\"Se\":\"{:?}\"}}",
-            self.node_id,
-            self.sequence().len(),
-            (func)(self.data()),
-            self.sequence(),
-        )
-        .unwrap();
-    }
-
-    fn edges_to_json(&self, f: &mut dyn Write) -> bool {
-        let mut wrote = false;
-        let edges = self.r_edges();
-        for (idx, &(_, id, incoming_dir, _)) in edges.iter().enumerate() {
-            write!(
-                f,
-                "{{\"source\":\"{}\",\"target\":\"{}\",\"D\":\"{}\"}}",
-                self.node_id,
-                id,
-                match incoming_dir {
-                    Dir::Left => "L",
-                    Dir::Right => "R",
-                }
-            )
-            .unwrap();
-
-            if idx < edges.len() - 1 {
-                write!(f, ",").unwrap();
-            }
-
-            wrote = true;
-        }
-        wrote
     }
 }
 
@@ -3457,7 +3357,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -4042,6 +3942,36 @@ mod test {
         if print { c_graph.to_dot("compressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
+    }
+
+    #[test]
+    fn test_check_edge_truth() {
+        let (_, _, ser_graph) = build_test_graph::<Kmer16, MapEMEmapQualityData, _>(); 
+        let (mut graph, _translator, _config) = ser_graph.dissolve();
+
+        // add map Ids to some nodes
+        graph.mut_data(0).set_mapped_ids(vec![0, 1].into());
+        graph.mut_data(11).set_mapped_ids(vec![0].into());
+        graph.mut_data(16).set_mapped_ids(vec![1, 2].into());
+
+        assert!(graph.check_edge_truth(0, 11)); // have correct edge
+        assert!(graph.check_edge_truth(0, 16)); // have correct edge
+        assert!(!graph.check_edge_truth(0, 2)); // not connected
+        assert!(!graph.check_edge_truth(1, 2)); // connected but no correct edge
+
+        // add map ID 0 at G left to node 0 
+        let mut emap = EdgeMap::default();
+        emap.add_id_to_edge_map_at_index(0, 5);
+        graph.mut_data(0).set_mapped_edge_ids(Some(emap));
+
+        // add map ID 0 at T right to node 11 
+        let mut emap = EdgeMap::default();
+        emap.add_id_to_edge_map_at_index(0, 0);
+        graph.mut_data(11).set_mapped_edge_ids(Some(emap));
+
+        assert!(graph.check_edge_truth_emap(0, 11)); // nodes are connected and should habe correct edge
+        assert!(!graph.check_edge_truth_emap(0, 16)); // nodes are connected but should not have a correct edge (only node IDs)
+        assert!(!graph.check_edge_truth_emap(0, 2)); // nodes are not connected
     }
 
     #[test]

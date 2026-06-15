@@ -457,7 +457,7 @@ impl<'a, SD: SummaryData<DI> + Debug, DI> Colors<'a, SD, DI> {
                         // calculate separate hues of group IDs
                         let id_hues = ids.iter().map(|id| *id as f32 / n_ids as f32).collect::<Vec<_>>();
 
-                        // calulate the average hue
+                        // calculate the average hue
                         id_hues.iter().sum::<f32>() / id_hues.len() as f32 
                     }
                     None => Self::HUE_PURPLE

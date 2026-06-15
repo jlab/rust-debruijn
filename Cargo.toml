@@ -29,6 +29,7 @@ colored = "3.0.0"
 textwrap = "0.16.2"
 bio = "2.3.0"
 rand = "0.5"
+summarydata-derive = { version = "0.1.0", path = "summarydata-derive" }
 
 [dev-dependencies]
 pretty_assertions = "1.3"
