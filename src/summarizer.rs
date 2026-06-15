@@ -943,8 +943,6 @@ impl SummaryData<Tag> for u32 {
     }
 }
 
-/// data the k-mer was observed with
-/// 
 /// the samples the k-mer was observed with, stored in a Vec -
 /// unlike [`TagsData`], this can hold 256 uniqe sample IDs, but uses 
 /// more memory (min 3x)
