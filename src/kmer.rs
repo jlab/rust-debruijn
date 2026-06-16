@@ -33,6 +33,7 @@
 //!         Kmer16::from_ascii(b"TACGTACGTACGTACG")
 //!     ]);
 
+use kmersize_derive::KmerSize;
 use num_traits::FromPrimitive;
 use num_traits::PrimInt;
 use serde_derive::{Deserialize, Serialize};
@@ -742,6 +743,10 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp, KS: KmerSize> fmt::Debug for V
         write!(f, "{}", s)
     }
 }
+
+/// Marker struct for generating K=63 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K128;
 
 /// Marker struct for generating K=63 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
