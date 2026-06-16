@@ -749,652 +749,237 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp, KS: KmerSize> fmt::Debug for V
 pub struct K128;
 
 /// Marker struct for generating K=63 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K63;
 
-impl KmerSize for K63 {
-    #[inline(always)]
-    fn K() -> usize {
-        63
-    }
-}
-
 /// Marker struct for generating K=62 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K62;
 
-impl KmerSize for K62 {
-    #[inline(always)]
-    fn K() -> usize {
-        62
-    }
-}
-
 /// Marker struct for generating K=61 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K61;
 
-impl KmerSize for K61 {
-    #[inline(always)]
-    fn K() -> usize {
-        61
-    }
-}
-
 /// Marker struct for generating K=60 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K60;
 
-impl KmerSize for K60 {
-    #[inline(always)]
-    fn K() -> usize {
-        60
-    }
-}
-
-
 /// Marker struct for generating K=59 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K59;
 
-impl KmerSize for K59 {
-    #[inline(always)]
-    fn K() -> usize {
-        59
-    }
-}
-
 /// Marker struct for generating K=58 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K58;
 
-impl KmerSize for K58 {
-    #[inline(always)]
-    fn K() -> usize {
-        58
-    }
-}
-
 /// Marker struct for generating K=57 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K57;
 
-impl KmerSize for K57 {
-    #[inline(always)]
-    fn K() -> usize {
-        57
-    }
-}
-
 /// Marker struct for generating K=56 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K56;
 
-impl KmerSize for K56 {
-    #[inline(always)]
-    fn K() -> usize {
-        56
-    }
-}
-
 /// Marker struct for generating K=55 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K55;
 
-impl KmerSize for K55 {
-    #[inline(always)]
-    fn K() -> usize {
-        55
-    }
-}
-
 /// Marker struct for generating K=54 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K54;
 
-impl KmerSize for K54 {
-    #[inline(always)]
-    fn K() -> usize {
-        54
-    }
-}
-
 /// Marker struct for generating K=53 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K53;
 
-impl KmerSize for K53 {
-    #[inline(always)]
-    fn K() -> usize {
-        53
-    }
-}
-
 /// Marker struct for generating K=52 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K52;
 
-impl KmerSize for K52 {
-    #[inline(always)]
-    fn K() -> usize {
-        52
-    }
-}
-
 /// Marker struct for generating K=51 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K51;
 
-impl KmerSize for K51 {
-    #[inline(always)]
-    fn K() -> usize {
-        51
-    }
-}
-
 /// Marker struct for generating K=50 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K50;
 
-impl KmerSize for K50 {
-    #[inline(always)]
-    fn K() -> usize {
-        50
-    }
-}
-
 /// Marker struct for generating K=49 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K49;
 
-impl KmerSize for K49 {
-    #[inline(always)]
-    fn K() -> usize {
-        49
-    }
-}
-
 /// Marker struct for generating K=48 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K48;
 
-impl KmerSize for K48 {
-    #[inline(always)]
-    fn K() -> usize {
-        48
-    }
-}
-
 /// Marker trait for generating K=47 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K47;
 
-impl KmerSize for K47 {
-    #[inline(always)]
-    fn K() -> usize {
-        47
-    }
-}
-
 /// Marker trait for generating K=46 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K46;
 
-impl KmerSize for K46 {
-    #[inline(always)]
-    fn K() -> usize {
-        46
-    }
-}
-
 /// Marker trait for generating K=45 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K45;
 
-impl KmerSize for K45 {
-    #[inline(always)]
-    fn K() -> usize {
-        45
-    }
-}
-
 /// Marker trait for generating K=44 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K44;
 
-impl KmerSize for K44 {
-    #[inline(always)]
-    fn K() -> usize {
-        44
-    }
-}
-
 /// Marker trait for generating K=43 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K43;
 
-impl KmerSize for K43 {
-    #[inline(always)]
-    fn K() -> usize {
-        43
-    }
-}
-
 /// Marker trait for generating K=42 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K42;
 
-impl KmerSize for K42 {
-    #[inline(always)]
-    fn K() -> usize {
-        42
-    }
-}
-
 /// Marker trait for generating K=41 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K41;
 
-impl KmerSize for K41 {
-    #[inline(always)]
-    fn K() -> usize {
-        41
-    }
-}
-
 /// Marker trait for generating K=40 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K40;
 
-impl KmerSize for K40 {
-    #[inline(always)]
-    fn K() -> usize {
-        40
-    }
-}
-
 /// Marker trait for generating K=39 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K39;
 
-impl KmerSize for K39 {
-    #[inline(always)]
-    fn K() -> usize {
-        39
-    }
-}
-
 /// Marker trait for generating K=38 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K38;
 
-impl KmerSize for K38 {
-    #[inline(always)]
-    fn K() -> usize {
-        38
-    }
-}
-
 /// Marker trait for generating K=37 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K37;
 
-impl KmerSize for K37 {
-    #[inline(always)]
-    fn K() -> usize {
-        37
-    }
-}
-
 /// Marker trait for generating K=36 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K36;
 
-impl KmerSize for K36 {
-    #[inline(always)]
-    fn K() -> usize {
-        36
-    }
-}
-
 /// Marker trait for generating K=35 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K35;
 
-impl KmerSize for K35 {
-    #[inline(always)]
-    fn K() -> usize {
-        35
-    }
-}
-
 /// Marker trait for generating K=34 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K34;
 
-impl KmerSize for K34 {
-    #[inline(always)]
-    fn K() -> usize {
-        34
-    }
-}
-
 /// Marker trait for generating K=33 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K33;
 
-impl KmerSize for K33 {
-    #[inline(always)]
-    fn K() -> usize {
-        33
-    }
-}
-
 /// Marker trait for generating K=31 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K31;
 
-impl KmerSize for K31 {
-    #[inline(always)]
-    fn K() -> usize {
-        31
-    }
-}
-
 /// Marker trait for generating K=30 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K30;
 
-impl KmerSize for K30 {
-    #[inline(always)]
-    fn K() -> usize {
-        30
-    }
-}
-
 /// Marker trait for generating K=29 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K29;
 
-impl KmerSize for K29 {
-    #[inline(always)]
-    fn K() -> usize {
-        29
-    }
-}
-
 /// Marker trait for generating K=28 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K28;
 
-impl KmerSize for K28 {
-    #[inline(always)]
-    fn K() -> usize {
-        28
-    }
-}
-
 /// Marker trait for generating K=27 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K27;
 
-impl KmerSize for K27 {
-    #[inline(always)]
-    fn K() -> usize {
-        27
-    }
-}
-
 /// Marker trait for generating K=26 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K26;
 
-impl KmerSize for K26 {
-    #[inline(always)]
-    fn K() -> usize {
-        26
-    }
-}
-
 /// Marker trait for generating K=25 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K25;
 
-impl KmerSize for K25 {
-    #[inline(always)]
-    fn K() -> usize {
-        25
-    }
-}
-
 /// Marker trait for generating K=24 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K24;
 
-impl KmerSize for K24 {
-    #[inline(always)]
-    fn K() -> usize {
-        24
-    }
-}
-
 /// Marker trait for generating K=23 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K23;
 
-impl KmerSize for K23 {
-    #[inline(always)]
-    fn K() -> usize {
-        23
-    }
-}
-
-
 /// Marker trait for generating K=22 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K22;
 
-impl KmerSize for K22 {
-    #[inline(always)]
-    fn K() -> usize {
-        22
-    }
-}
-
 /// Marker trait for generating K=21 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K21;
 
-impl KmerSize for K21 {
-    #[inline(always)]
-    fn K() -> usize {
-        21
-    }
-}
-
 /// Marker trait for generating K=20 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K20;
 
-impl KmerSize for K20 {
-    #[inline(always)]
-    fn K() -> usize {
-        20
-    }
-}
-
 /// Marker trait for generating K=19 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K19;
 
-impl KmerSize for K19 {
-    #[inline(always)]
-    fn K() -> usize {
-        19
-    }
-}
-
 /// Marker trait for generating K=18 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K18;
 
-impl KmerSize for K18 {
-    #[inline(always)]
-    fn K() -> usize {
-        18
-    }
-}
-
 /// Marker trait for generating K=17 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K17;
 
-impl KmerSize for K17 {
-    #[inline(always)]
-    fn K() -> usize {
-        17
-    }
-}
-
 /// Marker trait for generating K=15 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K15;
 
-impl KmerSize for K15 {
-    #[inline(always)]
-    fn K() -> usize {
-        15
-    }
-}
-
 /// Marker trait for generating K=14 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K14;
 
-impl KmerSize for K14 {
-    #[inline(always)]
-    fn K() -> usize {
-        14
-    }
-}
-
 /// Marker trait for generating K=13 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K13;
 
-impl KmerSize for K13 {
-    #[inline]
-    fn K() -> usize {
-        13
-    }
-}
-
 /// Marker trait for generating K=12 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K12;
 
-impl KmerSize for K12 {
-    #[inline]
-    fn K() -> usize {
-        12
-    }
-}
-
 /// Marker trait for generating K=11 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K11;
 
-impl KmerSize for K11 {
-    #[inline]
-    fn K() -> usize {
-        11
-    }
-} 
-
 /// Marker trait for generating K=10 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K10;
 
-impl KmerSize for K10 {
-    #[inline]
-    fn K() -> usize {
-        10
-    }
-}
-
 /// Marker trait for generating K=9 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K9;
 
-impl KmerSize for K9 {
-    #[inline(always)]
-    fn K() -> usize {
-        9
-    }
-}
-
 /// Marker trait for generating K=7 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K7;
 
-impl KmerSize for K7 {
-    #[inline(always)]
-    fn K() -> usize {
-        7
-    }
-}
-
 /// Marker trait for generating K=6 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K6;
 
-impl KmerSize for K6 {
-    #[inline(always)]
-    fn K() -> usize {
-        6
-    }
-}
-
 /// Marker trait for generating K=5 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K5;
-
-impl KmerSize for K5 {
-    #[inline(always)]
-    fn K() -> usize {
-        5
-    }
-}
 /// Marker trait for generating K=4 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K4;
-
-impl KmerSize for K4 {
-    #[inline(always)]
-    fn K() -> usize {
-        4
-    }
-}
 /// Marker trait for generating K=3 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K3;
-
-impl KmerSize for K3 {
-    #[inline(always)]
-    fn K() -> usize {
-        3
-    }
-}
 /// Marker trait for generating K=6 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K2;
-
-impl KmerSize for K2 {
-    #[inline(always)]
-    fn K() -> usize {
-        2
-    }
-}
 
 #[cfg(test)]
 mod tests {
