@@ -26,7 +26,7 @@ pub type ID = u16;
 #[cfg(feature = "id4b")]
 pub type ID = u32;
 
-/// type for tags
+/// type for tags (e.g. sample labels)
 pub type Tag = u8;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
@@ -848,7 +848,7 @@ fn log2_fold_change(tags: Tags, counts: &[u32], sample_info: &SampleInfo) -> f32
 
     (norm_count_g0 / norm_count_g1).log2() as f32
 }
-/// Trait for summarizing k-mers. It determines the data saved in the graph nodes which is collected 
+/// Trait for summarizing k-mers. It determines the kind data saved in the graph nodes which is collected 
 /// during the filtering step. 
 /// 
 /// Supply an implementation of `SummaryData` (e.g. [`TagsCountsData`]) to [`crate::filter::filter_kmers`]
@@ -960,13 +960,42 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     fn set_edge_mults(&mut self, _edge_mults: Option<EdgeMult>) { }
     /// get a reference to the mapped ids,  returns `None` if data is insufficient
     fn mapped_ids(&self) -> Option<&[ID]> { None }
-    /// add mapped ids to the node data
+    /// add mapped IDs to the node data - the IDs can be mapped to the graph from a FASTA file 
+    /// with [`crate::graph::DebruijnGraph::map_transcripts`] and then can be added to the graph afterwards.
     fn set_mapped_ids(&mut self, _mapped_ids: Box<[ID]>) { }
     /// get a reference to the IDs mapped to the node edges, returns `None` id data is insufficient
     fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
     /// add mapped IDs to the node's edges
     fn set_mapped_edge_ids(&mut self, _mapped_edge_ids: Option<EdgeMap>) { }
-    /// check if the data can be joined into one
+    /// check if the data can be joined into one - this checks if the data is identical,
+    /// but ignores edge maps and edge mults, so they can get compressed. You can use this with
+    /// [`crate::compression::CheckCompress`] as the `join_func`:
+    /// 
+    /// ```
+    /// # use debruijn::build_test_graph;
+    /// # use debruijn::serde::{SerGraph, SerKmers};
+    /// use debruijn::summarizer::{TagsCountsData, SummaryData};
+    /// use debruijn::compression:: {CheckCompress, compress_kmers_with_hash};
+    /// use debruijn::kmer::Kmer22;
+    /// 
+    /// # let (_ser_reads, ser_kmers, ser_graph) = build_test_graph::<Kmer22, TagsCountsData, _>();
+    /// # let (hashed_kmers, _, _) = ser_kmers.dissolve();
+    /// # let (graph, _, _) = ser_graph.dissolve();
+    ///  
+    /// // use the `join_test` method as the `join_func` when creating the compression specs: 
+    /// let comp_spec = CheckCompress::new(
+    ///     |d: TagsCountsData, _| d, 
+    ///     |d, d1| d.join_test(d1) // SummaryData::join_test
+    /// );
+    /// 
+    /// // use this to compress the graph
+    /// let graph = compress_kmers_with_hash(
+    ///     false, // strandedness
+    ///     &comp_spec, 
+    ///     hashed_kmers, 
+    ///     false, // print the time the process took
+    /// ).finish();
+    /// ```
     fn join_test(&self, other: &Self) -> bool { self == other }
     /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, _config: &SummaryConfig) -> bool { true }

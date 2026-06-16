@@ -64,7 +64,7 @@ pub struct SimpleCompress<D, F> {
 }
 
 impl<D, F> SimpleCompress<D, F> {
-    /// A new [`SimpleCompress`]. The single argument `func` is the fuction by which the data is reduced. 
+    /// A new [`SimpleCompress`]. The single argument `func` is the function by which the data is reduced. 
     pub fn new(func: F) -> SimpleCompress<D, F> {
         SimpleCompress {
             func,
@@ -247,7 +247,7 @@ where
             {
                 // Next kmer isn't in this partition,
                 // or we've already used it,
-                // or it's palindrom and we are not stranded
+                // or it's palindrome and we are not stranded
                 // or the colors were not same
                 return ExtModeNode::Terminal( TerminalExt::new(
                     exts.single_dir(dir), 
@@ -480,7 +480,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 
     /// Attempt to extend kmer v in direction dir. Return:
     ///  - Unique(nextKmer, nextDir) if a single unique extension
-    ///    is possible.  nextDir indicates the direction to extend nextMker
+    ///    is possible.  nextDir indicates the direction to extend next k-mer
     ///    to preserve the direction of the extension.
     /// - Term(ext) no unique extension possible, indicating the extensions at this end of the line
     fn try_extend_kmer(&self, kmer: K, dir: Dir) -> ExtMode<K> {
@@ -854,7 +854,7 @@ pub fn rebuild_uncompressed_graph<K: Kmer + Sync + Send, D: Debug + Clone>(
     censor_nodes: Vec<usize>,
 ) -> DebruijnGraph<K, D> 
 {
-    // build bit set for efficency
+    // build bit set for efficiency
     let mut available_node = BitSet::with_capacity(old_graph.len());
     for i in 0..old_graph.len() {
         available_node.insert(i);

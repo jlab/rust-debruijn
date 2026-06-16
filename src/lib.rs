@@ -1,6 +1,6 @@
 // Copyright 2017 10x Genomics
 
-//! # debruijn: a De Bruijn graph library for DNA seqeunces in Rust.
+//! # debruijn: a De Bruijn graph library for DNA sequences in Rust.
 //! This library provides tools for efficient construction DeBruijn graphs (DBG)
 //! from DNA sequences, tracking arbitrary metadata associated with kmers in the
 //! graph, and performing path-compression of unbranched graph paths to improve
@@ -15,7 +15,7 @@
 //! 
 //! All the data structures in debruijn-rs are specialized to the 4 base DNA alphabet,
 //! and use 2-bit packed encoding of base-pairs into integer types, and efficient methods for
-//! reverse complement, enumerating kmers from longer sequences, and transfering data between
+//! reverse complement, enumerating kmers from longer sequences, and transferring data between
 //! sequences.
 //!
 //! ## Encodings
@@ -1679,7 +1679,7 @@ where
     DI: ReadData
 {
     /*
-    transcrips
+    transcripts
     GCAGCTAGCTAGCGCGACTACGATCGTAGCGCAGCGAGCAGGGGGGGGGATAGCTGTCGCGGGGACGTATTATTATTAAAATTGCGGCGCGAGCTATTCGAGCGGAGCGAGCGACAGGAGCGGAGTTTGCGGTACGGGATTTTCGGATATCGGC
     GCGATTATTTTGCGGGGGATTTTCGGTAGCGACTGGGGGGGGGTATCGATCGTGACAGCTTTCGACTGGGAGCGCAGCTAGGCAGGACGCATTAATTATATATCATTATTTTTTTCTATAAAAAAAAAAGAGCTAGCGATCGACGCGATCGAC
     TATATTATCGGCTGAGCGAGCGGGGGCAGCTATATTACGCGATAAAGAGCCCCCCGAGGCGAGGCGGACTTACGTAGCGCAGGCACCATGACGAGCTAGCAGTCAGTCGTAGCGATCA

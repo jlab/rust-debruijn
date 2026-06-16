@@ -1,4 +1,68 @@
 //! Containers for sequencing reads, paired or unpaired, stranded or unstranded.
+//! 
+//! To construct a de Bruijn graph, wrap your sequencing reads in a [`ReadsPaired<D>`]. You will have to 
+//! create one or multiple [`Reads<D>`], feet your reads into it as [`DnaString`]s, and then combine them into a [`ReadsPaired`].
+//! Use [`Strandedness`] to convey if the reads are stranded and if so, in which direction.
+//! 
+//! The generic `D` is the type of the data stored with each read. It is recommended to use [`Tag`] or [`IDTag`], 
+//! since these will be compatible with the [`SummaryData`] used during graph construction.
+//! Which of the two you should use depends on the [`SummaryData`] implementation used.
+//! 
+//! ```
+//! use debruijn::reads::{ReadsPaired, Strandedness, Reads};
+//! use debruijn::dna_string::DnaString;
+//! use debruijn::summarizer::Tag;
+//! 
+//! // create a Reads and store some sequences
+//! 
+//! let mut reads = Reads::new(Strandedness::Unstranded);
+//! 
+//! reads.add_read(
+//!     DnaString::from_acgt_bytes("AAAAAAAA".as_bytes()),
+//!     None, 
+//!     1 as Tag, // the data D
+//!     None, // quality scores would go here
+//! );
+//! 
+//! // if you want to include the quality (PHRED) scores, create the Reads with
+//! 
+//! let mut reads_with_quality = Reads::new_with_quality(Strandedness::Unstranded);
+//! 
+//! reads_with_quality.add_read(
+//!     DnaString::from_acgt_bytes("ATAAAAAA".as_bytes()),
+//!     None, 
+//!     1 as Tag, // the data D
+//!     Some("C#CC;CCC".as_bytes()), // quality scores
+//! );
+//! 
+//! // to use the Reads in filter_kmers, wrap them in a ReadsPaired
+//! 
+//! let reads_unpaired = ReadsPaired::unpaired(reads.clone());
+//! 
+//! // if you have paired reads, create a separate Reads for r1 and r2
+//! let mut paired1 = Reads::new(Strandedness::Forward);
+//! let mut paired2 = Reads::new(Strandedness::Reverse);
+//! 
+//! paired1.add_read(DnaString::from_acgt_bytes("AAAA".as_bytes()), None, 1 as Tag, None);
+//! paired2.add_read(DnaString::from_acgt_bytes("CCCCCCC".as_bytes()), None, 1 as Tag, None);
+//! 
+//! // note that both Reads have to have the same number of sequences
+//! let reads_paired = ReadsPaired::paired(paired1.clone(), paired2.clone());
+//! 
+//! // should you want to decide the form dynamically based on the data:
+//! 
+//! let reads_unpaired = ReadsPaired::from_reads((Reads::new(Strandedness::Unstranded), Reads::new(Strandedness::Unstranded), reads.clone()));
+//! let reads_paired = ReadsPaired::from_reads((paired1.clone(), paired2.clone(), Reads::new(Strandedness::Unstranded)));
+//! let mut reads_combined = ReadsPaired::from_reads((paired1, paired2, reads));
+//! // this will discard the unused Reads
+//! 
+//! // to turn a combined ReadsPaired into a paired one:
+//! reads_combined.decombine();
+//! ``` 
+
+
+use crate::summarizer::SummaryData;
+
 
 use std::collections::HashMap;
 use std::mem::take;
@@ -210,7 +274,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     /// Adds a new read to the `Reads`
-    // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
+    // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accelerated mode
     pub fn add_read<V: Vmer>(&mut self, seq: V, exts: Option<Exts>, data: D, quality_scores: Option<&[u8]>) {
         // check if we have quality scores
         if let (Some(q), true) = (quality_scores, self.quality.is_some()) {
@@ -386,7 +450,7 @@ impl<D: Clone + Copy> Reads<D> {
         self.len += 1; 
     }
 
-    /// Simultaniously add new 2-bit encoded base and quality to the `Reads`
+    /// Simultaneously add new 2-bit encoded base and quality to the `Reads`
     fn push_base_and_quality(&mut self, base: u8, score: u8) {
         let Some(quality) = self.quality.as_mut() else { return; };
         let base_quality = self.quality_bins.base_quality_from_ascii_bytes(score);
@@ -712,11 +776,22 @@ impl<D: Clone + Copy> ReadsPaired<D> {
         }
     }
 
+    /// create an unpaired ReadsPaired from a single Reads
+    pub fn unpaired(reads: Reads<D>) -> Self {
+        ReadsPaired::Unpaired { reads }
+    }
+
+    /// create a paired ReadsPaired from two Reads, which have the same length
+    pub fn paired(paired1: Reads<D>, paired2: Reads<D>) -> Self {
+        assert_eq!(paired1.n_reads(), paired2.n_reads(), "Error in creating ReadsPaired: R1 read and R2 read counts have to match");
+        ReadsPaired::Paired { paired1, paired2 }
+    }
+
     /// transform a tuple of two paired [`Reads`] and one unpaired [`Reads`] into a `ReadsPaired`
     /// depending on the contents of the [`Reads`]
     pub fn from_reads((paired1, paired2, unpaired): (Reads<D>, Reads<D>, Reads<D>)) -> Self {
         // first two elements should be paired reads and thus have same n
-        assert_eq!(paired1.n_reads(), paired2.n_reads(), "Error: R1 read and R2 read counts have to match");
+        assert_eq!(paired1.n_reads(), paired2.n_reads(), "Error in creating ReadsPaired: R1 read and R2 read counts have to match");
 
         if (paired1.n_reads() + paired2.n_reads() + unpaired.n_reads()) == 0 {
             // no reads

@@ -9,22 +9,14 @@
 //! A [`DebruijnGraph`] can be generated from a [`BoomHashMap`], which is constructed by [`crate::filter::filter_kmers`] as follows:
 //! 
 //! ```
-//! # use debruijn::summarizer::{SampleInfo, SummaryConfig, StatTest, GroupFrac};
-//! # use debruijn::reads::{Reads, ReadsPaired, Strandedness};
-//! # use debruijn::filter::filter_kmers;
-//! # use debruijn::Exts;
+//! # use debruijn::build_test_graph;
+//! # use debruijn::serde::SerKmers;
 //! use debruijn::compression::{compress_kmers_with_hash, CheckCompress};
 //! use debruijn::graph::{BaseGraph, DebruijnGraph};
 //! use debruijn::kmer::Kmer22;
 //! use debruijn::summarizer::SummaryData;
-//! # let mut seqs = Reads::new(Strandedness::Unstranded);
-//! # seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);
-//! # seqs.add_from_bytes("GCGATCGAGCATGCTCAGCTGACGTGACTGACGTAGCTATCTTTTCGTAGCTAC".as_bytes(), None, 1u8);
-//! # seqs.add_from_bytes("GCGAGTTTGCGACTCGAGGCTATCTAGCTAGCTASGCTCTCGACTAGCTGACTTACGACGACTACG".as_bytes(), None, 2u8);
-//! # seqs.add_from_bytes("CGATTAGCTACGTAGCTAGCTGACGTACTGGGGGGTATTTCGGATCTGCGGAGCGATCT".as_bytes(), None, 2u8);
-//! # let sample_info = SampleInfo::new(0b000011, 0b111100, vec![23423, 3463454, 2242234, 2233243, 234322434, 2323234],);
-//! # let summary_config = SummaryConfig::new(sample_info).with_min_kmer_obs(3).with_group_frac(GroupFrac::One, 0.333).with_stat_test(StatTest::StudentsTTest);
-//! # let (hashed_kmers, _) = filter_kmers::<u32, Kmer22, _>(&ReadsPaired::Unpaired { reads: seqs },&summary_config,false,10.,false);
+//! # let (_ser_reads, ser_kmers, _ser_graph) = build_test_graph::<Kmer22, u32, _>();
+//! # let (hashed_kmers, _, _) = ser_kmers.dissolve();
 //! 
 //! // generate hashed_kmers with filter_kmers or filter_kmers_parallel
 //! 
@@ -38,7 +30,6 @@
 //!     &spec, 
 //!     hashed_kmers, 
 //!     false, // print the time the process took
-//!     false // show a progress bar on the command line
 //! );
 //! 
 //! let dbg: DebruijnGraph<Kmer22, u32> = base_graph.finish();
@@ -822,7 +813,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// map sequences from a fasta reference to the edges of a **completely uncompressed** debruijn graph
     /// 
-    /// the IDs are stored with the edges if the two k-mers occured together in the reference
+    /// the IDs are stored with the edges if the two k-mers occurred together in the reference
     pub fn map_transcripts_to_edges<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<EdgeMap>, String> 
     where 
         P: AsRef<Path>
@@ -876,7 +867,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
 
-        // remove unncecessary memory from vector
+        // remove unnecessary memory from vector
         node_edge_transcript_ids.shrink_to_fit();
 
         Ok(node_edge_transcript_ids)
@@ -941,7 +932,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write the graph to a dot file, highlight the nodes which form the 
-    /// "best" path, according to [`PathCompIter`], with the number of occurences 
+    /// "best" path, according to [`PathCompIter`], with the number of occurrences 
     /// as the score and `solid_path` always `true`.
     /// The nodes are formatted according to [`Node::node_dot_default`].
     /// 
@@ -983,7 +974,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// Write the graph to a dot file in parallel
-    /// Will write in to n_threads files simultaniously,
+    /// Will write in to n_threads files simultaneously,
     /// then go though the files and add the contents to a larger file, 
     /// and delete the small files.
     /// 
@@ -1461,7 +1452,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
         // do last node separately because of comma
         let last_node_id = match partial_nodes {
-            Some(partial) => *partial.last().expect("empty parial nodes vector"),
+            Some(partial) => *partial.last().expect("empty partial nodes vector"),
             None => self.len() - 1
         };
 
@@ -1493,7 +1484,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
             }
         }
 
-        // eges for last node without comma
+        // edges for last node without comma
         // FIXME only last edge should be without comma, not all edges from last node
         // write edges to the right
         for (base, target_id, dir, flipped) in last_node.r_edges() {
@@ -2085,7 +2076,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if confirmed_targets.contains(&target) {
                     for path in path_group {
                         if let Err(_err) = self.remove_path(path.clone()) {
-                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                         }
                     }
                 }
@@ -2095,7 +2086,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             for path_group in tips {
                 let path = path_group.into_iter().next().expect("empty tip path found");
                 if let Err(_err) = self.remove_path(path.clone()) {
-                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                    warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                 }
             }
 
@@ -2339,7 +2330,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if confirmed_targets.contains(&target) & cov_valid {
                     for path in path_group {
                         if let Err(_err) = self.remove_path(path.clone()) {
-                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                         }
                     }
                 }
@@ -2352,7 +2343,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 if cov_valid {
                     if let Err(_err) = self.remove_path(path.clone()) {
-                        warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                        warn!("lq tip partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                     }
                 }
                 
@@ -2410,7 +2401,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     if (s_cov * min_diff_factor <= out_max_cov) & (avg_low_cov <= max_avg_low_cov) {
                         for path in target_paths.iter() {
                             if self.remove_path(path.clone()).is_err() {
-                                warn!("removing ladders: partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                                warn!("removing ladders: partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                             }
                         } 
                     }
@@ -2589,7 +2580,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// follow a path of the length 2*k - 1 by choosing the edges with the hightest coverage
-    /// requres the graph to have edge mults
+    /// requires the graph to have edge mults
     fn follow_ladder_path_high<DI>(&self, start_node_id: usize, start_ext: u8, start_cov: u32, start_out_dir: Dir) -> Option<(usize, f32, f32)> 
     where SD: SummaryData<DI>
     {
