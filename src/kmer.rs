@@ -36,7 +36,9 @@
 use kmersize_derive::KmerSize;
 use num_traits::FromPrimitive;
 use num_traits::PrimInt;
-use serde_derive::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std;
 use std::fmt;
 use std::hash::Hash;
@@ -46,8 +48,13 @@ use crate::bits_to_base;
 use crate::Kmer;
 use crate::Mer;
 
+use serde_big_array::BigArray;
+
 // Pre-defined kmer types
 
+
+/// 128-base kmer, backed by two u128s
+pub type Kmer128 = VarLenKmer<u64, 4, K128>;
 /// 64-base kmer, backed by a single u128
 pub type Kmer64 = IntKmer<u128>;
 /// 63-base kmer, backed by a single u128
@@ -177,7 +184,7 @@ pub type Kmer2 = VarIntKmer<u8, K2>;
 
 
 /// Trait for specialized integer operations used in DeBruijn Graph
-pub trait IntHelp: PrimInt + FromPrimitive {
+pub trait IntHelp: PrimInt + FromPrimitive + Hash + Serialize {
     /// Reverse the order of 2-bit units of the integer
     fn reverse_by_twos(&self) -> Self;
 
@@ -312,7 +319,7 @@ impl IntHelp for u8 {
 
 /// A Kmer sequence with a statically know K. K will fill the underlying integer type.
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-pub struct IntKmer<T: PrimInt + FromPrimitive + IntHelp + Sized> {
+pub struct IntKmer<T: IntHelp> {
     pub storage: T,
 }
 
@@ -517,9 +524,9 @@ pub trait KmerSize: Ord + Hash + Copy + fmt::Debug {
 /// bit :  14  12  10 8  6  4  2  0
 ///
 /// sorting the integer will give a lexicographic sorting of the corresponding string.
-///  kmers that don't fill `storage` are always aligned to the least signifcant bits
+///  kmers that don't fill `storage` are always aligned to the least significant bits
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-pub struct VarIntKmer<T: PrimInt + FromPrimitive + IntHelp, KS: KmerSize> {
+pub struct VarIntKmer<T: IntHelp, KS: KmerSize> {
     pub storage: T,
     pub phantom: PhantomData<KS>,
 }
@@ -744,7 +751,289 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp, KS: KmerSize> fmt::Debug for V
     }
 }
 
-/// Marker struct for generating K=63 Kmers
+trait ValidLen<const LEN: usize> {}
+impl ValidLen<2> for () {}
+/// A fixed-length Kmer sequence that may not fill the bits of T
+///
+/// side:             L           R
+/// bases: 0   0   0  A  C  G  T  T
+/// bits:             H  ........ L
+/// bit :  14  12  10 8  6  4  2  0
+///
+/// sorting the integer will give a lexicographic sorting of the corresponding string.
+///  kmers that don't fill `storage` are always aligned to the least significant bits
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+pub struct VarLenKmer<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> 
+{
+    #[serde(with="BigArray")]
+    pub storage: [T; LEN],
+    pub phantom: PhantomData<KS>,
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for VarLenKmer<T, LEN, KS> {
+    fn empty() -> Self {
+        VarLenKmer {
+            storage: [T::zero(); LEN],
+            phantom: PhantomData,
+        }
+    }
+
+    #[inline]
+    fn k() -> usize {
+        Self::_k()
+    }
+
+    fn to_u64(&self) -> u64 {
+        T::to_u64(&self.storage[0]).unwrap()
+    }
+
+    fn from_u64(v: u64) -> Self {
+        let mut out = VarLenKmer::empty();
+        out.storage[LEN-1] = Self::t_from_u64(v);
+        out
+    }
+
+    /// Shift the base v into the left end of the kmer
+    fn extend_left(&self, v: u8) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+        // for the back storage block, shift right by two
+        let new_back_block = self.storage[LEN-1] >> 2;
+        new_kmer.storage[LEN-1] = new_back_block;
+
+        // go over the rest of the blocks
+        // should we only have one block, this is skipped
+        for step in (0..(LEN-1)).rev() {
+            // always get the back base of block and attach it to the front of the last one
+            let moved_v = self.get_by_addr(step, 0);
+            new_kmer.set_by_addr(step+1, Self::t_bits()-2, moved_v);
+
+            // then, shift the block by 2 and add it to the new_kmer
+            let new_block = self.storage[step] >> 2;
+            new_kmer.storage[step] = new_block;
+        }
+
+        // finally, add the new base where the k-mer ends in the front block
+        new_kmer.set_mut(0, v);
+        new_kmer
+    }
+
+    /// shift the base v into the right end of the k-mer
+    fn extend_right(&self, v: u8) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+        // for the front storage block, shift left by two with the mask
+        let new_front_block = self.storage[0] << 2 & !Self::unused_bits_mask(0);
+        new_kmer.storage[0] = new_front_block;
+
+        // go over the rest of the blocks
+        // should we only have one block, this is skipped
+        for step in 1..(LEN) {
+            // always get the front base of block and attach it to the back of the last one
+            let moved_v = self.get_by_addr(step, Self::t_bits()-2);
+            new_kmer.set_by_addr(step-1, 0, moved_v);
+
+            // then, shift the block by 2 and add it to the new_kmer
+            let new_block = self.storage[step] << 2;
+            new_kmer.storage[step] = new_block;
+        }
+
+        // finally, add the new base to the last block
+        new_kmer.set_mut(Self::k()-1, v);
+        new_kmer
+    }
+
+    fn hamming_dist(&self, other: Self) -> u32 {
+        let mut dist = 0;
+        for block in 0..LEN {
+            let bit_diffs = self.storage[block] ^ other.storage[block];
+            let two_bit_diffs = (bit_diffs | bit_diffs >> 1) & IntHelp::lower_of_two();
+            dist += two_bit_diffs.count_ones();
+        }
+
+        dist
+    }
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T, LEN, KS> {
+/*     #[inline(always)]
+    fn msk() -> (T, T2) {
+        T::one() << 1 | T::one()
+    } */
+    
+    fn to_byte(v: T) -> u8 {
+        T::to_u8(&v).unwrap()
+    }
+
+    fn t_from_byte(v: u8) -> T {
+        T::from_u8(v).unwrap()
+    }
+
+    fn t_from_u64(v: u64) -> T {
+        T::from_u64(v).unwrap()
+    }
+
+    /// get the (block, bit) for the position in the k-mer
+    /// 
+    /// bits start counting from the back
+    #[inline(always)]
+    fn addr(&self, pos: usize) -> (usize, usize) {
+        let overall_i = pos / 2;
+        (overall_i / Self::t_bits(), overall_i % Self::t_bits())
+    }
+
+    #[inline(always)]
+    fn get_by_addr(&self, block: usize, bit: usize) -> u8 {
+        let mask = Self::t_from_byte(3);
+        Self::to_byte((self.storage[block] >> bit) & mask)
+    }
+
+    #[inline(always)]
+    fn set_by_addr(&mut self, block: usize, bit: usize, value: u8) {
+        let mask = 3;
+        // check that value has only one base, cast to T, and mov to correct position
+        let value = Self::t_from_byte(value & mask) << bit;
+        // remove the old bits from the block
+        let block_mask = Self::t_from_byte(3) << bit;
+        let new_block = self.storage[block] & !block_mask;
+        // add new block with new base into storage
+        self.storage[block] = new_block | value;
+    }
+
+    /// K of this kmer
+    #[inline(always)]
+    fn _k() -> usize {
+        KS::K()
+    }
+
+    /// Bits used by this kmer
+    #[inline(always)]
+    fn _bits() -> usize {
+        Self::_k() * 2
+    }
+
+    /// bits in the data type
+    #[inline(always)]
+    fn _total_bits() -> usize {
+        std::mem::size_of::<T>() * 8 * LEN
+    }
+
+    /// number of bits in the type T
+    #[inline(always)]
+    fn t_bits() -> usize {
+        std::mem::size_of::<T>() * 8
+    }
+
+    // TODO check
+    /// mask the unused bits at the top, plus the requested number of bases
+    #[inline(always)]
+    pub fn unused_bits_mask(n_bases: usize) -> T {
+        let unused_bits = Self::_total_bits() - Self::_bits();
+
+        assert!(unused_bits < Self::t_bits(), "please use a smaller k-mer impl for this k");
+
+        let mask_bits = n_bases * 2 + unused_bits;
+
+        if mask_bits > 0 {
+            let one = T::one();
+            ((one << mask_bits) - one) << (Self::_total_bits() - mask_bits)
+        } else {
+            T::zero()
+        }
+    }
+
+    #[inline(always)]
+    pub fn bottom_mask(_n_bases: usize) -> T {
+        unimplemented!()
+    }
+   
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarLenKmer<T, LEN, KS> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        Self::_k()
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::_k() == 0
+    }
+
+    /// Get the letter at the given position.
+    fn get(&self, pos: usize) -> u8 {
+        let (block, bit) = self.addr(pos);
+        self.get_by_addr(block, bit)
+    }
+
+    fn set_mut(&mut self, pos: usize, v: u8) {
+        let (block, bit) = self.addr(pos);
+        self.set_by_addr(block, bit, v);
+    }
+
+    /// Set a slice of bases in the kmer, using the packed representation in value.
+    /// Sets n_bases, starting at pos. Incoming bases must always be packed into the upper-most
+    /// bits of the value.
+    #[inline(always)]
+    fn set_slice_mut(&mut self, _pos: usize, _n_bases: usize, _value: u64) {
+        unimplemented!()
+    }
+
+    /// Return the reverse complement of this kmer
+    fn rc(&self) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+
+        // get the rc of each base from back to front and add into a new k-mer
+        for rc_base in (0..Self::k()).rev().map(|pos| 3 - self.get(pos)) {
+            new_kmer = new_kmer.extend_right(rc_base);
+        }
+        new_kmer
+    }
+
+    fn at_count(&self) -> u32 {
+        // A's and T's have upper_bit ^ lower_bit == 0
+        // count how many of these are present
+        
+        // first block with mask on unused bits
+        let mix_base_bits = !((self.storage[0] >> 1) ^ self.storage[0]);
+        let mask_lower = mix_base_bits & !Self::unused_bits_mask(0) & IntHelp::lower_of_two();
+        let mut count = mask_lower.count_ones();
+
+        for block in 1..LEN {
+            let mix_base_bits = !((self.storage[block] >> 1) ^ self.storage[block]);
+            let mask_lower = mix_base_bits & IntHelp::lower_of_two();
+            count += mask_lower.count_ones();
+        }
+
+        count
+    }
+
+    fn gc_count(&self) -> u32 {
+        // A's and T's have upper_bit ^ lower_bit == 1
+        // count how many of these are present
+        let mix_base_bits = (self.storage[0] >> 1) ^ self.storage[0];
+        let mask_lower = mix_base_bits & !Self::unused_bits_mask(0) & IntHelp::lower_of_two();
+        let mut count = mask_lower.count_ones();
+    
+        for block in 1..LEN {
+            let mix_base_bits = (self.storage[block] >> 1) ^ self.storage[block];
+            let mask_lower = mix_base_bits & IntHelp::lower_of_two();
+            count += mask_lower.count_ones();
+        }
+
+        count
+    }
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> fmt::Debug for VarLenKmer<T, LEN, KS> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = String::new();
+        for pos in 0..Self::k() {
+            s.push(bits_to_base(self.get(pos)))
+        }
+
+        write!(f, "{}", s)
+    }
+}
+
+/// Marker struct for generating K=128 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K128;
 
