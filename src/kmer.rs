@@ -41,6 +41,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std;
 use std::fmt;
+use std::fmt::Binary;
+use std::fmt::Debug;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
@@ -53,8 +56,14 @@ use serde_big_array::BigArray;
 // Pre-defined kmer types
 
 
-/// 128-base kmer, backed by two u128s
+/// 128-base kmer, backed by four u64s
 pub type Kmer128 = VarLenKmer<u64, 4, K128>;
+/// 112-base kmer, backed by four u64s
+pub type Kmer112 = VarLenKmer<u64, 4, K112>;
+/// 96-base kmer, backed by three u64s
+pub type Kmer96 = VarLenKmer<u64, 3, K96>;
+/// 80-base kmer, backed by three u64s
+pub type Kmer80 = VarLenKmer<u64, 3, K80>;
 /// 64-base kmer, backed by a single u128
 pub type Kmer64 = IntKmer<u128>;
 /// 63-base kmer, backed by a single u128
@@ -184,7 +193,7 @@ pub type Kmer2 = VarIntKmer<u8, K2>;
 
 
 /// Trait for specialized integer operations used in DeBruijn Graph
-pub trait IntHelp: PrimInt + FromPrimitive + Hash + Serialize {
+pub trait IntHelp: PrimInt + FromPrimitive + Hash + Serialize + Display + Debug + Binary {
     /// Reverse the order of 2-bit units of the integer
     fn reverse_by_twos(&self) -> Self;
 
@@ -858,6 +867,11 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T
     fn msk() -> (T, T2) {
         T::one() << 1 | T::one()
     } */
+
+    pub fn print_blocks(&self) {
+        let block_format = self.storage.iter().map(|block| format!("{:#066b}", block)).collect::<Vec<_>>();
+        println!("blocks: {:?}", block_format);
+    }
     
     fn to_byte(v: T) -> u8 {
         T::to_u8(&v).unwrap()
@@ -876,8 +890,10 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T
     /// bits start counting from the back
     #[inline(always)]
     fn addr(&self, pos: usize) -> (usize, usize) {
-        let overall_i = pos / 2;
-        (overall_i / Self::t_bits(), overall_i % Self::t_bits())
+        let overall_i = (Self::_k() - 1 - pos) * 2;
+        let block = LEN - 1 - (overall_i / Self::t_bits());
+        let bit = overall_i % Self::t_bits();
+        (block, bit)
     }
 
     #[inline(always)]
@@ -934,7 +950,7 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T
 
         if mask_bits > 0 {
             let one = T::one();
-            ((one << mask_bits) - one) << (Self::_total_bits() - mask_bits)
+            ((one << mask_bits) - one) << (Self::t_bits() - mask_bits)
         } else {
             T::zero()
         }
@@ -1036,6 +1052,18 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> fmt::Debug f
 /// Marker struct for generating K=128 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K128;
+
+/// Marker struct for generating K=112 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K112;
+
+/// Marker struct for generating K=96 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K96;
+
+/// Marker struct for generating K=80 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K80;
 
 /// Marker struct for generating K=63 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
@@ -1272,14 +1300,16 @@ pub struct K2;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+use std::fmt::Debug;
+
+use super::*;
     use crate::vmer::Lmer;
     use rand::{self, Rng, RngCore};
 
     use crate::MerImmut;
     use crate::Vmer;
 
-    fn check_hd<T: Kmer>(k1: T, k2: T) {
+    fn check_hd<T: Kmer + Debug>(k1: T, k2: T) {
         let mut n = 0;
         for i in 0..T::k() {
             if k1.get(i) != k2.get(i) {
@@ -1292,7 +1322,7 @@ mod tests {
     }
 
     // Generate random kmers & test the methods for manipulating them
-    fn check_kmer<T: Kmer>() {
+    fn check_kmer<T: Kmer + Debug>() {
         #[allow(non_snake_case)]
         let K = T::k();
 
@@ -1502,6 +1532,34 @@ mod tests {
     fn test_lmer_1_kmer_16() {
         for _ in 0..10000 {
             check_vmer::<Lmer<[u64; 1]>, IntKmer<u32>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_128() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 4, K128>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_112() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 4, K112>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_96() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 3, K96>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_80() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 3, K80>>();
         }
     }
 
@@ -1947,5 +2005,24 @@ mod tests {
         for _ in 0..10000 {
             check_kmer::<Kmer2>();
         }
+    }
+
+    #[test]
+    fn test_new_kmer() {
+        let mut kmer = VarLenKmer::<u64, 4, K128>::empty();
+
+        println!("{:?}", kmer);
+        for base in [0, 1, 2, 3] {
+            kmer.set_mut(base as usize, base);
+            println!("{:?}", kmer);
+        }
+
+        println!("{:?}", kmer.rc());
+
+        let mut other_kmer = IntKmer::<u32>::empty();
+        for base in [0, 1, 2, 3] {
+            other_kmer.set_mut(base as usize, base);
+        }
+        println!("{:?}", other_kmer)
     }
 }

@@ -24,17 +24,14 @@ pub fn derive(input: TokenStream) -> TokenStream {
             let _ = k.next(); // skip first char ('K')
             let k = k.as_str().parse::<usize>().unwrap();
 
-            let out = quote!{
+            quote!{
                 impl KmerSize for #ident {
                     #[inline(always)]
                     fn K() -> usize {
                         #k
                     }
                 }
-            };
-
-            println!("{}", out);
-            out
+            }
         }
         _ => todo!()
     };
