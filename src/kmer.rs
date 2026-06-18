@@ -58,12 +58,12 @@ use serde_big_array::BigArray;
 
 /// 128-base kmer, backed by four u64s
 pub type Kmer128 = VarLenKmer<u64, 4, K128>;
-/// 112-base kmer, backed by four u64s
-pub type Kmer112 = VarLenKmer<u64, 4, K112>;
+/// 112-base kmer, backed by seven u32s
+pub type Kmer112 = VarLenKmer<u32, 7, K112>;
 /// 96-base kmer, backed by three u64s
 pub type Kmer96 = VarLenKmer<u64, 3, K96>;
-/// 80-base kmer, backed by three u64s
-pub type Kmer80 = VarLenKmer<u64, 3, K80>;
+/// 80-base kmer, backed by five u32s
+pub type Kmer80 = VarLenKmer<u32, 5, K80>;
 /// 64-base kmer, backed by a single u128
 pub type Kmer64 = IntKmer<u128>;
 /// 63-base kmer, backed by a single u128
@@ -863,11 +863,6 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
 }
 
 impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T, LEN, KS> {
-/*     #[inline(always)]
-    fn msk() -> (T, T2) {
-        T::one() << 1 | T::one()
-    } */
-
     pub fn print_blocks(&self) {
         let block_format = self.storage.iter().map(|block| format!("{:#066b}", block)).collect::<Vec<_>>();
         println!("blocks: {:?}", block_format);
@@ -1065,6 +1060,9 @@ pub struct K96;
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K80;
 
+/// Marker struct for generating K=79 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K79;
 /// Marker struct for generating K=63 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K63;
@@ -1545,7 +1543,7 @@ use super::*;
     #[test]
     fn test_kmer_112() {
         for _ in 0..10000 {
-            check_kmer::<VarLenKmer<u64, 4, K112>>();
+            check_kmer::<VarLenKmer<u32, 7, K112>>();
         }
     }
 
@@ -1559,7 +1557,14 @@ use super::*;
     #[test]
     fn test_kmer_80() {
         for _ in 0..10000 {
-            check_kmer::<VarLenKmer<u64, 3, K80>>();
+            check_kmer::<VarLenKmer<u32, 5, K80>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_79() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u32, 5, K79>>();
         }
     }
 
