@@ -192,6 +192,7 @@ pub type Kmer3 = VarIntKmer<u8, K3>;
 pub type Kmer2 = VarIntKmer<u8, K2>;
 
 
+
 /// Trait for specialized integer operations used in DeBruijn Graph
 pub trait IntHelp: PrimInt + FromPrimitive + Hash + Serialize + Display + Debug + Binary {
     /// Reverse the order of 2-bit units of the integer
@@ -793,13 +794,11 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
     }
 
     fn to_u64(&self) -> u64 {
-        T::to_u64(&self.storage[0]).unwrap()
+        unimplemented!() // cant really turn the array into an u64
     }
 
     fn from_u64(v: u64) -> Self {
-        let mut out = VarLenKmer::empty();
-        out.storage[LEN-1] = Self::t_from_u64(v);
-        out
+        unimplemented!() // cant really turn the u64 into an array
     }
 
     /// Shift the base v into the left end of the kmer
@@ -863,21 +862,12 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
 }
 
 impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T, LEN, KS> {
-    pub fn print_blocks(&self) {
-        let block_format = self.storage.iter().map(|block| format!("{:#066b}", block)).collect::<Vec<_>>();
-        println!("blocks: {:?}", block_format);
-    }
-    
     fn to_byte(v: T) -> u8 {
         T::to_u8(&v).unwrap()
     }
 
     fn t_from_byte(v: u8) -> T {
         T::from_u8(v).unwrap()
-    }
-
-    fn t_from_u64(v: u64) -> T {
-        T::from_u64(v).unwrap()
     }
 
     /// get the (block, bit) for the position in the k-mer
@@ -950,12 +940,6 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T
             T::zero()
         }
     }
-
-    #[inline(always)]
-    pub fn bottom_mask(_n_bases: usize) -> T {
-        unimplemented!()
-    }
-   
 }
 
 impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarLenKmer<T, LEN, KS> {
@@ -1292,9 +1276,13 @@ pub struct K4;
 /// Marker trait for generating K=3 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K3;
-/// Marker trait for generating K=6 Kmers
+/// Marker trait for generating K=2 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K2;
+
+/// Marker trait for generating K=0 Kmers (for testing)
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+struct K0;
 
 #[cfg(test)]
 mod tests {
@@ -1303,6 +1291,7 @@ use std::fmt::Debug;
 use super::*;
     use crate::vmer::Lmer;
     use rand::{self, Rng, RngCore};
+use rayon::iter::empty;
 
     use crate::MerImmut;
     use crate::Vmer;
@@ -2013,21 +2002,12 @@ use super::*;
     }
 
     #[test]
-    fn test_new_kmer() {
-        let mut kmer = VarLenKmer::<u64, 4, K128>::empty();
-
-        println!("{:?}", kmer);
-        for base in [0, 1, 2, 3] {
-            kmer.set_mut(base as usize, base);
-            println!("{:?}", kmer);
-        }
-
-        println!("{:?}", kmer.rc());
-
-        let mut other_kmer = IntKmer::<u32>::empty();
-        for base in [0, 1, 2, 3] {
-            other_kmer.set_mut(base as usize, base);
-        }
-        println!("{:?}", other_kmer)
+    fn test_is_empty() {
+        let kmer = IntKmer::<u8>::empty();
+        assert!(!kmer.is_empty()); // cant be empty
+        let kmer = VarIntKmer::<u8, K0>::empty();
+        assert!(kmer.is_empty());
+        let kmer = VarLenKmer::<u8, 0, K0>::empty();
+        assert!(kmer.is_empty());
     }
 }
