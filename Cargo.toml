@@ -30,6 +30,8 @@ textwrap = "0.16.2"
 bio = "2.3.0"
 rand = "0.5"
 summarydata-derive = { version = "0.1.0", path = "summarydata-derive" }
+kmersize-derive = { version = "0.1.0", path = "kmersize-derive" }
+serde-big-array = "0.5.1"
 
 [dev-dependencies]
 pretty_assertions = "1.3"
