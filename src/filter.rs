@@ -280,6 +280,7 @@ DI: Clone + Copy + Send + Sync
 
     let capacities = Arc::new(Mutex::new(vec![[0; BUCKETS]; n_threads]));
     let unique_kmers = Arc::new(Mutex::new(vec![HashSet::<K>::new(); n_threads]));
+    let too_short_reads = Arc::new(Mutex::new(0));
 
     let pb_size_buckets = multi_pb.add(ProgressBar::new(seqs.n_reads() as u64));
     pb_size_buckets.set_style(style.clone());
@@ -290,11 +291,12 @@ DI: Clone + Copy + Send + Sync
         // first go trough all kmers to find the length of all buckets (to reserve capacity)
         let mut thread_capacities = [0usize; BUCKETS];
         let mut thread_kmers = HashSet::new();
+        let mut threads_too_short_reads = 0;
         for ref read in seqs.iter_partial(range.clone())
         { 
             // add the required capacities to the respective buckets
             add_seq_bucket_capacities(read, &mut thread_capacities, &mut thread_kmers);
-
+            if read.seq().len() < K::k() { threads_too_short_reads += 1 };
             pb_size_buckets.inc(1);
         }
 
@@ -303,10 +305,21 @@ DI: Clone + Copy + Send + Sync
 
         let mut u_kmers = unique_kmers.lock().expect("error locking coverages mutex");
         u_kmers[i] = thread_kmers;
+
+        let mut tsr = too_short_reads.lock().expect("error locking n short reads");
+        *tsr += threads_too_short_reads;
     });
 
-    let capacities = capacities.lock().expect("error in final lock capacites");
+    let capacities = capacities.lock().expect("error in final lock capacities");
     let input_kmers = capacities.iter().flatten().sum::<usize>();
+    let too_short_reads = *too_short_reads.lock().expect("error in last lock n short reads");
+
+    if too_short_reads > 0 {
+        warn!("{too_short_reads} out of {} reads will be skipped in graph construction because they are shorter than k", seqs.n_reads());
+    }
+    if too_short_reads >= seqs.n_reads() {
+        panic!("none of the reads were longer than k, aborting")
+    }
 
     let mut unique_kmers = unique_kmers.lock().expect("error final lock coverages");
 
@@ -613,11 +626,19 @@ where
 
     // also track coverage to predict final graph size
     let mut unique_kmers = HashSet::<K>::new();
+    let mut too_short_reads = 0;
 
-    for ref read in seqs.iter().progress_with(pb)         
-    {
+    for ref read in seqs.iter().progress_with(pb) {
         // add the required capacities to the respective buckets
-            add_seq_bucket_capacities(read, &mut capacities, &mut unique_kmers);
+        add_seq_bucket_capacities(read, &mut capacities, &mut unique_kmers);
+        if read.seq().len() < K::k()  { too_short_reads += 1}
+    }
+
+    if too_short_reads > 0 {
+        warn!("{too_short_reads} out of {} reads will be skipped in graph construction because they are shorter than k", seqs.n_reads());
+    }
+    if too_short_reads >= seqs.n_reads() {
+        panic!("none of the reads were longer than k, aborting")
     }
     
     debug!("kmer capacities: {:?}, times {}", capacities, mem::size_of::<(K, Exts, DI)>());
@@ -676,8 +697,7 @@ where
         pb.set_style(style.clone());
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
-        for ref read in seqs.iter().progress_with(pb)             
-        {
+        for ref read in seqs.iter().progress_with(pb) {
             // iterate trough all kmers in seq
             for (kmer, exts, quality) in read.iter_kmer_exts_quality::<K>() {
                 // if needed, flip kmer and exts
@@ -852,7 +872,7 @@ pub fn remove_censored_exts<K: Kmer, D>(stranded: bool, valid_kmers: &mut [(K, (
 #[cfg(test)]
 mod tests {
     use boomphf::hashmap::BoomHashMap2;
-    use crate::{dna_string::DnaString, filter::*, kmer::{Kmer2, Kmer6}, reads::Reads, summarizer::{SampleInfo, TagsSumData}, test::{random_dna, random_kmer}, Exts};
+    use crate::{Exts, dna_string::DnaString, filter::*, kmer::{Kmer2, Kmer6, Kmer80}, reads::Reads, summarizer::{SampleInfo, TagsSumData}, test::{random_dna, random_kmer}};
 
     #[test]
     fn test_filter_kmers() {
@@ -917,6 +937,41 @@ mod tests {
 
         println!("{:?}", hm);
 
+    }
+
+    #[test]
+    fn test_filter_kmers_parallel_k80() {
+        /* let fastq = [
+            (DnaString::from_dna_string("AAAAATTT"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("TTTTTTTTTTAAAAAA"), Exts::empty(), 6u8),
+            (DnaString::from_dna_string("AAAAAAAAAAAAA"), Exts::empty(), 7u8),
+        ];
+
+        let mut reads = Reads::new();
+
+        for (read, exts, data) in fastq {
+            reads.add_read(read, exts, data);
+
+        } */
+
+        let mut reads = Reads::new(crate::reads::Strandedness::Unstranded);
+
+        for _i in 0..10000 {
+            let dna = random_dna(150);
+            reads.add_from_bytes(&dna, None, 0u8);
+        }
+
+        let sample_info = SampleInfo::new(0, 0, Vec::new());
+        let config = SummaryConfig::new(sample_info.clone()).with_stat_test(crate::summarizer::StatTest::StudentsTTest);
+
+
+        let (_hm, _): (BoomHashMap2<Kmer80, Exts, TagsSumData>, Vec<_>) = filter_kmers_parallel(
+            &ReadsPaired::Unpaired { reads }, 
+            &config,
+            false, 
+            1.,
+            false,         
+        );
     }
 
 

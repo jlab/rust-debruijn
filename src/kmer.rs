@@ -964,11 +964,21 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarL
     }
 
     /// Set a slice of bases in the kmer, using the packed representation in value.
-    /// Sets n_bases, starting at pos. Incoming bases must always be packed into the upper-most
+    /// Sets n_bases, starting at pos. Incoming bases must always be packed into the front
     /// bits of the value.
     #[inline(always)]
-    fn set_slice_mut(&mut self, _pos: usize, _n_bases: usize, _value: u64) {
-        unimplemented!()
+    fn set_slice_mut(&mut self, pos: usize, n_bases: usize, value: u64) {
+        // turn the value slice into a 32 b k-mer
+        let slice = IntKmer::<u64>::from_u64(value);
+
+        // iterate over bases which should be transferred
+        for i in  0..n_bases {
+            let kmer_pos = i + pos;
+            let slice_pos = i;
+
+            let val = slice.get(slice_pos);
+            self.set_mut(kmer_pos, val);
+        }
     }
 
     /// Return the reverse complement of this kmer
@@ -1171,6 +1181,9 @@ pub struct K34;
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K33;
 
+/// Marker trait for generating K=32 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K32;
 /// Marker trait for generating K=31 Kmers
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K31;
@@ -2009,5 +2022,31 @@ use rayon::iter::empty;
         assert!(kmer.is_empty());
         let kmer = VarLenKmer::<u8, 0, K0>::empty();
         assert!(kmer.is_empty());
+    }
+
+    #[test]
+    fn test_extend_left() {
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+
+        for base in [1, 1, 1, 3, 0, 1, 2, 0, 3, 0, 1].iter() {
+            kmer = kmer.extend_left(*base);
+        }
+
+        println!("kmer: {:?}", kmer);
+
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+
+        for base in [1, 1, 1, 3, 0, 1, 2, 0, 3, 0, 1].iter().rev() {
+            kmer = kmer.extend_right(*base);
+        }
+
+        println!("kmer: {:?}", kmer);
+    }
+
+    #[test]
+    fn test_set_mut_slice() {
+        let mut kmer = VarLenKmer::<u8, 3, K12>::empty();
+        kmer.set_slice_mut(3, 4, 0b01110111);
+        println!("{:?}", kmer);
     }
 }
