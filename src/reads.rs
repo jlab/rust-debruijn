@@ -5,8 +5,8 @@
 //! Use [`Strandedness`] to convey if the reads are stranded and if so, in which direction.
 //! 
 //! The generic `D` is the type of the data stored with each read. It is recommended to use [`Tag`] or [`IDTag`], 
-//! since these will be compatible with the [`SummaryData`] used during graph construction.
-//! Which of the two you should use depends on the [`SummaryData`] implementation used.
+//! since these will be compatible with the [`SummaryData`](crate::summarizer::SummaryData) used during graph construction.
+//! Which of the two you should use depends on the [`SummaryData`](crate::summarizer::SummaryData) implementation used.
 //! 
 //! ```
 //! use debruijn::reads::{ReadsPaired, Strandedness, Reads};
@@ -58,11 +58,7 @@
 //! 
 //! // to turn a combined ReadsPaired into a paired one:
 //! reads_combined.decombine();
-//! ``` 
-
-
-use crate::summarizer::SummaryData;
-
+//! ```
 
 use std::collections::HashMap;
 use std::mem::take;
@@ -121,6 +117,9 @@ impl<D: Clone + Copy> Read<D> {
         self.strand
     }
 
+    /// Iterate over the k-mers in the reads, with their extensions and the quality.
+    /// The k-mer quality is the lowest of the qualities of the bases in the k-mer. 
+    /// If there is no quality available for the `Read`, the items will contain `None` instead.
     pub fn iter_kmer_exts_quality<'a, K: Kmer + 'a>(&'a self) -> Box<dyn Iterator<Item = (K, Exts, Option<BaseQuality>)> + 'a> {
         if let Some(quality) = self.quality.as_ref() {
             Box::new(self.seq()
@@ -161,24 +160,23 @@ impl<D> PairedRead<D> {
 }
 
 /// Store many DNA sequences together with an Exts and data each compactly packed together
-/// 
-/// #### fields:
-/// 
-/// * `storage`: `Vec` with 2-bit encoded DNA bases of all sequences
-/// * `ends`:  `Vec` with the ends (exclusive) of the separate sequences in the `Reads`
-/// * `exts`: `Option<Vec>` with one Exts for each sequence
-/// * `data`: `Vec` with data for each sequence
-/// * `len`: length of all sequences together
-/// * `stranded`: [`Stranded`] conveying the strandedness and direction of the reads
 #[derive(Ord, PartialOrd, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct Reads<D> {
+    /// `Vec` with 2-bit encoded DNA bases of all sequences
     storage: Vec<u64>,
+    /// Vec` with the ends (exclusive) of the separate sequences in the `Reads`
     ends: Vec<usize>,
+    /// `Option<Vec>` with one Exts for each sequence
     exts: Option<Vec<Exts>>,
+    /// a `Vec` with 2-bit encoded binned quality scores for the sequences (optional)
     quality: Option<Vec<u64>>,
+    /// `Vec` with data for each sequence
     data: Vec<D>,
+    ///  length of all sequences together
     len: usize,
+    /// [`Strandedness`] conveying the strandedness and direction of the reads
     stranded: Strandedness,
+    /// a [`QualityBins`] dictating how the phred scores are binned into a [`BaseQuality`]
     quality_bins: QualityBins
 
 }

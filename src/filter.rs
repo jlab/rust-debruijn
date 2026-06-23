@@ -211,7 +211,6 @@ where I: Iterator<Item = (usize, usize)>
 /// use debruijn::reads::{Reads, ReadsPaired, Strandedness};
 /// use debruijn::filter::filter_kmers_parallel;
 /// use debruijn::kmer::Kmer16;
-/// use debruijn::Exts;
 /// 
 /// let mut seqs = Reads::new(Strandedness::Unstranded);
 /// seqs.add_from_bytes("ACCGATCATATATTTTCGGGGCTAGGCGAAGCGATCTTATCGAGC".as_bytes(), None, 1u8);

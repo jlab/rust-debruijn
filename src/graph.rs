@@ -6,7 +6,7 @@
 //! Usually, the [`BaseGraph`] should be wrapped in a [`DebruijnGraph<K, D>`], which also contains hashed start and end k-mers
 //! for each compressed sequence. This allows efficient walking of the graph.
 //! 
-//! A [`DebruijnGraph`] can be generated from a [`BoomHashMap`], which is constructed by [`crate::filter::filter_kmers`] as follows:
+//! A [`DebruijnGraph`] can be generated from a [`BoomHashMap`], which is constructed by [`filter_kmers`](crate::filter::filter_kmers) as follows:
 //! 
 //! ```
 //! # use debruijn::build_test_graph;
@@ -238,7 +238,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
 /// The struct carries sorted index arrays the allow the graph
-/// to be walked efficiently.
+/// to be walked efficiently. See [`graph`]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebruijnGraph<K: Hash, D> {
     pub base: BaseGraph<K, D>,
