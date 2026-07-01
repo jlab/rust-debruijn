@@ -32,9 +32,6 @@ use std::path::Path;
 
 use boomphf::hashmap::BoomHashMap;
 
-use serde_json;
-use serde_json::Value;
-
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 

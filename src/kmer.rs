@@ -338,14 +338,17 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp + Sized> IntKmer<T> {
         T::one() << 1 | T::one()
     }
 
+    #[inline(always)]
     fn to_byte(v: T) -> u8 {
         T::to_u8(&v).unwrap()
     }
 
+    #[inline(always)]
     fn t_from_byte(v: u8) -> T {
         T::from_u8(v).unwrap()
     }
 
+    #[inline(always)]
     fn t_from_u64(v: u64) -> T {
         T::from_u64(v).unwrap()
     }
@@ -402,6 +405,7 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp> Mer for IntKmer<T> {
     }
 
     /// Get the letter at the given position.
+    #[inline(always)]
     fn get(&self, pos: usize) -> u8 {
         let bit = self.addr(pos);
         Self::to_byte(self.storage >> bit & Self::msk())
@@ -478,6 +482,7 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp> Kmer for IntKmer<T> {
         Self::_k()
     }
 
+    #[inline(always)]
     fn from_u64(v: u64) -> IntKmer<T> {
         IntKmer {
             storage: Self::t_from_u64(v),
@@ -870,6 +875,10 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T
         T::from_u8(v).unwrap()
     }
 
+    fn t_from_u64(v: u64) -> T {
+        T::from_u64(v).unwrap()
+    }
+
     /// get the (block, bit) for the position in the k-mer
     /// 
     /// bits start counting from the back
@@ -952,12 +961,14 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarL
         Self::_k() == 0
     }
 
+    #[inline(always)]
     /// Get the letter at the given position.
     fn get(&self, pos: usize) -> u8 {
         let (block, bit) = self.addr(pos);
         self.get_by_addr(block, bit)
     }
 
+    #[inline(always)]
     fn set_mut(&mut self, pos: usize, v: u8) {
         let (block, bit) = self.addr(pos);
         self.set_by_addr(block, bit, v);
@@ -968,16 +979,60 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarL
     /// bits of the value.
     #[inline(always)]
     fn set_slice_mut(&mut self, pos: usize, n_bases: usize, value: u64) {
+        /* let one = T::one();
+        let value_bits = n_bases * 2;
+        // get starting address
+        let (start_block, start_bit) = self.addr(pos);
+        let start_bits = start_bit + 2;
+        let rest_bits = value_bits.saturating_sub(start_bits);
+        let middle_blocks = rest_bits / Self::t_bits();
+        let back_bits = rest_bits.checked_rem(middle_blocks).unwrap_or(rest_bits);
+
+        // if the slice fits into the first block, with some room in the back -> mask the back
+        let gap = start_bits.saturating_sub(value_bits);
+        let gap_mask = if value_bits < start_bit { (one << gap) - one } else { T::zero() };
+        // move first subslice to back, cast to T, then move back up by the gap
+        let first_subslice = Self::t_from_u64(value >> (64 - (start_bits - gap))) << gap;
+
+        // create mask to clear old bits in block, ignore potential back bits
+        let first_mask = if start_bits == Self::t_bits() {
+            !gap_mask
+        } else {
+            ((one << start_bits) - one) & !gap_mask
+        };
+        // clear old bits from block, and add starting slice
+        self.storage[start_block] = (self.storage[start_block] & !first_mask) | first_subslice;
+
+        if middle_blocks == 0 && back_bits == 0 { return; } // we are done
+
+        // for each full block, extract subslice into T and replace block (in case of T u128 there are no middle blocks)
+        let end_middle_block = start_block + middle_blocks;
+        let t_mask = u64::MAX.checked_shl(Self::t_bits() as u32).unwrap_or(0);
+
+        for (i, full_block) in ((start_block+1)..(end_middle_block+1)).enumerate() {
+            // move relevant bits to back of value  and apply mask
+            let subslice = (value >> (64 - start_bits - Self::t_bits() * i)) & !t_mask;
+            // cast into T and replace block
+            self.storage[full_block] = Self::t_from_u64(subslice);
+        }
+
+        // insert back bits
+        if back_bits > 0 {
+            let back_gap_mask = (one << (Self::t_bits() - back_bits)) - one;
+            // shift last bits to end of value, and then back to the start of T
+            let subslice = Self::t_from_u64(value >> (64 - value_bits) & !t_mask);
+            let subslice = subslice << (Self::t_bits() - back_bits);
+            let end_block = end_middle_block + 1;
+
+            self.storage[end_block] = (self.storage[end_block] & back_gap_mask) | subslice;
+        } */
         // turn the value slice into a 32 b k-mer
         let slice = IntKmer::<u64>::from_u64(value);
 
         // iterate over bases which should be transferred
         for i in  0..n_bases {
-            let kmer_pos = i + pos;
-            let slice_pos = i;
-
-            let val = slice.get(slice_pos);
-            self.set_mut(kmer_pos, val);
+            let val = slice.get(i);
+            self.set_mut(i + pos, val);
         }
     }
 
@@ -1297,14 +1352,18 @@ pub struct K2;
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 struct K0;
 
+/// Marker trait for generating K=0 Kmers (for testing)
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+struct K300;
+
 #[cfg(test)]
 mod tests {
 use std::fmt::Debug;
+use std::time;
 
 use super::*;
     use crate::vmer::Lmer;
     use rand::{self, Rng, RngCore};
-use rayon::iter::empty;
 
     use crate::MerImmut;
     use crate::Vmer;
@@ -2045,8 +2104,59 @@ use rayon::iter::empty;
 
     #[test]
     fn test_set_mut_slice() {
-        let mut kmer = VarLenKmer::<u8, 3, K12>::empty();
-        kmer.set_slice_mut(3, 4, 0b01110111);
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+        kmer.set_slice_mut(3, 28, 0b01110111010101011111111101010101111111110000000010101010 << 8);
         println!("{:?}", kmer);
+    }
+
+
+    #[test]
+    fn test_varlenkmer_speed() {
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = VarLenKmer::<u32, 2, K31>::empty();
+            kmer.set_slice_mut(6, 15, 0b010101010101010101010101010101);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set slice mut, var len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = Kmer31::empty();
+            kmer.set_slice_mut(6, 15, 0b010101010101010101010101010101);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set slice mut, con len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = VarLenKmer::<u32, 2, K31>::empty();
+            kmer.set_mut(5, 1);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set mut, var len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = Kmer31::empty();
+            kmer.set_mut(5, 1);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set mut, con len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let kmer = Kmer64::from_u64(17);
+            for i in 6..21 {
+                kmer.get(i);
+            }
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("from u64, get f u64: {af}"); 
+    }
+
+        #[test]
+    fn test_shift() {
+        VarIntKmer::<u64, K32>::bottom_mask(32 );
     }
 }

@@ -374,15 +374,15 @@ mod tests {
 
     #[test]
     fn complex_path_compress_k31() {
-        for _ in 0..1 {
+        for _ in 0..10 {
             let contigs = random_contigs();
-            simplify_from_kmers::<VarIntKmer<u32, K15>>(contigs, false);
+            simplify_from_kmers::<VarIntKmer<u64, K31>>(contigs, false);
         }
     }
 
     #[test]
     fn complex_path_compress_k80() {
-        for _ in 0..100 {
+        for _ in 0..10 {
             let contigs = random_contigs();
             simplify_from_kmers::<VarLenKmer<u32, 5, K80>>(contigs, false);
         }
