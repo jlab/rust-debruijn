@@ -4,6 +4,7 @@
 
 use bimap::BiHashMap;
 use bio::io::fasta;
+use bio::pattern_matching::myers::BitVec;
 use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
@@ -1766,13 +1767,132 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    /// find basic bubbles in the graph and record the average quality and coverage of both paths
+    /// only considering bubbles of length exactly 2k-1 (one substitution)
+    /// !!! only use for uncompressed path
+    pub fn find_basic_bubbles<P: AsRef<Path>, DI>(&self, path: P) -> Result<(), std::io::Error> 
+    where SD: SummaryData<DI>
+    {
+        let mut writer = BufWriter::new(File::create(path)?);
+
+        let mut visited = BitSet::new();
+
+        for (start_node_id, start_dir) in (0..(self.len())).flat_map(|node_id| [(node_id, Dir::Right), (node_id, Dir::Left)]) {
+            let mut paths = Vec::new();
+
+            let start_node = self.get_node(start_node_id);
+
+            let out_edges = start_node.edges(start_dir);
+
+            if out_edges.len() <= 1 { continue; }
+
+            // for each out edge, start a path
+            for (out_base, next_node_id, next_in_dir, _) in out_edges {
+                let next_node_data = self.get_node(next_node_id).data();
+                let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_dir);
+                let node_quality = next_node_data.quality().expect("should have edge quality");
+                let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
+                paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported)]);
+            }
+
+            // container for temp new paths (should get emptied each iteration)
+            let mut new_paths = Vec::new();
+
+            // then, extend each path by one
+            // we expect k nodes in the bubble path, plus the final node where the paths should reconvene
+            let mut path_length = 1;
+            while path_length <= K::k() {
+                let mut remove_paths = Vec::new();
+
+                for (i, path) in paths.iter_mut().enumerate() {
+                    let (last_node_id, last_in_dir, _, _, _) = path.last().unwrap();
+                    let last_node = self.get_node(*last_node_id);
+                    let out_edges = self.get_node(*last_node_id).edges(last_in_dir.flip());
+
+                    // if we do not have any out edges, path is invalid, remove from paths and move to next path
+                    if out_edges.is_empty() {
+                        remove_paths.push(i);
+                        continue;
+                    }
+
+                    // if we have multiple out edges, split (duplicate) the path with for edge
+                    for edge_i in 1..out_edges.len() {
+                        let (out_base, next_node_id, next_in_dir, _) = out_edges[edge_i];
+                        let next_node_data = self.get_node(next_node_id).data();
+                        let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, next_in_dir);
+                        let node_quality = next_node_data.quality().expect("should have edge quality");
+                        let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
+                        // clone path for all edges except first, store in new_paths to be added to paths later
+                        let mut new_path = path.clone();
+                        new_path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+                        new_paths.push(new_path);
+                    }
+                    // push first edge into original path
+                    let (out_base, next_node_id, next_in_dir, _) = out_edges[0];
+                    let next_node_data = self.get_node(next_node_id).data();
+                    let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, next_in_dir);
+                    let node_quality = next_node_data.quality().expect("should have edge quality");
+                    let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
+                    path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+
+
+                }
+                // add new paths into paths and remove ones that were too short
+                for i in remove_paths.iter().rev() {
+                    paths.remove(*i);
+                }
+                paths.append(&mut new_paths);
+                
+
+                path_length += 1;
+            }
+
+            // we have collected all paths in the radius 2*k
+            // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
+            for bubble_group in paths.chunk_by(|path_a, path_b| path_a.last().unwrap().0 == path_b.last().unwrap().0 ) {
+                // we need at least two paths for a bubble
+                if bubble_group.len() <= 1 { continue; }
+                // and a maximum of four (more than four should not happen anyways)
+                if bubble_group.len() > 4 { panic!("more than four paths in bubble group. paths: {:?}", paths) }
+
+                // if we have already visited the final node, where the bubble paths reconvene, skip
+                let final_id = bubble_group[0].last().unwrap().0;
+                if visited.contains(final_id) { continue; }
+                //println!("bubble_group: {:?}", bubble_group);
+                // remove final node element from paths
+                let mut paths = bubble_group.to_owned();
+                for path in paths.iter_mut() {
+                    let _ = path.pop();
+                }
+
+                // for each bubble member, calculate the average coverage and quality, check if it has any supported nodes
+                let mut avg_coverages = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.2) as f32 / K::k() as f32);
+                let mut avg_qualities = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
+                let mut avg_support = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
+
+                //println!("paths: {:?}", paths);
+                for _i in 0..4 { if let Some(cov) = avg_coverages.next() { print!("{cov},"); } else { print!(","); } }
+                for _i in 0..4 { if let Some(qual) = avg_qualities.next() { print!("{qual},"); } else { print!(","); } }
+                for _i in 0..4 { if let Some(s) = avg_support.next() { print!("{s},"); } else { print!(","); } }
+                println!();
+
+                // TODO transfer to writer and remove last comma
+            }
+
+            visited.insert(start_node_id);
+        }
+
+        Ok(())
+    }
+
+
     /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`. 
     /// The method continues searching on a path for a maximum of (`max_path_fac`` * k - 1).
     pub fn remove_lq_paths<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
-        // check we do indeed have quality and graph is stranded
+        // check we do indeed have quality
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
 
         let min_path = 2 * K::k() - 1;
@@ -1780,7 +1900,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
-            // check if node has multile outs, at least one with bad quality and one with good quality
+            // check if node has multiple outs, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
 
             let good_neighbors = node_out_edges.iter()
@@ -3511,6 +3631,47 @@ mod test {
 
 
         ReadsPaired::Unpaired { reads }
+    }
+
+    #[test]
+    fn test_find_bubbles_s() {
+        test_find_bubbles(true);
+    }
+
+    #[test]
+    fn test_find_bubbles_us() {
+        test_find_bubbles(false);
+    }
+    
+    fn test_find_bubbles(stranded: bool) {
+        let print = true;
+        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
+        type K = Kmer16;
+
+        let seqs = build_reads_quality_test(strandedness);
+        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
+        let summary_config = SummaryConfig::new(sample_info);
+        let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
+
+
+        // make uncompressed graph
+        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
+
+        // add "mapped" ids to graph
+        for i in 0..unc_graph.len() {
+            let data = unc_graph.mut_data(i);
+            if let Some(ids) = data.ids() {
+                if ids.contains(&1) {
+                    data.set_mapped_ids(vec![1].into());
+                }
+                else if ids.contains(&2) {
+                    data.set_mapped_ids(vec![2].into());
+                }
+            }
+        }
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        unc_graph.find_basic_bubbles("bubbles.csv").unwrap();
     }
 
     #[test]
