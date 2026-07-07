@@ -1773,6 +1773,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     pub fn find_basic_bubbles<P: AsRef<Path>, DI>(&self, path: P) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
     {
+        if self.get_node(0).data().quality().is_none() { return Err(std::io::Error::other("no quality scores available")); }
+        if self.get_node(0).data().edge_mults().is_none() { return Err(std::io::Error::other("no edge coverage available")); }
+        if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
+
         let mut writer = BufWriter::new(File::create(path)?);
 
         let mut visited = BitSet::new();
@@ -1853,7 +1857,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { continue; }
                 // and a maximum of four (more than four should not happen anyways)
-                if bubble_group.len() > 4 { panic!("more than four paths in bubble group. paths: {:?}", paths) }
+                if bubble_group.len() > 4 { panic!("more than four paths in bubble group. paths: {:?}", bubble_group) }
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].last().unwrap().0;
