@@ -1781,19 +1781,19 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         let mut visited = BitSet::new();
 
-        for (start_node_id, start_dir) in (0..(self.len())).flat_map(|node_id| [(node_id, Dir::Right), (node_id, Dir::Left)]) {
+        for (start_node_id, start_out_dir) in (0..(self.len())).flat_map(|node_id| [(node_id, Dir::Right), (node_id, Dir::Left)]) {
             let mut paths = Vec::new();
 
             let start_node = self.get_node(start_node_id);
 
-            let out_edges = start_node.edges(start_dir);
+            let out_edges = start_node.edges(start_out_dir);
 
             if out_edges.len() <= 1 { continue; }
 
             // for each out edge, start a path
             for (out_base, next_node_id, next_in_dir, _) in out_edges {
                 let next_node_data = self.get_node(next_node_id).data();
-                let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_dir);
+                let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_out_dir);
                 let node_quality = next_node_data.quality().expect("should have edge quality");
                 let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
                 paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported)]);
@@ -1823,7 +1823,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     for edge_i in 1..out_edges.len() {
                         let (out_base, next_node_id, next_in_dir, _) = out_edges[edge_i];
                         let next_node_data = self.get_node(next_node_id).data();
-                        let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, next_in_dir);
+                        let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                         let node_quality = next_node_data.quality().expect("should have edge quality");
                         let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
                         // clone path for all edges except first, store in new_paths to be added to paths later
@@ -1834,7 +1834,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // push first edge into original path
                     let (out_base, next_node_id, next_in_dir, _) = out_edges[0];
                     let next_node_data = self.get_node(next_node_id).data();
-                    let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, next_in_dir);
+                    let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                     let node_quality = next_node_data.quality().expect("should have edge quality");
                     let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
                     path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported));
