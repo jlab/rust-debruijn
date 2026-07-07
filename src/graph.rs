@@ -1778,6 +1778,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
         let mut writer = BufWriter::new(File::create(path)?);
+        writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3")?;
 
         let mut visited = BitSet::new();
 
@@ -1862,7 +1863,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].last().unwrap().0;
                 if visited.contains(final_id) { continue; }
-                //println!("bubble_group: {:?}", bubble_group);
+
                 // remove final node element from paths
                 let mut paths = bubble_group.to_owned();
                 for path in paths.iter_mut() {
@@ -1874,11 +1875,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut avg_qualities = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
                 let mut avg_support = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
 
-                //println!("paths: {:?}", paths);
-                for _i in 0..4 { if let Some(cov) = avg_coverages.next() { print!("{cov},"); } else { print!(","); } }
-                for _i in 0..4 { if let Some(qual) = avg_qualities.next() { print!("{qual},"); } else { print!(","); } }
-                for _i in 0..4 { if let Some(s) = avg_support.next() { print!("{s},"); } else { print!(","); } }
-                println!();
+                for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov},")?; } else {  write!(writer, ",")?; } }
+                for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual},")?; } else {  write!(writer, ",")?; } }
+                for _i in 0..3 { if let Some(s) = avg_support.next() {  write!(writer, "{s},")?; } else {  write!(writer, ",")?; } }
+                if let Some(s) = avg_support.next() { writeln!(writer, "{s}")?; } else {  writeln!(writer)?; } // last one with \n instead of ,
 
                 // TODO transfer to writer and remove last comma
             }
