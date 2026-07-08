@@ -161,7 +161,7 @@ impl<D: Clone + Copy> Reads<D> {
     pub fn mem(&self) -> usize {
         let exts_size = if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
         let quality_size_inner = if let Some(q) = self.quality.as_ref() {
-            size_of_val(&*q)
+            size_of_val(&**q)
         } else {
             0
         };
