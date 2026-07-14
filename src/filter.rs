@@ -698,8 +698,14 @@ where
         pb.set_message(format!("{:<32}", "filling buckets with kmers"));
 
         for ref read in seqs.iter().progress_with(pb) {
+            let kmer_iter = if summary_config.random_quality {
+                read.iter_kmer_exts_random_quality::<K>()
+            } else {
+                read.iter_kmer_exts_quality::<K>()
+            };
+
             // iterate trough all kmers in seq
-            for (kmer, exts, quality) in read.iter_kmer_exts_quality::<K>() {
+            for (kmer, exts, quality) in kmer_iter {
                 // if needed, flip kmer and exts
                 // check if bucket is in current range and if so, push kmer to bucket
                 if let Some((min_kmer, flip_exts, bucket)) = bucket_ext_flip(kmer, exts, read.stranded(), bucket_range.clone()) {

@@ -202,7 +202,8 @@ pub struct SummaryConfig {
     stat_test: StatTest,
     stat_test_changed: bool,
     min_quality: BaseQuality,
-    min_quality_for_edge: BaseQuality
+    min_quality_for_edge: BaseQuality,
+    pub random_quality: bool,
 }
 
 impl SummaryConfig {
@@ -229,6 +230,7 @@ impl SummaryConfig {
             stat_test_changed: false,
             min_quality: BaseQuality::NoCall,
             min_quality_for_edge: BaseQuality::NoCall,
+            random_quality: false
         }
     }
 
@@ -339,6 +341,18 @@ impl SummaryConfig {
     /// edges to be counted
     pub fn set_min_quality_for_edge(&mut self, min_quality_for_edge: BaseQuality) {
         self.min_quality_for_edge = min_quality_for_edge;
+    }
+
+    /// instead of using the quality from the reads, generate a random quality 
+    /// score out of 1, 2, 3 for each kmer
+    pub fn with_random_quality(&self) -> Self {
+        let mut config = self.clone();
+        config.set_random_quality(true);
+        config
+    }
+
+    fn set_random_quality(&mut self, random_quality: bool) {
+        self.random_quality = random_quality
     }
 
     /// get the binary encoded group affiliation of tags
@@ -1466,7 +1480,8 @@ mod test {
             .with_min_quality(crate::BaseQuality::Marginal)
             .with_min_quality_for_edge(crate::BaseQuality::Medium)
             .with_significant(Some(4))
-            .with_stat_test(summarizer::StatTest::StudentsTTest);
+            .with_stat_test(summarizer::StatTest::StudentsTTest)
+            .with_random_quality();
 
         let config2 = SummaryConfig {
             min_kmer_obs: 2,
@@ -1478,7 +1493,8 @@ mod test {
             stat_test: summarizer::StatTest::StudentsTTest,
             stat_test_changed: false,
             min_quality: crate::BaseQuality::Marginal,
-            min_quality_for_edge: crate::BaseQuality::Medium
+            min_quality_for_edge: crate::BaseQuality::Medium,
+            random_quality: true,
         };
 
         assert_eq!(config1, config2)

@@ -30,6 +30,8 @@
 
 use bimap::BiMap;
 use clap::ValueEnum;
+use rand::Rng;
+use rand::rngs::ThreadRng;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
@@ -1623,6 +1625,16 @@ impl QualityVec {
         }
     }
 
+    fn iter_k_random_q<K: Kmer>(&'_ self) -> KRandomQualityIter<'_, K> {
+        KRandomQualityIter { 
+            quality_vec: self, 
+            start_pos: 0, 
+            phantom_data: PhantomData,
+            rng: rand::thread_rng()
+        }
+    }
+
+
     fn len(&self) -> usize {
         self.storage.len()
     }
@@ -1659,6 +1671,28 @@ impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
 
             self.start_pos += 1;
             Some(*quality)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct KRandomQualityIter<'a, K: Kmer> {
+    quality_vec: &'a QualityVec,
+    start_pos: usize,
+    phantom_data: PhantomData<K>,
+    rng: ThreadRng,
+
+}
+
+impl<K: Kmer> Iterator for KRandomQualityIter<'_, K> {
+    type Item = BaseQuality;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let end_pos = self.start_pos + K::k();
+        if end_pos <= self.quality_vec.len() {
+            let quality = BaseQuality::from_u64(self.rng.gen_range(1, 4) as u64);
+            Some(quality)
         } else {
             None
         }
