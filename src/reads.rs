@@ -71,23 +71,6 @@ impl<D: Clone + Copy> Read<D> {
                 .map(|(kmer, exts)| (kmer, exts, None)))
         }
     }
-
-    pub fn iter_kmer_exts_random_quality<'a, K: Kmer + 'a>(&'a self) -> Box<dyn Iterator<Item = (K, Exts, Option<BaseQuality>)> + 'a> {
-        if let Some(quality) = self.quality.as_ref() {
-            Box::new(self.seq()
-                .iter_kmer_exts::<K>(self.exts)
-                .zip(quality
-                    .iter_k_random_q::<K>()
-                    .map(Some)
-                )
-                .map(|((kmer, exts), quality)| (kmer, exts, quality))
-            )
-        } else {
-            Box::new(self.seq()
-                .iter_kmer_exts::<K>(self.exts)
-                .map(|(kmer, exts)| (kmer, exts, None)))
-        }
-    }
 }
 
 /// two paired sequencing reads

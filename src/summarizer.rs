@@ -5,6 +5,7 @@ use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
 use summarydata_derive::SummaryData;
 use crate::{BaseQuality, EdgeMap, EdgeMult, Exts, Kmer, KmerDataItem, Tags};
 use std::{cmp::min_by, collections::HashMap, error::Error, fmt::{Debug, Display}, mem};
+use rand::Rng;
 
 /// inner type for [`Tags`] and group markers
 #[cfg(not(feature = "sample128"))]
