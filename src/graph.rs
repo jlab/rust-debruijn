@@ -1770,14 +1770,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     /// find basic bubbles in the graph and record the average quality and coverage of both paths
     /// only considering bubbles of length exactly 2k-1 (one substitution)
     /// !!! only use for uncompressed path
-    pub fn find_basic_bubbles<P: AsRef<Path>, DI>(&self, path: P) -> Result<(), std::io::Error> 
+    pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, path: P) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
     {
         if self.get_node(0).data().quality().is_none() { return Err(std::io::Error::other("no quality scores available")); }
         if self.get_node(0).data().edge_mults().is_none() { return Err(std::io::Error::other("no edge coverage available")); }
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
-        let mut writer = BufWriter::new(File::create(path)?);
+        let mut writer = BufWriter::new(File::create(&path)?);
         writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3")?;
 
         let mut visited = BitSet::new();
@@ -1858,7 +1858,19 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { continue; }
                 // and a maximum of four (more than four should not happen anyways)
-                if bubble_group.len() > 4 { panic!("more than four paths in bubble group. paths: {:?}", bubble_group) }
+                if bubble_group.len() > 4 {
+                    let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _f)| id).collect::<Vec<_>>();
+                    group_nodes.sort();
+                    group_nodes.dedup();
+                    let dot_path = format!("{:?}-problem_group.dot", path);
+                    self.to_dot_partial(
+                        &dot_path, 
+                        &|node| format!("[label=\"{}\"]", format!("{:?}", node.data()).replace("\"", "\'")),
+                        &|_, _, _, _| String::new(), 
+                        &group_nodes
+                    );
+                    panic!("more than four paths in bubble group. section written as dot file at {dot_path}, paths: {:?}", bubble_group) 
+                }
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].last().unwrap().0;
