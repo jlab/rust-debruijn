@@ -1854,6 +1854,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // we have collected all paths in the radius 2*k
             // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
+            let mut problem_groups_counter = 0;
             for bubble_group in paths.chunk_by(|path_a, path_b| path_a.last().unwrap().0 == path_b.last().unwrap().0 ) {
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { continue; }
@@ -1862,7 +1863,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _f)| id).collect::<Vec<_>>();
                     group_nodes.sort();
                     group_nodes.dedup();
-                    let dot_path = format!("{:?}-problem_group.dot", path);
+                    let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", path);
+                    problem_groups_counter += 1;
                     self.to_dot_partial(
                         &dot_path, 
                         &|node| format!("[label=\"{}\"]", format!("{:?}", node.data()).replace("\"", "\'")),
