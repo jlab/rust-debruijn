@@ -1869,7 +1869,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         &|_, _, _, _| String::new(), 
                         &group_nodes
                     );
-                    panic!("more than four paths in bubble group. section written as dot file at {dot_path}, paths: {:?}", bubble_group) 
+                    warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {dot_path}, paths: {:?}", bubble_group);
+                    continue;
                 }
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
