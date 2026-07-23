@@ -202,8 +202,8 @@ pub struct SummaryConfig {
     max_p: Option<f32>,
     stat_test: StatTest,
     stat_test_changed: bool,
-    min_quality: BaseQuality,
-    min_quality_for_edge: BaseQuality,
+    min_quality: Option<BaseQuality>,
+    min_quality_for_edge: Option<BaseQuality>,
     pub random_quality: bool,
 }
 
@@ -229,8 +229,8 @@ impl SummaryConfig {
             max_p: None, 
             stat_test: StatTest::WelchsTTest, 
             stat_test_changed: false,
-            min_quality: BaseQuality::NoCall,
-            min_quality_for_edge: BaseQuality::NoCall,
+            min_quality: None,
+            min_quality_for_edge: None,
             random_quality: false
         }
     }
@@ -317,7 +317,7 @@ impl SummaryConfig {
     }
 
     /// produce a new `SummaryConfig` which will filter k-mers by their quality
-    pub fn with_min_quality(&self, min_quality: BaseQuality) -> Self {
+    pub fn with_min_quality(&self, min_quality: Option<BaseQuality>) -> Self {
         let mut config = self.clone();
         config.min_quality = min_quality;
         config
@@ -325,14 +325,14 @@ impl SummaryConfig {
 
     /// modify the minimum quality required for each k-mer to be 
     /// included in the graph
-    pub fn set_min_quality(&mut self, min_quality: BaseQuality) {
+    pub fn set_min_quality(&mut self, min_quality: Option<BaseQuality>) {
         self.min_quality = min_quality;
     }
 
     /// produce a new `SummaryConfig` which will keep k-mers from being counted 
     /// if it's quality is too low - should this disconnect the k-mer it will 
     /// still be counted
-    pub fn with_min_quality_for_edge(&self, min_quality_for_edge: BaseQuality) -> Self {
+    pub fn with_min_quality_for_edge(&self, min_quality_for_edge: Option<BaseQuality>) -> Self {
         let mut config = self.clone();
         config.min_quality_for_edge = min_quality_for_edge;
         config
@@ -340,7 +340,7 @@ impl SummaryConfig {
 
     /// modify the minimum quality required for each k-mer observation for its
     /// edges to be counted
-    pub fn set_min_quality_for_edge(&mut self, min_quality_for_edge: BaseQuality) {
+    pub fn set_min_quality_for_edge(&mut self, min_quality_for_edge: Option<BaseQuality>) {
         self.min_quality_for_edge = min_quality_for_edge;
     }
 
@@ -531,11 +531,11 @@ fn summarize_tags<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -
 fn summarize_tags_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) 
 -> TagSummary
 {    
-    // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
+    // filter the k-mer occurrences by their quality -> only use exts and data from k-mers with good enough quality
     let items_filtered = items.filter(|item| 
         match item.quality {
             None => true,
-            Some(q) => q >= config.min_quality_for_edge
+            Some(q) => if let Some(mq) = config.min_quality_for_edge {q >= mq} else { true }
         }
     );
     
@@ -597,7 +597,7 @@ fn summarize_tags_ids_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>
     let items_filtered = items.filter(|item|
         match item.quality {
             None => true,
-            Some(q) => q >= config.min_quality_for_edge
+            Some(q) => if let Some(mq) = config.min_quality_for_edge {q >= mq} else { true }
         }
     );
 
@@ -939,7 +939,9 @@ impl SummaryData<Tag> for u32 {
         let summary = summarize_tags_edge_q(items, config);
 
         let valid_p = valid_p(PInfo::Calculate { tag_vec: &summary.tag_vec, tag_counts: &summary.tag_counts}, config);
-        let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };
+        let valid_q = if let Some(q) = summary.highest_quality { 
+            if let Some(mq) = config.min_quality {q >= mq} else { true }
+         } else {true };
 
         let tags = Tags::from_tag_vec(&summary.tag_vec);
 
@@ -1478,8 +1480,8 @@ mod test {
             .with_group_frac(summarizer::GroupFrac::One, 0.3)
             .with_max_p(Some(0.3))
             .with_min_kmer_obs(2)
-            .with_min_quality(crate::BaseQuality::Marginal)
-            .with_min_quality_for_edge(crate::BaseQuality::Medium)
+            .with_min_quality(Some(crate::BaseQuality::Marginal))
+            .with_min_quality_for_edge(Some(crate::BaseQuality::Medium))
             .with_significant(Some(4))
             .with_stat_test(summarizer::StatTest::StudentsTTest)
             .with_random_quality();
@@ -1493,8 +1495,8 @@ mod test {
             max_p: Some(0.3),
             stat_test: summarizer::StatTest::StudentsTTest,
             stat_test_changed: false,
-            min_quality: crate::BaseQuality::Marginal,
-            min_quality_for_edge: crate::BaseQuality::Medium,
+            min_quality: Some(crate::BaseQuality::Marginal),
+            min_quality_for_edge: Some(crate::BaseQuality::Medium),
             random_quality: true,
         };
 
@@ -1529,7 +1531,7 @@ mod test {
 
         let sample_info = SampleInfo::new(0b10, 0b01, vec![73, 78]);
         let summary_config = SummaryConfig::new(sample_info)
-            .with_min_quality_for_edge(crate::BaseQuality::Medium);
+            .with_min_quality_for_edge(Some(crate::BaseQuality::Medium));
 
         let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
 

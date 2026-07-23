@@ -283,7 +283,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             } else { None };
 
             // quality is valid
-            let valid_q = if has_quality { Some(quote! { && self.quality >= config.min_quality }) }  else { None };
+            let valid_q = if has_quality { Some(quote! { && if let Some(mq) = config.min_quality {self.quality >= mq} else { true } }) }  else { None };
 
             // edge mult methods
             let edge_mults = if has_edge_mults {
@@ -399,10 +399,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     } else {
                         summary.highest_quality.expect("missing quality score - required for summarizer")
                     };
-                    let valid_q = quality >= config.min_quality;
+                    let valid_q = if let Some(mq) = config.min_quality {quality >= mq} else { true };
                 }
             } else {
-                quote! {let valid_q = if let Some(q) = summary.highest_quality { q >= config.min_quality } else {true };}
+                quote! {let valid_q = if let Some(q) = summary.highest_quality { if let Some(mq) = config.min_quality {q >= mq} else { true } } else {true };}
             };
 
             // rename and initialize values so we can construct with just the field names
