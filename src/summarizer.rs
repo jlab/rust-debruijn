@@ -531,7 +531,7 @@ fn summarize_tags<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F) -
 fn summarize_tags_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, Tag>>>(items: F, config: &SummaryConfig) 
 -> TagSummary
 {    
-    // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
+    // filter the k-mer occurrences by their quality -> only use exts and data from k-mers with good enough quality
     let items_filtered = items.filter(|item| 
         match item.quality {
             None => true,
