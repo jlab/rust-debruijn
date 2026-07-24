@@ -1978,7 +1978,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if confirmed_targets.contains(&target) {
                     for path in path_group {
                         if let Err(_err) = self.remove_path(path.clone()) {
-                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. parital path: {:?}", path)
+                            warn!("lq ladder partial path could not be removed, likely cause: loop, edges were already removed. partial path: {:?}", path)
                         }
                     }
                 }
@@ -2100,7 +2100,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // TODO check if better with min_diff_factor
                     // TODO check if we should replace consts with min diff factor
                     let highest_cov = out_edge_coverages.edge_mults.iter().max().unwrap_or(&0);
-                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high; // higer coverage than last edge
+                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - (out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD)) & !c_state_high; // higher coverage than last edge
 
                     // check if we have met end criterium -> save path
                     let len_req = path_length >= min_path; // path long enough
