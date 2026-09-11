@@ -1498,7 +1498,7 @@ mod test {
             frac_cutoff: 0.2,
             sample_info: sample_info.clone(),
             max_p: Some(0.05),
-            stat_test: summarizer::StatTest::WelchsTTest,
+            stat_test: summarizer::StatTest::UTest,
             stat_test_changed: true,
             min_quality: crate::BaseQuality::Medium,
             min_quality_for_edge: crate::BaseQuality::High
