@@ -33,11 +33,17 @@
 //!         Kmer16::from_ascii(b"TACGTACGTACGTACG")
 //!     ]);
 
+use kmersize_derive::KmerSize;
 use num_traits::FromPrimitive;
 use num_traits::PrimInt;
-use serde_derive::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std;
 use std::fmt;
+use std::fmt::Binary;
+use std::fmt::Debug;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
@@ -45,8 +51,19 @@ use crate::bits_to_base;
 use crate::Kmer;
 use crate::Mer;
 
+use serde_big_array::BigArray;
+
 // Pre-defined kmer types
 
+
+/// 128-base kmer, backed by four u64s
+pub type Kmer128 = VarLenKmer<u64, 4, K128>;
+/// 112-base kmer, backed by seven u32s
+pub type Kmer112 = VarLenKmer<u32, 7, K112>;
+/// 96-base kmer, backed by three u64s
+pub type Kmer96 = VarLenKmer<u64, 3, K96>;
+/// 80-base kmer, backed by five u32s
+pub type Kmer80 = VarLenKmer<u32, 5, K80>;
 /// 64-base kmer, backed by a single u128
 pub type Kmer64 = IntKmer<u128>;
 /// 63-base kmer, backed by a single u128
@@ -175,8 +192,9 @@ pub type Kmer3 = VarIntKmer<u8, K3>;
 pub type Kmer2 = VarIntKmer<u8, K2>;
 
 
+
 /// Trait for specialized integer operations used in DeBruijn Graph
-pub trait IntHelp: PrimInt + FromPrimitive {
+pub trait IntHelp: PrimInt + FromPrimitive + Hash + Serialize + Display + Debug + Binary {
     /// Reverse the order of 2-bit units of the integer
     fn reverse_by_twos(&self) -> Self;
 
@@ -311,7 +329,7 @@ impl IntHelp for u8 {
 
 /// A Kmer sequence with a statically know K. K will fill the underlying integer type.
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-pub struct IntKmer<T: PrimInt + FromPrimitive + IntHelp + Sized> {
+pub struct IntKmer<T: IntHelp> {
     pub storage: T,
 }
 
@@ -320,14 +338,17 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp + Sized> IntKmer<T> {
         T::one() << 1 | T::one()
     }
 
+    #[inline(always)]
     fn to_byte(v: T) -> u8 {
         T::to_u8(&v).unwrap()
     }
 
+    #[inline(always)]
     fn t_from_byte(v: u8) -> T {
         T::from_u8(v).unwrap()
     }
 
+    #[inline(always)]
     fn t_from_u64(v: u64) -> T {
         T::from_u64(v).unwrap()
     }
@@ -384,6 +405,7 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp> Mer for IntKmer<T> {
     }
 
     /// Get the letter at the given position.
+    #[inline(always)]
     fn get(&self, pos: usize) -> u8 {
         let bit = self.addr(pos);
         Self::to_byte(self.storage >> bit & Self::msk())
@@ -460,6 +482,7 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp> Kmer for IntKmer<T> {
         Self::_k()
     }
 
+    #[inline(always)]
     fn from_u64(v: u64) -> IntKmer<T> {
         IntKmer {
             storage: Self::t_from_u64(v),
@@ -516,9 +539,9 @@ pub trait KmerSize: Ord + Hash + Copy + fmt::Debug {
 /// bit :  14  12  10 8  6  4  2  0
 ///
 /// sorting the integer will give a lexicographic sorting of the corresponding string.
-///  kmers that don't fill `storage` are always aligned to the least signifcant bits
+///  kmers that don't fill `storage` are always aligned to the least significant bits
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-pub struct VarIntKmer<T: PrimInt + FromPrimitive + IntHelp, KS: KmerSize> {
+pub struct VarIntKmer<T: IntHelp, KS: KmerSize> {
     pub storage: T,
     pub phantom: PhantomData<KS>,
 }
@@ -743,664 +766,609 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp, KS: KmerSize> fmt::Debug for V
     }
 }
 
+trait ValidLen<const LEN: usize> {}
+impl ValidLen<2> for () {}
+/// A fixed-length Kmer sequence that may not fill the bits of T
+///
+/// side:             L           R
+/// bases: 0   0   0  A  C  G  T  T
+/// bits:             H  ........ L
+/// bit :  14  12  10 8  6  4  2  0
+///
+/// sorting the integer will give a lexicographic sorting of the corresponding string.
+///  kmers that don't fill `storage` are always aligned to the least significant bits
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+pub struct VarLenKmer<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> 
+{
+    #[serde(with="BigArray")]
+    pub storage: [T; LEN],
+    pub phantom: PhantomData<KS>,
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for VarLenKmer<T, LEN, KS> {
+    fn empty() -> Self {
+        VarLenKmer {
+            storage: [T::zero(); LEN],
+            phantom: PhantomData,
+        }
+    }
+
+    #[inline]
+    fn k() -> usize {
+        Self::_k()
+    }
+
+    fn to_u64(&self) -> u64 {
+        unimplemented!() // cant really turn the array into an u64
+    }
+
+    fn from_u64(v: u64) -> Self {
+        unimplemented!() // cant really turn the u64 into an array
+    }
+
+    /// Shift the base v into the left end of the kmer
+    fn extend_left(&self, v: u8) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+        // for the back storage block, shift right by two
+        let new_back_block = self.storage[LEN-1] >> 2;
+        new_kmer.storage[LEN-1] = new_back_block;
+
+        // go over the rest of the blocks
+        // should we only have one block, this is skipped
+        for step in (0..(LEN-1)).rev() {
+            // always get the back base of block and attach it to the front of the last one
+            let moved_v = self.get_by_addr(step, 0);
+            new_kmer.set_by_addr(step+1, Self::t_bits()-2, moved_v);
+
+            // then, shift the block by 2 and add it to the new_kmer
+            let new_block = self.storage[step] >> 2;
+            new_kmer.storage[step] = new_block;
+        }
+
+        // finally, add the new base where the k-mer ends in the front block
+        new_kmer.set_mut(0, v);
+        new_kmer
+    }
+
+    /// shift the base v into the right end of the k-mer
+    fn extend_right(&self, v: u8) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+        // for the front storage block, shift left by two with the mask
+        let new_front_block = self.storage[0] << 2 & !Self::unused_bits_mask(0);
+        new_kmer.storage[0] = new_front_block;
+
+        // go over the rest of the blocks
+        // should we only have one block, this is skipped
+        for step in 1..(LEN) {
+            // always get the front base of block and attach it to the back of the last one
+            let moved_v = self.get_by_addr(step, Self::t_bits()-2);
+            new_kmer.set_by_addr(step-1, 0, moved_v);
+
+            // then, shift the block by 2 and add it to the new_kmer
+            let new_block = self.storage[step] << 2;
+            new_kmer.storage[step] = new_block;
+        }
+
+        // finally, add the new base to the last block
+        new_kmer.set_mut(Self::k()-1, v);
+        new_kmer
+    }
+
+    fn hamming_dist(&self, other: Self) -> u32 {
+        let mut dist = 0;
+        for block in 0..LEN {
+            let bit_diffs = self.storage[block] ^ other.storage[block];
+            let two_bit_diffs = (bit_diffs | bit_diffs >> 1) & IntHelp::lower_of_two();
+            dist += two_bit_diffs.count_ones();
+        }
+
+        dist
+    }
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> VarLenKmer<T, LEN, KS> {
+    fn to_byte(v: T) -> u8 {
+        T::to_u8(&v).unwrap()
+    }
+
+    fn t_from_byte(v: u8) -> T {
+        T::from_u8(v).unwrap()
+    }
+
+    fn t_from_u64(v: u64) -> T {
+        T::from_u64(v).unwrap()
+    }
+
+    /// get the (block, bit) for the position in the k-mer
+    /// 
+    /// bits start counting from the back
+    #[inline(always)]
+    fn addr(&self, pos: usize) -> (usize, usize) {
+        let overall_i = (Self::_k() - 1 - pos) * 2;
+        let block = LEN - 1 - (overall_i / Self::t_bits());
+        let bit = overall_i % Self::t_bits();
+        (block, bit)
+    }
+
+    #[inline(always)]
+    fn get_by_addr(&self, block: usize, bit: usize) -> u8 {
+        let mask = Self::t_from_byte(3);
+        Self::to_byte((self.storage[block] >> bit) & mask)
+    }
+
+    #[inline(always)]
+    fn set_by_addr(&mut self, block: usize, bit: usize, value: u8) {
+        let mask = 3;
+        // check that value has only one base, cast to T, and mov to correct position
+        let value = Self::t_from_byte(value & mask) << bit;
+        // remove the old bits from the block
+        let block_mask = Self::t_from_byte(3) << bit;
+        let new_block = self.storage[block] & !block_mask;
+        // add new block with new base into storage
+        self.storage[block] = new_block | value;
+    }
+
+    /// K of this kmer
+    #[inline(always)]
+    fn _k() -> usize {
+        KS::K()
+    }
+
+    /// Bits used by this kmer
+    #[inline(always)]
+    fn _bits() -> usize {
+        Self::_k() * 2
+    }
+
+    /// bits in the data type
+    #[inline(always)]
+    fn _total_bits() -> usize {
+        std::mem::size_of::<T>() * 8 * LEN
+    }
+
+    /// number of bits in the type T
+    #[inline(always)]
+    fn t_bits() -> usize {
+        std::mem::size_of::<T>() * 8
+    }
+
+    // TODO check
+    /// mask the unused bits at the top, plus the requested number of bases
+    #[inline(always)]
+    pub fn unused_bits_mask(n_bases: usize) -> T {
+        let unused_bits = Self::_total_bits() - Self::_bits();
+
+        assert!(unused_bits < Self::t_bits(), "please use a smaller k-mer impl for this k");
+
+        let mask_bits = n_bases * 2 + unused_bits;
+
+        if mask_bits > 0 {
+            let one = T::one();
+            ((one << mask_bits) - one) << (Self::t_bits() - mask_bits)
+        } else {
+            T::zero()
+        }
+    }
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Mer for VarLenKmer<T, LEN, KS> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        Self::_k()
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::_k() == 0
+    }
+
+    #[inline(always)]
+    /// Get the letter at the given position.
+    fn get(&self, pos: usize) -> u8 {
+        let (block, bit) = self.addr(pos);
+        self.get_by_addr(block, bit)
+    }
+
+    #[inline(always)]
+    fn set_mut(&mut self, pos: usize, v: u8) {
+        let (block, bit) = self.addr(pos);
+        self.set_by_addr(block, bit, v);
+    }
+
+    /// Set a slice of bases in the kmer, using the packed representation in value.
+    /// Sets n_bases, starting at pos. Incoming bases must always be packed into the front
+    /// bits of the value.
+    #[inline(always)]
+    fn set_slice_mut(&mut self, pos: usize, n_bases: usize, value: u64) {
+        /* let one = T::one();
+        let value_bits = n_bases * 2;
+        // get starting address
+        let (start_block, start_bit) = self.addr(pos);
+        let start_bits = start_bit + 2;
+        let rest_bits = value_bits.saturating_sub(start_bits);
+        let middle_blocks = rest_bits / Self::t_bits();
+        let back_bits = rest_bits.checked_rem(middle_blocks).unwrap_or(rest_bits);
+
+        // if the slice fits into the first block, with some room in the back -> mask the back
+        let gap = start_bits.saturating_sub(value_bits);
+        let gap_mask = if value_bits < start_bit { (one << gap) - one } else { T::zero() };
+        // move first subslice to back, cast to T, then move back up by the gap
+        let first_subslice = Self::t_from_u64(value >> (64 - (start_bits - gap))) << gap;
+
+        // create mask to clear old bits in block, ignore potential back bits
+        let first_mask = if start_bits == Self::t_bits() {
+            !gap_mask
+        } else {
+            ((one << start_bits) - one) & !gap_mask
+        };
+        // clear old bits from block, and add starting slice
+        self.storage[start_block] = (self.storage[start_block] & !first_mask) | first_subslice;
+
+        if middle_blocks == 0 && back_bits == 0 { return; } // we are done
+
+        // for each full block, extract subslice into T and replace block (in case of T u128 there are no middle blocks)
+        let end_middle_block = start_block + middle_blocks;
+        let t_mask = u64::MAX.checked_shl(Self::t_bits() as u32).unwrap_or(0);
+
+        for (i, full_block) in ((start_block+1)..(end_middle_block+1)).enumerate() {
+            // move relevant bits to back of value  and apply mask
+            let subslice = (value >> (64 - start_bits - Self::t_bits() * i)) & !t_mask;
+            // cast into T and replace block
+            self.storage[full_block] = Self::t_from_u64(subslice);
+        }
+
+        // insert back bits
+        if back_bits > 0 {
+            let back_gap_mask = (one << (Self::t_bits() - back_bits)) - one;
+            // shift last bits to end of value, and then back to the start of T
+            let subslice = Self::t_from_u64(value >> (64 - value_bits) & !t_mask);
+            let subslice = subslice << (Self::t_bits() - back_bits);
+            let end_block = end_middle_block + 1;
+
+            self.storage[end_block] = (self.storage[end_block] & back_gap_mask) | subslice;
+        } */
+        // turn the value slice into a 32 b k-mer
+        let slice = IntKmer::<u64>::from_u64(value);
+
+        // iterate over bases which should be transferred
+        for i in  0..n_bases {
+            let val = slice.get(i);
+            self.set_mut(i + pos, val);
+        }
+    }
+
+    /// Return the reverse complement of this kmer
+    fn rc(&self) -> Self {
+        let mut new_kmer = VarLenKmer::empty();
+
+        // get the rc of each base from back to front and add into a new k-mer
+        for rc_base in (0..Self::k()).rev().map(|pos| 3 - self.get(pos)) {
+            new_kmer = new_kmer.extend_right(rc_base);
+        }
+        new_kmer
+    }
+
+    fn at_count(&self) -> u32 {
+        // A's and T's have upper_bit ^ lower_bit == 0
+        // count how many of these are present
+        
+        // first block with mask on unused bits
+        let mix_base_bits = !((self.storage[0] >> 1) ^ self.storage[0]);
+        let mask_lower = mix_base_bits & !Self::unused_bits_mask(0) & IntHelp::lower_of_two();
+        let mut count = mask_lower.count_ones();
+
+        for block in 1..LEN {
+            let mix_base_bits = !((self.storage[block] >> 1) ^ self.storage[block]);
+            let mask_lower = mix_base_bits & IntHelp::lower_of_two();
+            count += mask_lower.count_ones();
+        }
+
+        count
+    }
+
+    fn gc_count(&self) -> u32 {
+        // A's and T's have upper_bit ^ lower_bit == 1
+        // count how many of these are present
+        let mix_base_bits = (self.storage[0] >> 1) ^ self.storage[0];
+        let mask_lower = mix_base_bits & !Self::unused_bits_mask(0) & IntHelp::lower_of_two();
+        let mut count = mask_lower.count_ones();
+    
+        for block in 1..LEN {
+            let mix_base_bits = (self.storage[block] >> 1) ^ self.storage[block];
+            let mask_lower = mix_base_bits & IntHelp::lower_of_two();
+            count += mask_lower.count_ones();
+        }
+
+        count
+    }
+}
+
+impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> fmt::Debug for VarLenKmer<T, LEN, KS> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = String::new();
+        for pos in 0..Self::k() {
+            s.push(bits_to_base(self.get(pos)))
+        }
+
+        write!(f, "{}", s)
+    }
+}
+
+/// Marker struct for generating K=128 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K128;
+
+/// Marker struct for generating K=112 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K112;
+
+/// Marker struct for generating K=96 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K96;
+
+/// Marker struct for generating K=80 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K80;
+
+/// Marker struct for generating K=79 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K79;
 /// Marker struct for generating K=63 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K63;
 
-impl KmerSize for K63 {
-    #[inline(always)]
-    fn K() -> usize {
-        63
-    }
-}
-
 /// Marker struct for generating K=62 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K62;
 
-impl KmerSize for K62 {
-    #[inline(always)]
-    fn K() -> usize {
-        62
-    }
-}
-
 /// Marker struct for generating K=61 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K61;
 
-impl KmerSize for K61 {
-    #[inline(always)]
-    fn K() -> usize {
-        61
-    }
-}
-
 /// Marker struct for generating K=60 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K60;
 
-impl KmerSize for K60 {
-    #[inline(always)]
-    fn K() -> usize {
-        60
-    }
-}
-
-
 /// Marker struct for generating K=59 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K59;
 
-impl KmerSize for K59 {
-    #[inline(always)]
-    fn K() -> usize {
-        59
-    }
-}
-
 /// Marker struct for generating K=58 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K58;
 
-impl KmerSize for K58 {
-    #[inline(always)]
-    fn K() -> usize {
-        58
-    }
-}
-
 /// Marker struct for generating K=57 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K57;
 
-impl KmerSize for K57 {
-    #[inline(always)]
-    fn K() -> usize {
-        57
-    }
-}
-
 /// Marker struct for generating K=56 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K56;
 
-impl KmerSize for K56 {
-    #[inline(always)]
-    fn K() -> usize {
-        56
-    }
-}
-
 /// Marker struct for generating K=55 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K55;
 
-impl KmerSize for K55 {
-    #[inline(always)]
-    fn K() -> usize {
-        55
-    }
-}
-
 /// Marker struct for generating K=54 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K54;
 
-impl KmerSize for K54 {
-    #[inline(always)]
-    fn K() -> usize {
-        54
-    }
-}
-
 /// Marker struct for generating K=53 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K53;
 
-impl KmerSize for K53 {
-    #[inline(always)]
-    fn K() -> usize {
-        53
-    }
-}
-
 /// Marker struct for generating K=52 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K52;
 
-impl KmerSize for K52 {
-    #[inline(always)]
-    fn K() -> usize {
-        52
-    }
-}
-
 /// Marker struct for generating K=51 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K51;
 
-impl KmerSize for K51 {
-    #[inline(always)]
-    fn K() -> usize {
-        51
-    }
-}
-
 /// Marker struct for generating K=50 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K50;
 
-impl KmerSize for K50 {
-    #[inline(always)]
-    fn K() -> usize {
-        50
-    }
-}
-
 /// Marker struct for generating K=49 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K49;
 
-impl KmerSize for K49 {
-    #[inline(always)]
-    fn K() -> usize {
-        49
-    }
-}
-
 /// Marker struct for generating K=48 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K48;
 
-impl KmerSize for K48 {
-    #[inline(always)]
-    fn K() -> usize {
-        48
-    }
-}
-
 /// Marker trait for generating K=47 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K47;
 
-impl KmerSize for K47 {
-    #[inline(always)]
-    fn K() -> usize {
-        47
-    }
-}
-
 /// Marker trait for generating K=46 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K46;
 
-impl KmerSize for K46 {
-    #[inline(always)]
-    fn K() -> usize {
-        46
-    }
-}
-
 /// Marker trait for generating K=45 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K45;
 
-impl KmerSize for K45 {
-    #[inline(always)]
-    fn K() -> usize {
-        45
-    }
-}
-
 /// Marker trait for generating K=44 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K44;
 
-impl KmerSize for K44 {
-    #[inline(always)]
-    fn K() -> usize {
-        44
-    }
-}
-
 /// Marker trait for generating K=43 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K43;
 
-impl KmerSize for K43 {
-    #[inline(always)]
-    fn K() -> usize {
-        43
-    }
-}
-
 /// Marker trait for generating K=42 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K42;
 
-impl KmerSize for K42 {
-    #[inline(always)]
-    fn K() -> usize {
-        42
-    }
-}
-
 /// Marker trait for generating K=41 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K41;
 
-impl KmerSize for K41 {
-    #[inline(always)]
-    fn K() -> usize {
-        41
-    }
-}
-
 /// Marker trait for generating K=40 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K40;
 
-impl KmerSize for K40 {
-    #[inline(always)]
-    fn K() -> usize {
-        40
-    }
-}
-
 /// Marker trait for generating K=39 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K39;
 
-impl KmerSize for K39 {
-    #[inline(always)]
-    fn K() -> usize {
-        39
-    }
-}
-
 /// Marker trait for generating K=38 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K38;
 
-impl KmerSize for K38 {
-    #[inline(always)]
-    fn K() -> usize {
-        38
-    }
-}
-
 /// Marker trait for generating K=37 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K37;
 
-impl KmerSize for K37 {
-    #[inline(always)]
-    fn K() -> usize {
-        37
-    }
-}
-
 /// Marker trait for generating K=36 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K36;
 
-impl KmerSize for K36 {
-    #[inline(always)]
-    fn K() -> usize {
-        36
-    }
-}
-
 /// Marker trait for generating K=35 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K35;
 
-impl KmerSize for K35 {
-    #[inline(always)]
-    fn K() -> usize {
-        35
-    }
-}
-
 /// Marker trait for generating K=34 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K34;
 
-impl KmerSize for K34 {
-    #[inline(always)]
-    fn K() -> usize {
-        34
-    }
-}
-
 /// Marker trait for generating K=33 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K33;
 
-impl KmerSize for K33 {
-    #[inline(always)]
-    fn K() -> usize {
-        33
-    }
-}
-
+/// Marker trait for generating K=32 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+pub struct K32;
 /// Marker trait for generating K=31 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K31;
 
-impl KmerSize for K31 {
-    #[inline(always)]
-    fn K() -> usize {
-        31
-    }
-}
-
 /// Marker trait for generating K=30 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K30;
 
-impl KmerSize for K30 {
-    #[inline(always)]
-    fn K() -> usize {
-        30
-    }
-}
-
 /// Marker trait for generating K=29 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K29;
 
-impl KmerSize for K29 {
-    #[inline(always)]
-    fn K() -> usize {
-        29
-    }
-}
-
 /// Marker trait for generating K=28 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K28;
 
-impl KmerSize for K28 {
-    #[inline(always)]
-    fn K() -> usize {
-        28
-    }
-}
-
 /// Marker trait for generating K=27 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K27;
 
-impl KmerSize for K27 {
-    #[inline(always)]
-    fn K() -> usize {
-        27
-    }
-}
-
 /// Marker trait for generating K=26 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K26;
 
-impl KmerSize for K26 {
-    #[inline(always)]
-    fn K() -> usize {
-        26
-    }
-}
-
 /// Marker trait for generating K=25 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K25;
 
-impl KmerSize for K25 {
-    #[inline(always)]
-    fn K() -> usize {
-        25
-    }
-}
-
 /// Marker trait for generating K=24 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K24;
 
-impl KmerSize for K24 {
-    #[inline(always)]
-    fn K() -> usize {
-        24
-    }
-}
-
 /// Marker trait for generating K=23 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K23;
 
-impl KmerSize for K23 {
-    #[inline(always)]
-    fn K() -> usize {
-        23
-    }
-}
-
-
 /// Marker trait for generating K=22 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K22;
 
-impl KmerSize for K22 {
-    #[inline(always)]
-    fn K() -> usize {
-        22
-    }
-}
-
 /// Marker trait for generating K=21 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K21;
 
-impl KmerSize for K21 {
-    #[inline(always)]
-    fn K() -> usize {
-        21
-    }
-}
-
 /// Marker trait for generating K=20 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K20;
 
-impl KmerSize for K20 {
-    #[inline(always)]
-    fn K() -> usize {
-        20
-    }
-}
-
 /// Marker trait for generating K=19 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K19;
 
-impl KmerSize for K19 {
-    #[inline(always)]
-    fn K() -> usize {
-        19
-    }
-}
-
 /// Marker trait for generating K=18 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K18;
 
-impl KmerSize for K18 {
-    #[inline(always)]
-    fn K() -> usize {
-        18
-    }
-}
-
 /// Marker trait for generating K=17 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K17;
 
-impl KmerSize for K17 {
-    #[inline(always)]
-    fn K() -> usize {
-        17
-    }
-}
-
 /// Marker trait for generating K=15 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K15;
 
-impl KmerSize for K15 {
-    #[inline(always)]
-    fn K() -> usize {
-        15
-    }
-}
-
 /// Marker trait for generating K=14 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K14;
 
-impl KmerSize for K14 {
-    #[inline(always)]
-    fn K() -> usize {
-        14
-    }
-}
-
 /// Marker trait for generating K=13 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K13;
 
-impl KmerSize for K13 {
-    #[inline]
-    fn K() -> usize {
-        13
-    }
-}
-
 /// Marker trait for generating K=12 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K12;
 
-impl KmerSize for K12 {
-    #[inline]
-    fn K() -> usize {
-        12
-    }
-}
-
 /// Marker trait for generating K=11 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K11;
 
-impl KmerSize for K11 {
-    #[inline]
-    fn K() -> usize {
-        11
-    }
-} 
-
 /// Marker trait for generating K=10 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K10;
 
-impl KmerSize for K10 {
-    #[inline]
-    fn K() -> usize {
-        10
-    }
-}
-
 /// Marker trait for generating K=9 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K9;
 
-impl KmerSize for K9 {
-    #[inline(always)]
-    fn K() -> usize {
-        9
-    }
-}
-
 /// Marker trait for generating K=7 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K7;
 
-impl KmerSize for K7 {
-    #[inline(always)]
-    fn K() -> usize {
-        7
-    }
-}
-
 /// Marker trait for generating K=6 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K6;
 
-impl KmerSize for K6 {
-    #[inline(always)]
-    fn K() -> usize {
-        6
-    }
-}
-
 /// Marker trait for generating K=5 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K5;
-
-impl KmerSize for K5 {
-    #[inline(always)]
-    fn K() -> usize {
-        5
-    }
-}
 /// Marker trait for generating K=4 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K4;
-
-impl KmerSize for K4 {
-    #[inline(always)]
-    fn K() -> usize {
-        4
-    }
-}
 /// Marker trait for generating K=3 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K3;
-
-impl KmerSize for K3 {
-    #[inline(always)]
-    fn K() -> usize {
-        3
-    }
-}
-/// Marker trait for generating K=6 Kmers
-#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+/// Marker trait for generating K=2 Kmers
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 pub struct K2;
 
-impl KmerSize for K2 {
-    #[inline(always)]
-    fn K() -> usize {
-        2
-    }
-}
+/// Marker trait for generating K=0 Kmers (for testing)
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+struct K0;
+
+/// Marker trait for generating K=0 Kmers (for testing)
+#[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
+struct K300;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+use std::fmt::Debug;
+use std::time;
+
+use super::*;
     use crate::vmer::Lmer;
     use rand::{self, Rng, RngCore};
 
     use crate::MerImmut;
     use crate::Vmer;
 
-    fn check_hd<T: Kmer>(k1: T, k2: T) {
+    fn check_hd<T: Kmer + Debug>(k1: T, k2: T) {
         let mut n = 0;
         for i in 0..T::k() {
             if k1.get(i) != k2.get(i) {
@@ -1413,7 +1381,7 @@ mod tests {
     }
 
     // Generate random kmers & test the methods for manipulating them
-    fn check_kmer<T: Kmer>() {
+    fn check_kmer<T: Kmer + Debug>() {
         #[allow(non_snake_case)]
         let K = T::k();
 
@@ -1623,6 +1591,41 @@ mod tests {
     fn test_lmer_1_kmer_16() {
         for _ in 0..10000 {
             check_vmer::<Lmer<[u64; 1]>, IntKmer<u32>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_128() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 4, K128>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_112() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u32, 7, K112>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_96() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u64, 3, K96>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_80() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u32, 5, K80>>();
+        }
+    }
+
+    #[test]
+    fn test_kmer_79() {
+        for _ in 0..10000 {
+            check_kmer::<VarLenKmer<u32, 5, K79>>();
         }
     }
 
@@ -2068,5 +2071,87 @@ mod tests {
         for _ in 0..10000 {
             check_kmer::<Kmer2>();
         }
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let kmer = IntKmer::<u8>::empty();
+        assert!(!kmer.is_empty()); // cant be empty
+        let kmer = VarIntKmer::<u8, K0>::empty();
+        assert!(kmer.is_empty());
+        let kmer = VarLenKmer::<u8, 0, K0>::empty();
+        assert!(kmer.is_empty());
+    }
+
+    #[test]
+    fn test_extend_left() {
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+
+        for base in [1, 1, 1, 3, 0, 1, 2, 0, 3, 0, 1].iter() {
+            kmer = kmer.extend_left(*base);
+        }
+
+        println!("kmer: {:?}", kmer);
+
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+
+        for base in [1, 1, 1, 3, 0, 1, 2, 0, 3, 0, 1].iter().rev() {
+            kmer = kmer.extend_right(*base);
+        }
+
+        println!("kmer: {:?}", kmer);
+    }
+
+    #[test]
+    fn test_set_mut_slice() {
+        let mut kmer = VarLenKmer::<u32, 5, K80>::empty();
+        kmer.set_slice_mut(3, 28, 0b01110111010101011111111101010101111111110000000010101010 << 8);
+        println!("{:?}", kmer);
+    }
+
+
+    #[test]
+    fn test_varlenkmer_speed() {
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = VarLenKmer::<u32, 2, K31>::empty();
+            kmer.set_slice_mut(6, 15, 0b010101010101010101010101010101);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set slice mut, var len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = Kmer31::empty();
+            kmer.set_slice_mut(6, 15, 0b010101010101010101010101010101);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set slice mut, con len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = VarLenKmer::<u32, 2, K31>::empty();
+            kmer.set_mut(5, 1);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set mut, var len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let mut kmer = Kmer31::empty();
+            kmer.set_mut(5, 1);
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("set mut, con len 31: {af}");
+
+        let bef = time::Instant::now();
+        for _i in 0..100 {
+            let kmer = Kmer64::from_u64(17);
+            for i in 6..21 {
+                kmer.get(i);
+            }
+        }
+        let af = bef.elapsed().as_nanos();
+        println!("from u64, get f u64: {af}"); 
     }
 }
