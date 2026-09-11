@@ -1459,7 +1459,7 @@ mod test {
     #[test]
     fn test_summary_config() {
         let sample_info = SampleInfo::new(0b11, 0b1100, vec![12, 12, 12, 12]);
-        let config1 = SummaryConfig::new(sample_info.clone())
+        let mut config1 = SummaryConfig::new(sample_info.clone())
             .with_group_frac(summarizer::GroupFrac::One, 0.3)
             .with_max_p(Some(0.3))
             .with_min_kmer_obs(2)
@@ -1473,15 +1473,42 @@ mod test {
             significant: Some(4),
             group_frac: summarizer::GroupFrac::One,
             frac_cutoff: 0.3,
-            sample_info,
+            sample_info: sample_info.clone(),
             max_p: Some(0.3),
             stat_test: summarizer::StatTest::StudentsTTest,
             stat_test_changed: false,
             min_quality: crate::BaseQuality::Marginal,
             min_quality_for_edge: crate::BaseQuality::Medium
         };
+        
+        assert_eq!(config1, config2);
 
-        assert_eq!(config1, config2)
+        config1.set_min_kmer_obs(3);
+        config1.set_group_frac(summarizer::GroupFrac::Both, 0.2);
+        config1.set_max_p(Some(0.05));
+        config1.set_min_quality(crate::BaseQuality::Medium);
+        config1.set_min_quality_for_edge(crate::BaseQuality::High);
+        config1.set_significant(Some(2));
+        config1.set_stat_test(summarizer::StatTest::UTest);
+
+        let config2 = SummaryConfig {
+            min_kmer_obs: 3,
+            significant: Some(2),
+            group_frac: summarizer::GroupFrac::Both,
+            frac_cutoff: 0.2,
+            sample_info: sample_info.clone(),
+            max_p: Some(0.05),
+            stat_test: summarizer::StatTest::WelchsTTest,
+            stat_test_changed: true,
+            min_quality: crate::BaseQuality::Medium,
+            min_quality_for_edge: crate::BaseQuality::High
+        };
+        
+        assert_eq!(config1, config2);
+
+        let si = config1.sample_info();
+        assert_eq!(si, &sample_info);
+
     }
 
     #[test]
