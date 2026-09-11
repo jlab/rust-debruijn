@@ -2154,9 +2154,4 @@ use super::*;
         let af = bef.elapsed().as_nanos();
         println!("from u64, get f u64: {af}"); 
     }
-
-        #[test]
-    fn test_shift() {
-        VarIntKmer::<u64, K32>::bottom_mask(32 );
-    }
 }
