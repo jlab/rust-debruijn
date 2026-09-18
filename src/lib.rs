@@ -1,27 +1,132 @@
 // Copyright 2017 10x Genomics
 
-//! # debruijn: a De Bruijn graph library for DNA seqeunces in Rust.
-//! This library provides tools for efficient construction DeBruijn graphs (dBG)
+//! # debruijn: a De Bruijn graph library for DNA sequences in Rust.
+//! This library provides tools for efficient construction DeBruijn graphs (DBG)
 //! from DNA sequences, tracking arbitrary metadata associated with kmers in the
 //! graph, and performing path-compression of unbranched graph paths to improve
 //! speed and reduce memory consumption.
 //!
 //! Most applications of `debruijn` will follow this general workflow:
-//! 1. You generate a set of sequences to make a dBG from.
-//! 2. You pass those sequences to the `filter_kmers` function, which converts the sequences into kmers, while tracking 'metadata' about each kmer in a very customizable way. The metadata could be read count, a set of colors, a set of read counts split by haplotype, a UMI count, etc.
-//! 3. The the library will convert the kmers to a compressed dBG. You can also customize the rules for how to compress the dBG and how to 'combine' the per-kmer metadata.
+//! 1. You generate a set of sequences to make a DBG from. Using [`reads::ReadsPaired`], you can track a piece of information with each read which can later used for the graph metadata.
+//! 2. You pass those sequences to the [`filter::filter_kmers`]/[`filter::filter_kmers_parallel`] function, which converts the sequences into kmers, while tracking 'metadata' about each kmer in a very customizable way. The metadata could be read count, a set of colors, a set of read counts split by haplotype, a UMI count, etc.
+//! 3. The resulting hashed k-mers can be converted to a compressed DBG ([`graph::DebruijnGraph`]) with the [`compression::compress_kmers_with_hash`] function. You can also customize the rules for how to compress the DBG and how to 'combine' the per-kmer metadata.
 //!
-//! Then you can use the final compressed dBG how you like. There are some methods for simplifying and re-building the  graph, but those could be developed more.
-//!
-//! ## Examples
-//! - [Local phased SV assembly tool in our Long Ranger package](https://github.com/10XGenomics/longranger/blob/master/lib/pvc/src/asm_caller.rs#L205)
-//! - [Single-cell VDJ assember](https://github.com/10XGenomics/cellranger/blob/master/lib/rust/vdj_asm/src/asm.rs#L191)
-//! - [Build a colored, compressed dBG of a transcriptome reference](https://github.com/10XGenomics/rust-pseudoaligner/blob/master/src/build_index.rs#L40)
-//!
+//! Then you can use the final compressed DBG how you like. This crate offers multiple error removal algorithms to simplify the graph and several ways to save a [`graph::DebruijnGraph`] to a file.
+//! 
 //! All the data structures in debruijn-rs are specialized to the 4 base DNA alphabet,
 //! and use 2-bit packed encoding of base-pairs into integer types, and efficient methods for
-//! reverse complement, enumerating kmers from longer sequences, and transfering data between
+//! reverse complement, enumerating kmers from longer sequences, and transferring data between
 //! sequences.
+//! 
+//! ## Example: Basic Process
+//! 
+//! In this example, we want to construct a colored DBG with k=8, 
+//! which carries the k-mer count (coverage) for two samples, 
+//! compress it, and save it as a GFA file.
+//! 
+//! ```
+//! use debruijn::reads::{ReadsPaired, Strandedness, Reads};
+//! use debruijn::dna_string::DnaString;
+//! use debruijn::summarizer::{Tag, SampleInfo, SummaryConfig, TagsCountsData, Translator, SummaryData};
+//! use debruijn::filter::filter_kmers;
+//! use debruijn::kmer::Kmer8;
+//! use debruijn::compression::{compress_kmers_with_hash, CheckCompress};
+//! use debruijn::graph::{DebruijnGraph, BaseGraph};
+//! 
+//! // first, we add construct our ReadsPaired
+//! // we use the sample IDs 0 and 1
+//! 
+//! let example_reads = [
+//!     ("ACGACGTAGCTAGCTATCGTAGCTAG".as_bytes(),               0), // R1
+//!     ("AGCTAGCACGACGAGGGGTAGCTAGCTATCATGCAGC".as_bytes(),    0),
+//!     ("GCGTAGCTACGTAGCAGCGTAGCTAGCTAC".as_bytes(),           1),
+//!     ("GCATCGCTGCTGCTCTGGCTAGCTATCGTAACGAGCTCTGCTAGCTACGATCT".as_bytes(), 1),
+//!     ("AGCTAGAGCTCTGCTAGCCTACTGACGATCTAC".as_bytes(),                    0), // R2
+//!     ("GCTAGCTAGCGACTGACTGTAGCTACTACGATCG".as_bytes(),       0),
+//!     ("CGATCGTGGTAGCTACGGGTAGCTAACGTACGATCGTACTGCTGAGCTAGC".as_bytes(),        1),
+//!     ("GACTAGCGACTACGTACGTGCTGCTCTGGCTAGACGTGACG".as_bytes(),              1),
+//! ];
+//! 
+//! // create two reads, one for R1 and one for R2 reads
+//! let mut reads1 = Reads::new(Strandedness::Forward);
+//! let mut reads2 = Reads::new(Strandedness::Reverse);
+//! 
+//! // add the reads
+//! for i in 0..4 {
+//!     reads1.add_read(
+//!         DnaString::from_acgt_bytes(example_reads[i].0),
+//!         None, // our reads do not have any edges yet
+//!         example_reads[i].1 as Tag, // the sample ID
+//!         None, // quality scores would go here
+//!     );  
+//! }
+//! 
+//! for i in 4..8 {
+//!     reads2.add_read(
+//!         DnaString::from_acgt_bytes(example_reads[i].0),
+//!         None, 
+//!         example_reads[i].1 as Tag,
+//!         None,
+//!     );
+//! }
+//! 
+//! // combine them into a ReadsPaired
+//! let reads_paired = ReadsPaired::paired(reads1, reads2);
+//! 
+//! // to construct the graph, we need to construct a SummaryConfig, which includes a SampleInfo
+//! 
+//! // the samples are placed in two sample groups with binary markers
+//! // with more samples, this can be used for statistical tests
+//! let sample_info = SampleInfo::new(
+//!     0b01, // sample 0 in group A
+//!     0b10, // sample 1 in group B
+//!     reads_paired.tag_kmers_vec(8, 2) // the number of k-mers in each sample (k=22, 2 samples) 
+//! );
+//! 
+//! // during graph construction, we want to remove all k-mers which only occur once
+//! let summary_config = SummaryConfig::new(sample_info)
+//!     .with_min_kmer_obs(2);
+//! 
+//! // now, we filter the k-mers and construct the graph
+//! // TagsCountsData is a SummaryData implementation, which includes the k-mer coverage
+//! // for each sample separately
+//! let (hashed_kmers, _) = filter_kmers::<Kmer8, TagsCountsData, _>(
+//!     &reads_paired,
+//!     &summary_config,
+//!     false, // if you set this to true, the method will also put all k-mers, filtered or not, into a vector and return this
+//!     1., // we set a maximum of 1 GB to use 
+//!     false // print how much time the steps took
+//! );
+//! 
+//! println!("{:?}", hashed_kmers);
+//! 
+//! // hashed_kmers contains all remaining unique k-mers, pointing to their edges and a TagsCountsData
+//! // we can now compress the graph
+//! 
+//! // through a CompressSpec implementation, we tell the method how to compress the node data
+//! let spec = CheckCompress::new(
+//!     |d: TagsCountsData, _| d, 
+//!     |d, d1| d.join_test(d1) // SummaryData::join_test
+//! );
+//! 
+//! let compressed_dbg = compress_kmers_with_hash(
+//!     true, // strandedness
+//!     &spec, 
+//!     hashed_kmers, 
+//!     false, // print the time the process took
+//! ).finish();
+//!  
+//! // to save the graph, we need a Translator, which can be used to translate the 
+//! // numerical sample IDs to strings
+//! let translator = Translator::empty();
+//! 
+//! compressed_dbg.to_gfa_with_tags(
+//!     "example_graph.gfa", // output path
+//!     |node| node.data().print_ol(&translator, &summary_config, None), // how to format the node data
+//! ); 
+//! 
+//! ```
+//! 
 //!
 //! ## Encodings
 //! Most methods for ingesting sequence data into the library have a form named 'bytes',
@@ -1791,7 +1896,7 @@ where
     let sample_info = SampleInfo::new(0b1100, 0b0011, sample_kmers);
     let summary_config = SummaryConfig::new(sample_info);
 
-    let (kmers, _) = filter_kmers::<SD, K, _>(
+    let (kmers, _) = filter_kmers::<K, SD, _>(
         ser_reads.reads(), 
         &summary_config, 
         false, 
@@ -1802,7 +1907,7 @@ where
     let ser_kmers = SerKmers::new(kmers.clone(), translator.clone(), summary_config.clone());
 
     let comp_spec = CheckCompress::new(|d: SD, _| d, |d, d1| d.join_test(d1));
-    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+    let graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
     let ser_graph = SerGraph::new(graph, translator, summary_config);
 
     (ser_reads, ser_kmers, ser_graph)

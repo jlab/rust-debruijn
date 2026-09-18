@@ -1,6 +1,7 @@
 // Copyright 2017 10x Genomics
 
-//! DeBruijn graph simplification routines. Currently tip-removal is implemented.
+//! Old DeBruijn graph simplification routines. Currently tip-removal is implemented.
+//! See [`DebruijnGraph`] for more simplification methods.
 use crate::graph::{DebruijnGraph, Node};
 use crate::Kmer;
 use std::fmt::Debug;

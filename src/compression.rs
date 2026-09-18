@@ -46,8 +46,8 @@ impl TerminalExt {
 
 /// Customize the path-compression process. Implementing this trait lets the user
 /// control how the per-kmer data (of type `D`) is summarized into a per-path
-/// summary data (of type `DS`). It also let's the user introduce new breaks into
-/// paths by inspecting in the per-kmer data of a proposed with `join_test_kmer`
+/// summary data (also of type `D`). It also let's the user introduce new breaks into
+/// paths by inspecting in the per-kmer data of a proposed with `join_test`
 /// function.
 pub trait CompressionSpec<D> {
     /// combine the data of two nodes
@@ -56,13 +56,15 @@ pub trait CompressionSpec<D> {
     fn join_test(&self, d1: &D, d2: &D) -> bool;
 }
 
-/// Simple implementation of `CompressionSpec` that lets you provide that data reduction function as a closure
+/// Simple implementation of [`CompressionSpec`] that lets you provide that data reduction method as a closure. 
+/// The `join_test` method always returns `true`.
 pub struct SimpleCompress<D, F> {
     func: F,
     d: PhantomData<D>,
 }
 
 impl<D, F> SimpleCompress<D, F> {
+    /// A new [`SimpleCompress`]. The single argument `func` is the function by which the data is reduced. 
     pub fn new(func: F) -> SimpleCompress<D, F> {
         SimpleCompress {
             func,
@@ -84,7 +86,7 @@ where
     }
 }
 
-/// Extending trait CompressionSpec for compression
+/// This implementation of [`CompressionSpec`] joins if the data of both nodes is identical.
 pub struct ScmapCompress<D> {
     d: PhantomData<D>,
 }
@@ -117,7 +119,9 @@ where
     }
 }
 
-/// CompressionSpec with custom check and function
+/// [`CompressionSpec`] implementation with custom check and function. 
+/// 
+/// [`SummaryData::join_test`] can be used as the `join_func`.
 pub struct CheckCompress<D, F1, F2> {
     reduce_func: F1,
     join_func: F2,
@@ -243,7 +247,7 @@ where
             {
                 // Next kmer isn't in this partition,
                 // or we've already used it,
-                // or it's palindrom and we are not stranded
+                // or it's palindrome and we are not stranded
                 // or the colors were not same
                 return ExtModeNode::Terminal( TerminalExt::new(
                     exts.single_dir(dir), 
@@ -426,7 +430,13 @@ where
     }
 }
 
-/// Perform path-compression on a (possibly partially compressed) DeBruijn graph
+/// Perform path-compression on a (possibly partially compressed) DeBruijn graph.
+/// 
+/// ## Arguments
+/// * `stranded` The graph is stranded
+/// * `spec`: a [`CompressionSpec`]
+/// * `old_graph`: the [`DebruijnGraph`] which should be compressed
+/// * `censor_nodes`: optionally, supply a list of nodes by their IDs which should be excluded from the new graph
 pub fn compress_graph<
     K: Kmer + Send + Sync,
     D: Clone + Debug + PartialEq + SummaryData<DI>,
@@ -470,7 +480,7 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 
     /// Attempt to extend kmer v in direction dir. Return:
     ///  - Unique(nextKmer, nextDir) if a single unique extension
-    ///    is possible.  nextDir indicates the direction to extend nextMker
+    ///    is possible.  nextDir indicates the direction to extend next k-mer
     ///    to preserve the direction of the extension.
     /// - Term(ext) no unique extension possible, indicating the extensions at this end of the line
     fn try_extend_kmer(&self, kmer: K, dir: Dir) -> ExtMode<K> {
@@ -670,16 +680,14 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 
     /// Compress a set of kmers and their extensions and metadata into a base DeBruijn graph.
     #[inline(never)]
-    pub fn compress_kmers(
+    fn compress_kmers(
         stranded: bool,
         spec: &S,
         index: BoomHashMap2<K, Exts, D>,
-        progress: bool,
     ) -> BaseGraph<K, D> {
         
         let n_kmers = index.len();
         let mut available_kmers = BitSet::with_capacity(n_kmers);
-        let progress = if n_kmers < 128 { false } else { progress };
 
         for i in 0..n_kmers {
             available_kmers.insert(i);
@@ -708,22 +716,12 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 
         let steps = n_kmers as f32 / 128.;
 
-        if progress {
-            println!("Compressing kmers");
-            for _i in 0..127 {
-                print!("-");
-            }
-            println!("|");
-        }
-
         let pb = ProgressBar::new(n_kmers as u64);
         pb.set_style(ProgressStyle::with_template(PROGRESS_STYLE).unwrap().progress_chars("#/-"));
         pb.set_message(format!("{:<32}", "compressing graph"));
 
 
         for kmer_counter in (0..n_kmers).progress_with(pb) {
-            if progress && (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) { print!("|")}
-
             if (kmer_counter as f32 % steps >= 0.) & (kmer_counter as f32 % steps < 1.) {
                 debug!("another 1/128 done: {}, data graph size: {}", (kmer_counter as f32 / steps) as i32, mem::size_of_val(&*graph.data));
             }
@@ -737,24 +735,27 @@ impl<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: Compressi
 
         graph.shrink_to_fit();
 
-        if progress { println!() };
-
         graph
     }
 }
 
 
 /// Take a BoomHash Object and build a compressed DeBruijn graph.
+/// 
+/// ## Arguments
+/// * `stranded`: the graph is stranded
+/// * `spec`: a [`CompressionSpec`] dictating how the node data is compressed
+/// * `index`: a [`BoomHashMap2`] generated by [`crate::filter::filter_kmers`] or [`crate::filter::filter_kmers_parallel`]
+/// * `time`: if the function should print the time it took to compress the graph
 #[inline(never)]
 pub fn compress_kmers_with_hash<K: Kmer, D: Clone + Debug + Send + Sync + SummaryData<DI>, DI, S: CompressionSpec<D> + Send + Sync>(
     stranded: bool,
     spec: &S,
     index: BoomHashMap2<K, Exts, D>,
     time: bool,
-    progress: bool,
 ) -> BaseGraph<K, D> {
     let before_compression = Instant::now();
-    let graph = CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index, progress);
+    let graph = CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index);
     if time { println!("time compression (s): {}", before_compression.elapsed().as_secs_f32()) }
     graph
 }
@@ -777,7 +778,7 @@ pub fn compress_kmers<K: Kmer, D: Clone + Debug  + Send + Sync + SummaryData<DI>
     }
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index, false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index)
 }
 
 /// Build graph from a set of kmers with unknown extensions by finding the extensions on the fly.
@@ -821,7 +822,7 @@ pub fn compress_kmers_no_exts<K: Kmer + Send + Sync, D: Clone + Debug + Send + S
     assert_eq!(kmer_set.len(), keys.len());
 
     let index = BoomHashMap2::new(keys, exts, data);
-    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index,false)
+    CompressFromHash::<K, D, DI, S>::compress_kmers(stranded, spec, index)
 }
 
 /// build an uncompressed graph from hashed k-mers
@@ -853,7 +854,7 @@ pub fn rebuild_uncompressed_graph<K: Kmer + Sync + Send, D: Debug + Clone>(
     censor_nodes: Vec<usize>,
 ) -> DebruijnGraph<K, D> 
 {
-    // build bit set for efficency
+    // build bit set for efficiency
     let mut available_node = BitSet::with_capacity(old_graph.len());
     for i in 0..old_graph.len() {
         available_node.insert(i);

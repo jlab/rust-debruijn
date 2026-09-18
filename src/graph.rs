@@ -1,6 +1,39 @@
 // Copyright 2017 10x Genomics
 
 //! Containers for path-compressed De Bruijn graphs
+//! 
+//! The [`BaseGraph<K, D>`] contains the compressed node sequences, edges, and the node data of type `D`. 
+//! Usually, the [`BaseGraph`] should be wrapped in a [`DebruijnGraph<K, D>`], which also contains hashed start and end k-mers
+//! for each compressed sequence. This allows efficient walking of the graph.
+//! 
+//! A [`DebruijnGraph`] can be generated from a [`BoomHashMap`], which is constructed by [`filter_kmers`](crate::filter::filter_kmers) as follows:
+//! 
+//! ```
+//! # use debruijn::build_test_graph;
+//! # use debruijn::serde::SerKmers;
+//! use debruijn::compression::{compress_kmers_with_hash, CheckCompress};
+//! use debruijn::graph::{BaseGraph, DebruijnGraph};
+//! use debruijn::kmer::Kmer22;
+//! use debruijn::summarizer::SummaryData;
+//! # let (_ser_reads, ser_kmers, _ser_graph) = build_test_graph::<Kmer22, u32, _>();
+//! # let (hashed_kmers, _, _) = ser_kmers.dissolve();
+//! 
+//! // generate hashed_kmers with filter_kmers or filter_kmers_parallel
+//! 
+//! let spec = CheckCompress::new(
+//!     |d: u32, _| d, 
+//!     |d, d1| d.join_test(d1) // SummaryData::join_test
+//! );
+//! 
+//! let base_graph: BaseGraph<Kmer22, u32> = compress_kmers_with_hash(
+//!     false, // strandedness
+//!     &spec, 
+//!     hashed_kmers, 
+//!     false, // print the time the process took
+//! );
+//! 
+//! let dbg: DebruijnGraph<Kmer22, u32> = base_graph.finish();
+//! ```
 
 use bimap::BiHashMap;
 use bio::io::fasta;
@@ -202,7 +235,7 @@ impl<K: Kmer, D> BaseGraph<K, D> {
 
 /// A compressed DeBruijn graph carrying auxiliary data on each node of type `D`.
 /// The struct carries sorted index arrays the allow the graph
-/// to be walked efficiently.
+/// to be walked efficiently. See [`graph`]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebruijnGraph<K: Hash, D> {
     pub base: BaseGraph<K, D>,
@@ -641,6 +674,8 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
     }
 
     /// write the paths from `iter_max_path_comp` to a fasta file
+    /// ```
+    /// ```
     pub fn path_to_fasta<F, F2>(&self, f: &mut dyn std::io::Write, path_iter: PathCompIter<K, D, F, F2>, return_lens: bool) -> (Vec<usize>, Vec<usize>)
     where 
     F: Fn(&D) -> f32,
@@ -1811,7 +1846,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut path_groups = vec![vec![(node_id, out_dir.flip())]];
                 let mut path_length = K::k() - 1;
 
-                let mut state = LadderState::Singular;
+                let mut state = BubbleState::Singular;
                 let mut q_state_high = false;
 
                 loop {
@@ -1830,7 +1865,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let path_index = path_groups.len() - 1;
 
                     // if in singular state now or before, add node to path
-                    if matches!(state, LadderState::Singular) { 
+                    if matches!(state, BubbleState::Singular) { 
                         path_groups[path_index].push((current_node_id, current_in_dir));
                     }
 
@@ -1844,10 +1879,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     if q_increase | mult_increase {
                         match state {
-                            LadderState::Singular => {
-                                state = LadderState::Double;
+                            BubbleState::Singular => {
+                                state = BubbleState::Double;
                             }
-                            LadderState::Double => () // ignore
+                            BubbleState::Double => () // ignore
                         };
                     }
 
@@ -1861,9 +1896,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     if q_decrease | mult_decrease {
                         match state {
-                            LadderState::Singular => (), // ignore
-                            LadderState::Double => {
-                                state = LadderState::Singular;
+                            BubbleState::Singular => (), // ignore
+                            BubbleState::Double => {
+                                state = BubbleState::Singular;
                                 path_groups.push(vec![(current_node_id, current_in_dir)]); // start new path group
                             }
                         }
@@ -2051,7 +2086,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut path_groups = vec![vec![(node_id, start_out_dir.flip())]];
                 let mut path_length = K::k() - 1;
 
-                let mut state = LadderState::Singular;
+                let mut state = BubbleState::Singular;
                 let mut c_state_high = false;
 
                 let mut cov_sum = start_out_cov;
@@ -2073,7 +2108,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let path_index = path_groups.len() - 1;
 
                     // if in singular state now or before, add node to path
-                    if matches!(state, LadderState::Singular) { 
+                    if matches!(state, BubbleState::Singular) { 
                         path_groups[path_index].push((current_node_id, current_in_dir));
                     }
 
@@ -2130,10 +2165,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     if c_increase | mult_increase {
                         match state {
-                            LadderState::Singular => {
-                                state = LadderState::Double;
+                            BubbleState::Singular => {
+                                state = BubbleState::Double;
                             }
-                            LadderState::Double => () // ignore
+                            BubbleState::Double => () // ignore
                         };
                     }
 
@@ -2148,9 +2183,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                     if c_decrease | mult_decrease {
                         match state {
-                            LadderState::Singular => (), // ignore
-                            LadderState::Double => {
-                                state = LadderState::Singular;
+                            BubbleState::Singular => (), // ignore
+                            BubbleState::Double => {
+                                state = BubbleState::Singular;
                                 path_groups.push(vec![(current_node_id, current_in_dir)]); // start new path group
                             }
                         }
@@ -2161,7 +2196,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     current_in_dir = next_in_dir;
 
                     // if the ladder state is singular, use coverage for avg cov
-                    if matches!(state, LadderState::Singular) {
+                    if matches!(state, BubbleState::Singular) {
                         current_cov = closest_out_cov;
                         cov_sum += current_cov as u32;
                         cov_count += 1;
@@ -2364,7 +2399,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         // increase state if there is another incoming edge or if the coverage suddenly increases drastically
         // decrease state if there is another outgoing edge ot if the coverage suddenly decreases drastically
         // if state cannot be increased or decreased further, return None
-        let mut state = LadderState::Singular;
+        let mut state = BubbleState::Singular;
 
         loop {
             // check if current node is "target node", i.e., the path has reached the desired length
@@ -2408,8 +2443,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             match in_edges.len() {
                 1 => (),
                 2 => match state {
-                    LadderState::Singular => state = LadderState::Double,
-                    LadderState::Double => return None // getting too complicated
+                    BubbleState::Singular => state = BubbleState::Double,
+                    BubbleState::Double => return None // getting too complicated
                 }
                 _ => return None
             }
@@ -2419,9 +2454,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             match out_edges.len() {
                 1 => (),
                 2 => match state {
-                    LadderState::Singular => (), // could return None, but would kill if overlap is only one node long
-                    LadderState::Double => {
-                        state = LadderState::Singular;
+                    BubbleState::Singular => (), // could return None, but would kill if overlap is only one node long
+                    BubbleState::Double => {
+                        state = BubbleState::Singular;
                         paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                     }
                 }
@@ -2431,22 +2466,22 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // check coverage, in theoretical ladder coverage should be uniform
             let coverage = out_edge_coverages.edge_mult(out_ext) as f32;
             match state {
-                LadderState::Singular => {
+                BubbleState::Singular => {
                     // single state: check if next coverage is similar enough to current coverage
                     // if way bigger, increase state, else adapt current coverage
                     if  coverage > current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // higher by too much, change state
-                        state = LadderState::Double;
+                        state = BubbleState::Double;
                     } else {
                         // in acceptable frame
                         current_cov = coverage;
                     }
                 }
-                LadderState::Double => {
-                    // double state: if way smaller (back in acceptable frame), decrease state, else don't treat as current coverage
+                BubbleState::Double => {
+                    // double state: if way smaller (back in acceptable frame), decrease state, else dont treat as current coverage
                     if coverage < current_cov + current_cov * COV_STATE_FACTOR + COV_STATE_ADD {
                         // back in acceptable range
-                        state = LadderState::Singular;
+                        state = BubbleState::Singular;
                         paths.push(vec![(current_node_id, current_in_dir)]); // start new path
                         current_cov = coverage;
                     } // else continue on 
@@ -2456,12 +2491,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // if state singular try to check if edge is "correct", add extra length of current node to it to account for compression
             match state {
-                LadderState::Singular => {
+                BubbleState::Singular => {
                     if self.check_edge_truth(current_node_id, next_node_id) {
                         n_correct_edges += len;
                     }
                 }
-                LadderState::Double => ()
+                BubbleState::Double => ()
             }
 
             // set current node id to next node to be visited
@@ -2470,8 +2505,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             // add current node to path, unless state is double
             match state {
-                LadderState::Double => (),
-                LadderState::Singular => {
+                BubbleState::Double => (),
+                BubbleState::Singular => {
                     sum_path_cov += current_cov;
                     coverage_counter += 1;
                     let last_path = paths.len() - 1;
@@ -2795,8 +2830,14 @@ struct State {
 
 impl State {}
 
+/// State to store if a part of a bubble contains another path
+///             /-----------------\
+/// ===========|                   |========
+///             \---\       /-----/     -> BubbleState::Singular
+///                  |=====|            -> BubbleState::Double
+///      -----------/       \------
 #[derive(Debug, PartialEq, Eq)]
-pub enum LadderState {
+enum BubbleState {
     Singular,
     Double
 }
@@ -3406,7 +3447,7 @@ mod test {
 
         let sample_info = SampleInfo::new(0b1, 0b10, vec![12, 12]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, TagsCountsData, _>(&reads_paired, &summary_config, false, 1., false);
 
         let graph = uncompressed_graph(kmers, true).finish();
 
@@ -3533,7 +3574,7 @@ mod test {
         let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<K, IDMapEMQualityData, _>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
@@ -3564,7 +3605,7 @@ mod test {
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3609,7 +3650,7 @@ mod test {
         let seqs = build_reads_quality_test(strandedness);
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<K, IDMapEMQualityData, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // make uncompressed graph
@@ -3640,7 +3681,7 @@ mod test {
 
         // make compressed graph
         let spec = CheckCompress::new(|d: IDMapEMQualityData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false).finish();
     
          // add "mapped" ids to graph
         for i in 0..c_graph.len() {
@@ -3719,7 +3760,7 @@ mod test {
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, IDMapEMData, _>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -3742,7 +3783,7 @@ mod test {
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3814,7 +3855,7 @@ mod test {
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, IDMapEMData, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -3837,7 +3878,7 @@ mod test {
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3895,7 +3936,7 @@ mod test {
         let seqs = ReadsPaired::Unpaired { reads };
         let sample_info = SampleInfo::new(1, 6, vec![1000, 10, 20]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMData, Kmer16, IDTag>(&seqs, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, IDMapEMData, IDTag>(&seqs, &summary_config, false, 1., false);
 
 
         // test with uncompressed graph
@@ -3920,7 +3961,7 @@ mod test {
 
         // test with compressed graph
         let spec = CheckCompress::new(|d: IDMapEMData, _| d, |d, d1| d.join_test(d1));
-        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false, false).finish();
+        let mut c_graph = compress_kmers_with_hash(stranded, &spec, kmers, false).finish();
         // add ids to graph
         for i in 0..c_graph.len() {
             let data = c_graph.mut_data(i);
@@ -3982,9 +4023,9 @@ mod test {
 
         let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer6, TagsCountsData, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(false, &ScmapCompress::new(), kmers, false).finish();
 
         graph.to_tsv("test_graph_unstranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
 
@@ -3998,9 +4039,9 @@ mod test {
 
         let sample_info = SampleInfo::new(0b1111100000, 0b0000011111, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<TagsCountsData, Kmer6, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer6, TagsCountsData, _>(&reads_paired, &summary_config, false, 1., false);
 
-        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), kmers, false, false).finish();
+        let graph = compress_kmers_with_hash(true, &ScmapCompress::new(), kmers, false).finish();
 
         graph.to_tsv("test_graph_stranded.tsv", |node| node.data().print_ol(&Translator::empty(), &summary_config, None)).unwrap();
     

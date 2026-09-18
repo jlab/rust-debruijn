@@ -1,3 +1,7 @@
+//! Types for summary data which can be collected in the filter step.
+//! 
+//! Check the [`SummaryData`] trait for an overview. 
+
 use bimap::BiMap;
 use clap::ValueEnum;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -22,7 +26,7 @@ pub type ID = u16;
 #[cfg(feature = "id4b")]
 pub type ID = u32;
 
-/// type for tags
+/// type for tags (e.g. sample labels)
 pub type Tag = u8;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize, Hash)]
@@ -135,12 +139,12 @@ impl Display for NotEnoughSamplesError {
 /// The available options are:
 /// - filter the k-mers by 
 ///     - their number of occurrences
-///     - their quality based on the phred scores from the reads
+///     - their quality based on the PHRED-scores from the reads
 ///     - their p-values regarding sample groups
-///     - if they occurr in at least a specific fraction of one or both of
+///     - if they occur in at least a specific fraction of one or both of
 ///       the sample groups 
 /// - filter the k-mer occurrences by the quality - should this disconnect the 
-///   k-mer, alll occurrences will be used
+///   k-mer, all occurrences will be used
 /// - set the number of occurrences which is stored with the k-mers to be rounded
 ///   to a number of significant digits
 /// - choose a statistical test on which the p-value calculation is based, by default 
@@ -175,9 +179,8 @@ impl Display for NotEnoughSamplesError {
 /// to be re-calculated.
 /// 
 /// ```
-/// use debruijn::summarizer::{SummaryConfig, SampleInfo, StatTest};
-/// use debruijn::BaseQuality;
-/// 
+/// # use debruijn::summarizer::{SummaryConfig, SampleInfo, StatTest};
+/// # use debruijn::BaseQuality;
 /// let sample_info = SampleInfo::new(0b1100, 0b0011, vec![100, 100, 100, 100]);
 /// let mut summary_config = SummaryConfig::new(sample_info);
 /// 
@@ -189,7 +192,7 @@ impl Display for NotEnoughSamplesError {
 /// // ...
 /// ```
 /// 
-/// By setting the `with_min_kmer_obs` to 0, k-mers for which all occurences were filtered
+/// By setting the `with_min_kmer_obs` to 0, k-mers for which all occurrences were filtered
 /// out with `with_min_quality_for_edge`, can still be included, with empty k-mer data.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SummaryConfig {
@@ -254,13 +257,13 @@ impl SummaryConfig {
         config
     }
 
-    /// modify the number signigicant digits the number of observations stored 
+    /// modify the number significant digits the number of observations stored 
     /// with the k-mer will be rounded to
     pub fn set_significant(&mut self, significant_digits: Option<u32>) {
         self.significant = significant_digits;
     }
 
-    /// produce a new `SummaryConfig` which will require the k-mer to be ovserved
+    /// produce a new `SummaryConfig` which will require the k-mer to be observed
     /// in at least a fraction of `frac_cutoff` of either one, both or none of the
     /// sample groups
     pub fn with_group_frac(&self, group_frac: GroupFrac, frac_cutoff: f32) -> Self {
@@ -270,7 +273,7 @@ impl SummaryConfig {
         config
     }
 
-    /// modify the group fract settings which require the k-mer to be ovserved
+    /// modify the group fract settings which require the k-mer to be observed
     /// in at least a fraction of `frac_cutoff` of either one, both or none of the
     /// sample groups
     pub fn set_group_frac(&mut self, group_frac: GroupFrac, frac_cutoff: f32) {
@@ -454,7 +457,7 @@ fn tag_counter(tag_vec: &[Tag]) -> Vec<u32> {
     let mut tag_counter = 1;
     let mut tag_counts: Vec<u32> = Vec::new();
 
-    // count the occurences of the labels
+    // count the occurrences of the labels
     for i in 1..tag_vec.len() {
         if tag_vec[i] == tag_vec[i-1] {
             tag_counter += 1;
@@ -578,7 +581,7 @@ fn summarize_tags_ids<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items
 fn summarize_tags_ids_edge_q<K: Kmer, F: Iterator<Item = KmerDataItem<K, IDTag>>>(items: F, config: &SummaryConfig) 
 -> IDTagSummary
 {
-    // filter the k-mer occurences by their quality -> only use exts and data from k-mers with good enough quality
+    // filter the k-mer occurrences by their quality -> only use exts and data from k-mers with good enough quality
     let items_filtered = items.filter(|item|
         match item.quality {
             None => true,
@@ -845,17 +848,97 @@ fn log2_fold_change(tags: Tags, counts: &[u32], sample_info: &SampleInfo) -> f32
 
     (norm_count_g0 / norm_count_g1).log2() as f32
 }
-/// Trait for summarizing k-mers, determines the data saved in the graph nodes
+/// Trait for summarizing k-mers. It determines the kind data saved in the graph nodes which is collected 
+/// during the filtering step. 
+/// 
+/// Supply an implementation of `SummaryData` (e.g. [`TagsCountsData`]) to [`crate::filter::filter_kmers`]
+/// or [`crate::filter::filter_kmers_parallel`]. After building the graph, you can access the data of each
+/// node with the [`crate::graph::Node::data()`]` method and apply summary data methods to it.
+/// 
+/// ```
+/// # use debruijn::build_test_graph;
+/// # use debruijn::serde::{SerGraph, SerReads};
+/// use debruijn::summarizer::{TagsCountsData, SummaryData};
+/// use debruijn::filter::filter_kmers;
+/// use debruijn::kmer::Kmer22;
+/// 
+/// # let (ser_reads, _, ser_graph) = build_test_graph::<Kmer22, TagsCountsData, _>();
+/// # let (reads, _) = ser_reads.dissolve();
+/// # let (graph, _, summary_config) = ser_graph.dissolve();
+/// 
+/// // the returned hash map will contain an instance of TagsCountsData for each unique k-mer
+/// let (hashed_kmers, _) = filter_kmers::<Kmer22, TagsCountsData, _>(
+///     &reads,
+///     &summary_config,
+///     false, 
+///     10., 
+///     false
+/// );
+/// 
+/// // ...
+/// 
+/// // data of the node with index 10
+/// let data_n10 = graph.get_node(10).data();
+/// let tags = data_n10.tags();
+/// ```
+/// 
+/// 
+/// `SummaryData` is implemented for a range of structs in [`crate::summarizer`]. 
+/// With a few exceptions, they are built from the same components and 
+/// the names of the implementations contain its fields.
+/// 
+/// The possible fields are:
+/// * `sum`: the sum of observations of the k-mer in the data (coverage). [`u32`] equals just this field.
+/// * `vec_tags`: tags/labels/sample IDs the k-mer was observed with, stored as [`Tag`]s in a vector, 
+///   can hold up to 256 unique tags.
+/// * `tags`: tags/labels the k-mer was observed with, 1-bit encoded in a [`u64`], 
+///   can hold up to 64 unique tags, but is more memory efficient. With the feature `sample128`, 
+///   the capacity can be increased to 128 unique tags, which also increases memory usage. 
+///   The tags can be grouped into two groups (e.g. patient and control groups for samples). 
+///   Where necessary groups can be supplied to methods through the [`SummaryConfig`].
+/// * `counts`: how often the k-mer was observed with a tag (e.g. within a sample). 
+///   This field makes `sum` redundant. It requires `tags` so we can tell with which tags
+///   the k-mer occurred the given amount of times.
+/// * `p_value`: the p-value regarding k-mer occurrence in the two tag groups (see `tags`). 
+///   Both the group affiliation and the statistical test used can be supplied through [`SummaryConfig`].
+///   If the implementation contains the fields `tags` as well as `counts`, the p-value can be calculated
+///   later on without being stored, which can save a small amount of storage but will increase the runtime
+///   noticeably.
+/// * `ids`: a separate set of [`ID`]s (e.g. gene IDs), stored in a boxed slice. 
+///   This usually requires `DI` to be of type [`IDTag`]. There can be up to 65k unique IDs, 
+///   which can be increased to 4b with the feature `id4b`.
+/// * `map_ids`: a boxed slice of [`ID`]s, which remains empty during data summary and can
+///   be filled later with the results of [`crate::graph::DebruijnGraph::map_transcripts`],
+//    where sequences from a FASTA file can be mapped to an uncompressed DBG
+/// * `edge_mults`: Separately from `sum`, which collects the node coverage, this
+///   collects the edge coverage for each of the eight possible edges of the node
+/// * `edge_maps`: similarly to `map_ids`, this is a placeholder for the results of 
+///   [`crate::graph::DebruijnGraph::map_transcripts_to_edges`].
+/// 
+/// Exceptions:
+/// * [`GroupCountData`]: stores the respective sums (coverages) for 
+///   the sample groups. 
+/// * [`RelCountData`]: stores the `sum` and the percentage of occurrences in the first
+///   sample groups.
+/// * [`u32`]: the same as `sum`.
+/// 
+/// 
+/// If the implementation contains the fields `ids` or `map_ids`, `DI` is [`IDTag`]. Else, it is [`Tag`]. 
+/// This should be taken into consideration when constructing the [`crate::reads::ReadsPaired<DI>`] with the 
+/// input sequences.
+/// 
+/// The methods generally only perform the described action if the implementation has the required 
+/// fields and else return `None` or do nothing. 
 pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize + DeserializeOwned {
-    /// format the node data 
+    /// format the node data - is meant for the DOT format and may span multiple lines.
     fn print(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// format the node data in for json
+    /// format the node data in one line, e.g. for the GFA format
     fn print_ol(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// format the node data in one line
+    /// format the node data for the JSON format ("field": data)
     fn print_json(&self, translator: &Translator, config: &SummaryConfig, id_group_translator: Option<&HashMap<ID, ID>>) -> String;
-    /// get `Tags` and the overall count, returns `None` if data is insufficient
+    /// get the stored [`Tags`]
     fn tags(&self) -> Option<Tags> { None }
-    /// get the size of the structure, including contents of boxed slices
+    /// get the size of the structure, including 
     fn mem(&self) -> usize;
     /// get the number of observations, returns `None` if data is insufficient
     fn sum(&self) -> Option<u32> { None }
@@ -877,19 +960,48 @@ pub trait SummaryData<DI>: Clone + Debug + Send + Sync + PartialEq + Serialize +
     fn set_edge_mults(&mut self, _edge_mults: Option<EdgeMult>) { }
     /// get a reference to the mapped ids,  returns `None` if data is insufficient
     fn mapped_ids(&self) -> Option<&[ID]> { None }
-    /// add mapped ids to the node data
+    /// add mapped IDs to the node data - the IDs can be mapped to the graph from a FASTA file 
+    /// with [`crate::graph::DebruijnGraph::map_transcripts`] and then can be added to the graph afterwards.
     fn set_mapped_ids(&mut self, _mapped_ids: Box<[ID]>) { }
-    /// get a reference to the IDs mapped to the node edges, returns `None` id data is insuffivient
+    /// get a reference to the IDs mapped to the node edges, returns `None` id data is insufficient
     fn mapped_edge_ids(&self) -> Option<&EdgeMap> { None }
     /// add mapped IDs to the node's edges
     fn set_mapped_edge_ids(&mut self, _mapped_edge_ids: Option<EdgeMap>) { }
-    /// check if the data can be joined into one
+    /// check if the data can be joined into one - this checks if the data is identical,
+    /// but ignores edge maps and edge mults, so they can get compressed. You can use this with
+    /// [`crate::compression::CheckCompress`] as the `join_func`:
+    /// 
+    /// ```
+    /// # use debruijn::build_test_graph;
+    /// # use debruijn::serde::{SerGraph, SerKmers};
+    /// use debruijn::summarizer::{TagsCountsData, SummaryData};
+    /// use debruijn::compression:: {CheckCompress, compress_kmers_with_hash};
+    /// use debruijn::kmer::Kmer22;
+    /// 
+    /// # let (_ser_reads, ser_kmers, ser_graph) = build_test_graph::<Kmer22, TagsCountsData, _>();
+    /// # let (hashed_kmers, _, _) = ser_kmers.dissolve();
+    /// # let (graph, _, _) = ser_graph.dissolve();
+    ///  
+    /// // use the `join_test` method as the `join_func` when creating the compression specs: 
+    /// let comp_spec = CheckCompress::new(
+    ///     |d: TagsCountsData, _| d, 
+    ///     |d, d1| d.join_test(d1) // SummaryData::join_test
+    /// );
+    /// 
+    /// // use this to compress the graph
+    /// let graph = compress_kmers_with_hash(
+    ///     false, // strandedness
+    ///     &comp_spec, 
+    ///     hashed_kmers, 
+    ///     false, // print the time the process took
+    /// ).finish();
+    /// ```
     fn join_test(&self, other: &Self) -> bool { self == other }
     /// check if node is valid according to: min kmer obs, group fraction, p-value
     fn valid(&self, _config: &SummaryConfig) -> bool { true }
     /// summarize k-mers
     fn summarize<K: Kmer, F: Iterator<Item = KmerDataItem<K, DI>>>(items: F, config: &SummaryConfig) -> (bool, Exts, Self);
-    /// check summerizer kind
+    /// check summarizer kind
     fn summarizer() -> Summarizers;
 }
 // TODO: move SummaryData::print functionality to Display trait?
@@ -943,8 +1055,10 @@ impl SummaryData<Tag> for u32 {
     }
 }
 
+/// data the k-mer was observed with
+/// 
 /// the samples the k-mer was observed with, stored in a Vec -
-/// unlike [`TagsData`], this can hold 256 uniqe sample IDs, but uses 
+/// unlike [`TagsData`], this can hold 256 unique sample IDs, but uses 
 /// more memory (min 3x)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 // aligned would be 16 Bytes, packed would be 12 Bytes
@@ -1032,7 +1146,7 @@ impl TagsCountsPData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, and the edge multiplicites/coverage
+/// was observed with each label, and the edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsEMData {
     tags: Tags,
@@ -1050,7 +1164,7 @@ impl TagsCountsEMData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, a p-value, and the edge multiplicites/coverage
+/// was observed with each label, a p-value, and the edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsPEMData {
     tags: Tags,
@@ -1069,7 +1183,7 @@ impl TagsCountsPEMData {
 // Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, a p-value, and the edge multiplicites/coverage
+/// was observed with each label, a p-value, and the edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct TagsCountsPEMQualityData {
     tags: Tags,
@@ -1107,7 +1221,7 @@ impl IDTagsCountsData {
 /// Implementation of [`SummaryData<Tag>`]
 /// 
 /// Contains the tags the k-mer was observed with, how many times it 
-/// was observed with each label, a p-value, and the edge multiplicites/coverage
+/// was observed with each label, a p-value, and the edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDTagsCountsPEMData {
     tags: Tags,
@@ -1126,7 +1240,7 @@ impl IDTagsCountsPEMData {
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the IDs the k-mer was observed with and the edge multiplicites/coverage
+/// Contains the IDs the k-mer was observed with and the edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDEMData {
     ids: Box<[ID]>,
@@ -1135,7 +1249,7 @@ pub struct IDEMData {
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
+/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDMapEMData {
     ids: Box<[ID]>,
@@ -1145,7 +1259,7 @@ pub struct IDMapEMData {
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
+/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct IDMapEMQualityData {
     ids: Box<[ID]>,
@@ -1157,7 +1271,7 @@ pub struct IDMapEMQualityData {
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
+/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct SumMapEMQualityData {
     sum: u32,
@@ -1168,7 +1282,7 @@ pub struct SumMapEMQualityData {
 
 /// Implementation of [`SummaryData<Tag>`]
 /// 
-/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicites/coverage
+/// Contains the IDs the k-mer was observed with, a placeholder for mapped ids, and edge multiplicities/coverage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SummaryData)]
 pub struct MapEMEmapQualityData {
     map_ids: Box<[ID]>,
@@ -1541,10 +1655,10 @@ mod test {
         let summary_config = SummaryConfig::new(sample_info)
             .with_min_quality_for_edge(crate::BaseQuality::Medium);
 
-        let (kmers, _) = filter_kmers::<TagsData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, TagsData, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: TagsData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {
@@ -1567,10 +1681,10 @@ mod test {
 
         let reads_paired = ReadsPaired::Unpaired { reads };
 
-        let (kmers, _) = filter_kmers::<IDData, Kmer16, _>(&reads_paired, &summary_config, false, 1., false);
+        let (kmers, _) = filter_kmers::<Kmer16, IDData, _>(&reads_paired, &summary_config, false, 1., false);
 
         let comp_spec = CheckCompress::new(|a: IDData, _b| a, |a, b| a.join_test(b));
-        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false, false).finish();
+        let mut graph = compress_kmers_with_hash(true, &comp_spec, kmers, false).finish();
         graph.fix_exts(None);
 
         for node_id in 0..graph.len() {
