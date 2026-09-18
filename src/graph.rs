@@ -65,9 +65,6 @@ use std::path::Path;
 
 use boomphf::hashmap::BoomHashMap;
 
-use serde_json;
-use serde_json::Value;
-
 type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
@@ -332,7 +329,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         edges
     }
 
-    /// Seach for the kmer `kmer`, appearing at the given `side` of a node sequence.
+    /// Search for the kmer `kmer`, appearing at the given `side` of a node sequence.
     fn search_kmer(&self, kmer: K, side: Dir) -> Option<usize> {
         match side {
             Dir::Left => self.left_order.get(&kmer).map(|pos| *pos as usize),
@@ -752,7 +749,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
 
     /// map sequences from a fasta reference to the nodes of a **completely uncompressed** debruijn graph
     /// 
-    /// the IDs are stored with the node if the k-mer occured in the reference
+    /// the IDs are stored with the node if the k-mer occurred in the reference
     pub fn map_transcripts<P>(&self, path: P, translator: &mut Translator) -> Result<Vec<Box<[ID]>>, String> 
     where 
         P: AsRef<Path>
@@ -794,7 +791,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                         node_transcript_ids[node].push(gene_id);
                     }
                 } else {
-                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    // graph is not stranded, look for both the k-mer and its reverse complement
                     if let Some(node) = self.search_kmer(kmer, Dir::Right) {
                         node_transcript_ids[node].push(gene_id);
                     } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
@@ -856,7 +853,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
                         node_edge_transcript_ids[node].add_id(exts, gene_id);
                     }
                 } else {
-                    // graph is not stranded, look for both the k-mer ansd its reverse complement
+                    // graph is not stranded, look for both the k-mer and its reverse complement
                     if let Some(node) = self.search_kmer(kmer, Dir::Right) {
                         node_edge_transcript_ids[node].add_id(exts, gene_id);
                     } else if let Some(node) = self.search_kmer(kmer.rc(), Dir::Right) {
@@ -1188,7 +1185,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         gfa_out: P,
         tag_func: F,
     ) -> Result<(), Error> {
-        let mut wtr = BufWriter::with_capacity(BUF, File::create(gfa_out).expect("error creatinf gfa file"));
+        let mut wtr = BufWriter::with_capacity(BUF, File::create(gfa_out).expect("error creating gfa file"));
         writeln!(wtr, "H\tVN:Z:debruijn-rs")?;
 
         let pb = ProgressBar::new(self.len() as u64);
@@ -1355,67 +1352,7 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         Ok(())
     }
 
-    pub fn to_json_rest<W: Write, F: Fn(&D) -> Value>(
-        &self,
-        fmt_func: F,
-        mut writer: &mut W,
-        rest: Option<Value>,
-    ) {
-        writeln!(writer, "{{\n\"nodes\": [").unwrap();
-        for i in 0..self.len() {
-            let node = self.get_node(i);
-            node.to_json(&fmt_func, writer);
-            if i == self.len() - 1 {
-                writeln!(writer).unwrap();
-            } else {
-                writeln!(writer, ",").unwrap();
-            }
-        }
-        writeln!(writer, "],").unwrap();
-
-        writeln!(writer, "\"links\": [").unwrap();
-        for i in 0..self.len() {
-            let node = self.get_node(i);
-            match node.edges_to_json(writer) {
-                true => {
-                    if i == self.len() - 1 {
-                        writeln!(writer).unwrap();
-                    } else {
-                        writeln!(writer, ",").unwrap();
-                    }
-                }
-                _ => continue,
-            }
-        }
-        writeln!(writer, "]").unwrap();
-
-        match rest {
-            Some(Value::Object(v)) => {
-                for (k, v) in v.iter() {
-                    writeln!(writer, ",").expect("io error");
-                    write!(writer, "\"{}\": ", k).expect("io error");
-                    serde_json::to_writer(&mut writer, v).expect("io error");
-                    writeln!(writer).expect("io error");
-                }
-            }
-            _ => {
-                writeln!(writer).expect("io error");
-            }
-        }
-
-        writeln!(writer, "}}").expect("io error");
-    }
-
-    /// Write the graph to JSON
-    pub fn to_json<W: Write, F: Fn(&D) -> Value, RF: Fn(&mut W)>(
-        &self,
-        fmt_func: F,
-        writer: &mut W,
-    ) {
-        self.to_json_rest(fmt_func, writer, None);
-    }
-
-    // iterate over graph or parial node IDs while leaving out the last node
+    // iterate over graph or partial node IDs while leaving out the last node
     fn iter_optional_partial<'a>(&self, partial_nodes: Option<&'a Vec<usize>>) -> Box<dyn Iterator<Item = usize> + 'a> {
         if let Some(partial) = partial_nodes {
             Box::new(partial[..(partial.len()-1)].iter().copied())
@@ -1815,7 +1752,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// if a node has a connection to a high quality node and low quality nodes 
-    /// in the same direction, remove the connections to the low quality ndoes
+    /// in the same direction, remove the connections to the low quality nodes
     pub fn remove_lq_splits<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
     where 
         SD: SummaryData<DI>
@@ -1878,7 +1815,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         // iterate over nodes
         for (node_id, out_dir) in (0..self.len()).flat_map(|id| [(id, Dir::Right), (id, Dir::Left)]) {
-            // check if node has multile outs, at least one with bad quality and one with good quality
+            // check if node has multiple outs, at least one with bad quality and one with good quality
             let node_out_edges = self.get_node(node_id).edges(out_dir);
 
             let good_neighbors = node_out_edges.iter()
@@ -1967,7 +1904,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         }
                     }
 
-                    // check if we have met end criterium -> save path
+                    // check if we have met end criterion -> save path
                     let quality_req =  current_node.data().quality().unwrap() >= min_quality;
                     let len_req = path_length >= min_path;
                     // path is a simple tip -> save as tip (does not have to meet length requirement)
@@ -2125,7 +2062,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             let node = self.get_node(node_id);
 
-            // check if node has multile outs, at least one with bad quality and one with good quality
+            // check if node has multiple outs, at least one with bad quality and one with good quality
             let node_out_coverages = node.data().edge_mults().expect("should have em").single_dir(start_out_dir).edge_mults;
 
             let Some((out_max_base, &out_max_cov)) = node_out_coverages.iter().rev().enumerate().filter(|&(_, &c)| c  > 0).max_by(|&(_b1, &c1), &(_b2, c2)| c1.cmp(c2)) else { continue };
@@ -2198,9 +2135,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // TODO check if better with min_diff_factor
                     // TODO check if we should replace consts with min diff factor
                     let highest_cov = out_edge_coverages.edge_mults.iter().max().unwrap_or(&0);
-                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD) & !c_state_high; // higer coverage than last edge
+                    let coverage_req =  (*highest_cov as f32 > out_max_cov as f32 - (out_max_cov as f32 * COV_STATE_FACTOR + COV_STATE_ADD)) & !c_state_high; // higher coverage than last edge
 
-                    // check if we have met end criterium -> save path
+                    // check if we have met end criterion -> save path
                     let len_req = path_length >= min_path; // path long enough
                     // path is a simple tip -> save as tip
                     let is_tip = out_edges.is_empty() & (path_groups.len() == 1); // TODO maybe remove req 2 in future
@@ -2368,7 +2305,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         SD: SummaryData<DI>,
         P: AsRef<Path>
     {
-        // interrupt if we dont have edge mults
+        // interrupt if we don't have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
@@ -2639,7 +2576,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         }
     }
 
-    /// remove tips from the graph, reqires the graoh to have edge mults and be stranded
+    /// remove tips from the graph, requires the graph to have edge mults and be stranded
     /// it is recommended to use this function after [`DebruijnGraph::remove_ladders`], since 
     /// the latter will likely leave tips in the graph
     pub fn remove_tips<DI, P>(&mut self, min_diff_factor: u32, max_avg_tip_cov: f32, out_path: Option<P>) -> Result<(), String> 
@@ -2647,7 +2584,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         SD: SummaryData<DI>,
         P: AsRef<Path>
     {
-        // interrupt if we dont have edge mults
+        // interrupt if we don't have edge mults
         if self.get_node(0).data().edge_mults().is_none() { return Err(String::from("no edge mults available")) };
 
         let mut writer = out_path.map(|path| BufWriter::new(File::create(path).expect("error creating ladder stats file")));
@@ -2751,7 +2688,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 _ => ()
             }
 
-            // if edge cov avalable, check for similarity
+            // if edge cov available, check for similarity
             let (out_ext, next_node_id, next_in_dir, _) = out_edges[0];
             if let Some(em) = current_node.data().edge_mults() {
                 let coverage = em.edge_mult(out_ext, current_in_dir.flip()) as f32;
@@ -2848,7 +2785,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     }
 
     /// use ids mapped to edges to check if the edge is a true edge
-    /// returns false if mapped ids are not available
+    /// returns false if mapped ids are not available or if the nodes are not connected
     pub fn check_edge_truth_emap<DI>(&self, node_id_1: usize, node_id_2: usize) -> bool
     where 
         SD: SummaryData<DI>
@@ -2869,10 +2806,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if !edge_map.is_empty() {
                     return true
                 }
-            } else {
-                panic!("missing neighbor")
-            };
-
+            }
         }
 
         false
@@ -3077,7 +3011,7 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
         self.graph.base.sequences.get(self.node_id)
     }
 
-    /// Reference to auxiliarly data associated with the node
+    /// Reference to auxiliary data associated with the node
     pub fn data(&self) -> &'a D {
         &self.graph.base.data[self.node_id]
     }
@@ -3103,43 +3037,6 @@ impl<'a, K: Kmer, D: Debug> Node<'a, K, D> {
     /// (base, target_node id, incoming side of target node, whether target node is flipped)
     pub fn edges(&self, dir: Dir) -> SmallVec4<(u8, usize, Dir, bool)> {
         self.graph.find_edges(self.node_id, dir)
-    }
-
-    fn to_json<F: Fn(&D) -> Value>(&self, func: &F, f: &mut dyn Write) {
-        write!(
-            f,
-            "{{\"id\":\"{}\",\"L\":{},\"D\":{},\"Se\":\"{:?}\"}}",
-            self.node_id,
-            self.sequence().len(),
-            (func)(self.data()),
-            self.sequence(),
-        )
-        .unwrap();
-    }
-
-    fn edges_to_json(&self, f: &mut dyn Write) -> bool {
-        let mut wrote = false;
-        let edges = self.r_edges();
-        for (idx, &(_, id, incoming_dir, _)) in edges.iter().enumerate() {
-            write!(
-                f,
-                "{{\"source\":\"{}\",\"target\":\"{}\",\"D\":\"{}\"}}",
-                self.node_id,
-                id,
-                match incoming_dir {
-                    Dir::Left => "L",
-                    Dir::Right => "R",
-                }
-            )
-            .unwrap();
-
-            if idx < edges.len() - 1 {
-                write!(f, ",").unwrap();
-            }
-
-            wrote = true;
-        }
-        wrote
     }
 }
 
@@ -3498,7 +3395,7 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -4083,6 +3980,36 @@ mod test {
         if print { c_graph.to_dot("compressed_af-tips.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         assert_eq!(n_edges - 2, c_graph.iter_edges().count());
 
+    }
+
+    #[test]
+    fn test_check_edge_truth() {
+        let (_, _, ser_graph) = build_test_graph::<Kmer16, MapEMEmapQualityData, _>(); 
+        let (mut graph, _translator, _config) = ser_graph.dissolve();
+
+        // add map Ids to some nodes
+        graph.mut_data(0).set_mapped_ids(vec![0, 1].into());
+        graph.mut_data(11).set_mapped_ids(vec![0].into());
+        graph.mut_data(16).set_mapped_ids(vec![1, 2].into());
+
+        assert!(graph.check_edge_truth(0, 11)); // have correct edge
+        assert!(graph.check_edge_truth(0, 16)); // have correct edge
+        assert!(!graph.check_edge_truth(0, 2)); // not connected
+        assert!(!graph.check_edge_truth(1, 2)); // connected but no correct edge
+
+        // add map ID 0 at G left to node 0 
+        let mut emap = EdgeMap::default();
+        emap.add_id_to_edge_map_at_index(0, 5);
+        graph.mut_data(0).set_mapped_edge_ids(Some(emap));
+
+        // add map ID 0 at T right to node 11 
+        let mut emap = EdgeMap::default();
+        emap.add_id_to_edge_map_at_index(0, 0);
+        graph.mut_data(11).set_mapped_edge_ids(Some(emap));
+
+        assert!(graph.check_edge_truth_emap(0, 11)); // nodes are connected and should have correct edge
+        assert!(!graph.check_edge_truth_emap(0, 16)); // nodes are connected but should not have a correct edge (only node IDs)
+        assert!(!graph.check_edge_truth_emap(0, 2)); // nodes are not connected
     }
 
     #[test]

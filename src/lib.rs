@@ -1917,7 +1917,7 @@ where
 mod tests {
     use bimap::BiMap;
 
-    use crate::{ALPHABET_SIZE, BaseQuality, Dir, EdgeMap, EdgeMult, Exts, Kmer, QualityBins, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, summarizer::{ID, Marker, Tag, Translator}};
+    use crate::{ALPHABET_SIZE, BaseQuality, Dir, EdgeMap, EdgeMult, Exts, Kmer, QualityBins, Tags, TagsCountsFormatter, TagsFormatter, kmer::{Kmer4, Kmer17}, size_aligned, summarizer::{ID, Marker, Tag, Translator}};
 
     #[test]
     fn test_dir_index() {

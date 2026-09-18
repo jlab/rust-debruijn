@@ -225,7 +225,7 @@ impl<D: Clone + Copy> Reads<D> {
     pub fn mem(&self) -> usize {
         let exts_size = if let Some(e_vec) = self.exts.as_ref() { size_of_val(&**e_vec) } else { 0 };
         let quality_size_inner = if let Some(q) = self.quality.as_ref() {
-            size_of_val(&*q)
+            size_of_val(&**q)
         } else {
             0
         };
@@ -623,7 +623,7 @@ impl<D: Clone + Copy> Default for Reads<D> {
     }
 }
 
-/// Iterator over values of a DnaStringoded sequence (values will be unpacked into bytes).
+/// Iterator over values of a DnaString-like encoded sequence (values will be unpacked into bytes).
 pub struct ReadsIter<'a, D> {
     reads: &'a Reads<D>,
     i: usize,
@@ -922,10 +922,10 @@ impl<DI: ReadData> ReadsPaired<DI> {
         }
     }
 
-    /// return the number of k-mers occuring with each u8-encoded tag, 
+    /// return the number of k-mers occurring with each u8-encoded tag, 
     /// with the tag as the index
-    /// if there are no tags saved in the Readspauired, it returns a vector of the
-    /// length `n_sampeles`, filles with zeroes
+    /// if there are no tags saved in the [`ReadsPaired`], it returns a vector of the
+    /// length `n_samples`, filles with zeroes
     pub fn tag_kmers_vec(&self, k: usize, n_samples: usize) -> Vec<u64> {
         let hashed_kmer_counts = self.tag_kmers(k);
 
@@ -954,11 +954,11 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
     /// generate a read data from an ID and a tag
     fn new(id: ID, tag: Tag) -> Self;
-    /// geneate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
+    /// generate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
     /// if available, get a tag
     fn get_tag(&self) -> Option<Tag>;
-    /// retrun a ReadDatas enum to check which kind of ReadData is present
+    /// return a ReadDatas enum to check which kind of ReadData is present
     fn read_datas() -> ReadDatas;
 }
 

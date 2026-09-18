@@ -137,7 +137,7 @@ impl Vmer for DnaString {
         let mut kmer = K::empty();
 
         while kmer_pos < K::k() {
-            // get relevent bases for current block
+            // get relevant bases for current block
             let nb = min(K::k() - kmer_pos, 32 - block_pos);
 
             let v = self.storage[block];
@@ -349,7 +349,7 @@ impl DnaString {
 
     pub fn extend(&mut self, mut bytes: impl Iterator<Item = u8>) {
         // fill the last incomplete u64 block
-        while self.len % 32 != 0 {
+        while !self.len.is_multiple_of(32) {
             match bytes.next() {
                 Some(b) => self.push(b),
                 None => return,

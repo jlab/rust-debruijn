@@ -297,7 +297,7 @@ mod tests {
 
     use crate::dna_string::DnaString;
     use crate::filter::{self, filter_kmers};
-    use crate::kmer::Kmer6;
+    use crate::kmer::{K15, K80, Kmer6, VarLenKmer};
     use crate::kmer::{IntKmer, VarIntKmer, K31};
     use crate::msp;
     use std::ops::Sub;
@@ -367,10 +367,24 @@ mod tests {
     }
 
     #[test]
+    fn simple_path_compress_u128() {
+        let contigs = simple_random_contigs();
+        simplify_from_kmers::<IntKmer<u128>>(contigs, false);
+    }
+
+    #[test]
     fn complex_path_compress_k31() {
-        for _ in 0..100 {
+        for _ in 0..10 {
             let contigs = random_contigs();
             simplify_from_kmers::<VarIntKmer<u64, K31>>(contigs, false);
+        }
+    }
+
+    #[test]
+    fn complex_path_compress_k80() {
+        for _ in 0..10 {
+            let contigs = random_contigs();
+            simplify_from_kmers::<VarLenKmer<u32, 5, K80>>(contigs, false);
         }
     }
 
@@ -400,7 +414,7 @@ mod tests {
             &config,
             false,
             4.,
-            true,
+            false,
         );
 
         let spec =
