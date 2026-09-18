@@ -766,8 +766,6 @@ impl<T: PrimInt + FromPrimitive + Hash + IntHelp, KS: KmerSize> fmt::Debug for V
     }
 }
 
-trait ValidLen<const LEN: usize> {}
-impl ValidLen<2> for () {}
 /// A fixed-length Kmer sequence that may not fill the bits of T
 ///
 /// side:             L           R
@@ -802,7 +800,7 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
         unimplemented!() // cant really turn the array into an u64
     }
 
-    fn from_u64(v: u64) -> Self {
+    fn from_u64(_v: u64) -> Self {
         unimplemented!() // cant really turn the u64 into an array
     }
 
@@ -816,7 +814,7 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
         // go over the rest of the blocks
         // should we only have one block, this is skipped
         for step in (0..(LEN-1)).rev() {
-            // always get the back base of block and attach it to the front of the last one
+            // always get the back base of block and attach it to the front of the previous one
             let moved_v = self.get_by_addr(step, 0);
             new_kmer.set_by_addr(step+1, Self::t_bits()-2, moved_v);
 
@@ -840,7 +838,7 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
         // go over the rest of the blocks
         // should we only have one block, this is skipped
         for step in 1..(LEN) {
-            // always get the front base of block and attach it to the back of the last one
+            // always get the front base of block and attach it to the back of the previous one
             let moved_v = self.get_by_addr(step, Self::t_bits()-2);
             new_kmer.set_by_addr(step-1, 0, moved_v);
 
@@ -849,7 +847,7 @@ impl<T: IntHelp + DeserializeOwned, const LEN: usize, KS: KmerSize> Kmer for Var
             new_kmer.storage[step] = new_block;
         }
 
-        // finally, add the new base to the last block
+        // finally, add the new base to the back block
         new_kmer.set_mut(Self::k()-1, v);
         new_kmer
     }
@@ -1352,7 +1350,7 @@ pub struct K2;
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 struct K0;
 
-/// Marker trait for generating K=0 Kmers (for testing)
+/// Marker trait for generating K=300 Kmers (for testing)
 #[derive(Debug, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, KmerSize)]
 struct K300;
 

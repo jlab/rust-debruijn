@@ -208,7 +208,7 @@ impl<D: Clone + Copy> Reads<D> {
     }
 
     /// Adds a new read to the `Reads`
-    // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accellerated mode
+    // maybe push_base until u64 is full and then do extend like in DnaString::extend ? with accelerated mode
     pub fn add_read<V: Vmer>(&mut self, seq: V, exts: Option<Exts>, data: D, quality_scores: Option<&[u8]>) {
         // check if we have quality scores
         if let (Some(q), true) = (quality_scores, self.quality.is_some()) {
@@ -384,7 +384,7 @@ impl<D: Clone + Copy> Reads<D> {
         self.len += 1; 
     }
 
-    /// Simultaniously add new 2-bit encoded base and quality to the `Reads`
+    /// Simultaneously add new 2-bit encoded base and quality to the `Reads`
     fn push_base_and_quality(&mut self, base: u8, score: u8) {
         let Some(quality) = self.quality.as_mut() else { return; };
         let base_quality = self.quality_bins.base_quality_from_ascii_bytes(score);
@@ -559,7 +559,7 @@ impl<D: Clone + Copy> Default for Reads<D> {
     }
 }
 
-/// Iterator over values of a DnaStringoded sequence (values will be unpacked into bytes).
+/// Iterator over values of a DnaString-like encoded sequence (values will be unpacked into bytes).
 pub struct ReadsIter<'a, D> {
     reads: &'a Reads<D>,
     i: usize,
@@ -847,10 +847,10 @@ impl<DI: ReadData> ReadsPaired<DI> {
         }
     }
 
-    /// return the number of k-mers occuring with each u8-encoded tag, 
+    /// return the number of k-mers occurring with each u8-encoded tag, 
     /// with the tag as the index
-    /// if there are no tags saved in the Readspauired, it returns a vector of the
-    /// length `n_sampeles`, filles with zeroes
+    /// if there are no tags saved in the [`ReadsPaired`], it returns a vector of the
+    /// length `n_samples`, filles with zeroes
     pub fn tag_kmers_vec(&self, k: usize, n_samples: usize) -> Vec<u64> {
         let hashed_kmer_counts = self.tag_kmers(k);
 
@@ -879,11 +879,11 @@ impl<D: Clone + Copy> Display for ReadsPaired<D> {
 pub trait ReadData: PartialEq + Hash + serde::Serialize + DeserializeOwned + Debug + Clone + Copy + Eq + Send + Sync + Ord {
     /// generate a read data from an ID and a tag
     fn new(id: ID, tag: Tag) -> Self;
-    /// geneate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
+    /// generate a read data, [`ID`]s and [`IDTag`]s can only be generated from [Marbel](https://github.com/jlab/marbel) reads
     fn read_data(gene_ids: &mut BiMap<String, ID>, read_name: &[u8], tag: Tag) -> Self;
     /// if available, get a tag
     fn get_tag(&self) -> Option<Tag>;
-    /// retrun a ReadDatas enum to check which kind of ReadData is present
+    /// return a ReadDatas enum to check which kind of ReadData is present
     fn read_datas() -> ReadDatas;
 }
 
