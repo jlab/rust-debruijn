@@ -4,7 +4,6 @@
 
 use bimap::BiHashMap;
 use bio::io::fasta;
-use bio::pattern_matching::myers::BitVec;
 use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
@@ -1778,7 +1777,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
         let mut writer = BufWriter::new(File::create(&path)?);
-        writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3")?;
+        writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3,mgr0,mgr1,mgr2,mgr3,sgr0,sgr1,sgr2,sgr3")?;
 
         let mut visited = BitSet::new();
 
@@ -1796,8 +1795,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let next_node_data = self.get_node(next_node_id).data();
                 let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_out_dir);
                 let node_quality = next_node_data.quality().expect("should have edge quality");
-                let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
-                paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported)]);
+                let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                let supported = !mapped_ids.is_empty();
+                mapped_ids.sort();
+                let sorted_len = mapped_ids.len();
+                mapped_ids.dedup();
+                let deduped_len = mapped_ids.len();
+                let multi_gene_repeat = sorted_len;
+                let single_gene_repeat = sorted_len - deduped_len;
+                paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]);
             }
 
             // container for temp new paths (should get emptied each iteration)
@@ -1810,7 +1816,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut remove_paths = Vec::new();
 
                 for (i, path) in paths.iter_mut().enumerate() {
-                    let (last_node_id, last_in_dir, _, _, _) = path.last().unwrap();
+                    let (last_node_id, last_in_dir, _, _, _, _, _) = path.last().unwrap();
                     let last_node = self.get_node(*last_node_id);
                     let out_edges = self.get_node(*last_node_id).edges(last_in_dir.flip());
 
@@ -1826,10 +1832,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let next_node_data = self.get_node(next_node_id).data();
                         let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                         let node_quality = next_node_data.quality().expect("should have edge quality");
-                        let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
+                        let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                        let supported = !mapped_ids.is_empty();
+                        mapped_ids.sort();
+                        let sorted_len = mapped_ids.len();
+                        mapped_ids.dedup();
+                        let deduped_len = mapped_ids.len();
+                        let multi_gene_repeat = sorted_len;
+                        let single_gene_repeat = sorted_len - deduped_len;
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
-                        new_path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+                        new_path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1837,8 +1850,15 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let next_node_data = self.get_node(next_node_id).data();
                     let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                     let node_quality = next_node_data.quality().expect("should have edge quality");
-                    let supported = !next_node_data.mapped_ids().expect("should have  mapped IDs").is_empty();
-                    path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+                    let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                    let supported = !mapped_ids.is_empty();
+                    mapped_ids.sort();
+                    let sorted_len = mapped_ids.len();
+                    mapped_ids.dedup();
+                    let deduped_len = mapped_ids.len();
+                    let multi_gene_repeat = sorted_len;
+                    let single_gene_repeat = sorted_len - deduped_len;
+                    path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
 
 
                 }
@@ -1860,7 +1880,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if bubble_group.len() <= 1 { continue; }
                 // and a maximum of four (more than four should not happen anyways)
                 if bubble_group.len() > 4 {
-                    let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _f)| id).collect::<Vec<_>>();
+                    let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id).collect::<Vec<_>>();
                     group_nodes.sort();
                     group_nodes.dedup();
                     let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", path);
@@ -1889,17 +1909,23 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut avg_coverages = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.2) as f32 / K::k() as f32);
                 let mut avg_qualities = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
                 let mut avg_support = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
+                let mut avg_mgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
+                let mut avg_sgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
 
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov},")?; } else {  write!(writer, ",")?; } }
                 for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual},")?; } else {  write!(writer, ",")?; } }
-                for _i in 0..3 { if let Some(s) = avg_support.next() {  write!(writer, "{s},")?; } else {  write!(writer, ",")?; } }
-                if let Some(s) = avg_support.next() { writeln!(writer, "{s}")?; } else {  writeln!(writer)?; } // last one with \n instead of ,
+                for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s},")?; } else {  write!(writer, ",")?; } }
+                for _i in 0..4 { if let Some(mgr) = avg_mgr.next() {  write!(writer, "{mgr},")?; } else {  write!(writer, ",")?; } }
+                for _i in 0..3 { if let Some(sgr) = avg_sgr.next() {  write!(writer, "{sgr},")?; } else {  write!(writer, ",")?; } }
 
-                // TODO transfer to writer and remove last comma
+                if let Some(sgr) = avg_sgr.next() { writeln!(writer, "{sgr}")?; } else {  writeln!(writer)?; } // last one with \n instead of ,
+
             }
 
             visited.insert(start_node_id);
         }
+
+        writer.flush()?;
 
         Ok(())
     }

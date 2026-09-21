@@ -1518,7 +1518,8 @@ mod test {
             stat_test: summarizer::StatTest::UTest,
             stat_test_changed: true,
             min_quality: crate::BaseQuality::Medium,
-            min_quality_for_edge: crate::BaseQuality::High
+            min_quality_for_edge: crate::BaseQuality::High,
+            random_quality: true
         };
         
         assert_eq!(config1, config2);
