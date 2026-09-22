@@ -1801,7 +1801,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let sorted_len = mapped_ids.len();
                 mapped_ids.dedup();
                 let deduped_len = mapped_ids.len();
-                let multi_gene_repeat = sorted_len;
+                let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
                 let single_gene_repeat = sorted_len - deduped_len;
                 paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]);
             }
@@ -1838,7 +1838,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let sorted_len = mapped_ids.len();
                         mapped_ids.dedup();
                         let deduped_len = mapped_ids.len();
-                        let multi_gene_repeat = sorted_len;
+                        let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
                         let single_gene_repeat = sorted_len - deduped_len;
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
@@ -1856,7 +1856,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let sorted_len = mapped_ids.len();
                     mapped_ids.dedup();
                     let deduped_len = mapped_ids.len();
-                    let multi_gene_repeat = sorted_len;
+                    let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
                     path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
 
