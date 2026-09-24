@@ -1812,19 +1812,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
         let mut writer = BufWriter::new(File::create(&path)?);
-        match create_dir(format!("{:?}_repeat_comps", &path)) {
-        Ok(_) => (),
-        Err(e) => {
-            match e.kind() {
-                AlreadyExists => warn!("bubble dir already exists, putting files in same dir"),
-                _ => {
-                    warn!("error in creating dir for nodes with genes, skipping step, error: {e}");
-                    return Err(e);
-                }
-            }
-            
-        }
-    };
+
         writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3,mgr0,mgr1,mgr2,mgr3,sgr0,sgr1,sgr2,sgr3")?;
 
         let mut visited = BitSet::new();
@@ -1965,8 +1953,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
+                    let new_path = format!("{:?}/bubble-{bubbles_written}.dot", path.as_ref().parent());
                     self.to_dot_partial(
-                        format!("{:?}_repeat_comps/bubble-{bubbles_written}.dot", &path), 
+                        new_path, 
                         &|node| node.node_dot_default(colormap, config, translator, false, false), 
                         &|node, base, dir, flip| node.edge_dot_default(colormap, base, dir, flip),
                         &nodes
