@@ -25,6 +25,7 @@ use std::fs::create_dir;
 use std::fs::{remove_file, File};
 use std::hash::Hash;
 use std::io::BufWriter;
+use std::io::ErrorKind::AlreadyExists;
 use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
@@ -1814,8 +1815,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         match create_dir(format!("{:?}_repeat_comps", &path)) {
         Ok(_) => (),
         Err(e) => {
-            warn!("error in creating dir for nodes with genes, skipping step, error: {e}");
-            return Err(e);
+            match e.kind() {
+                AlreadyExists => warn!("bubble dir already exists, putting files in same dir"),
+                _ => {
+                    warn!("error in creating dir for nodes with genes, skipping step, error: {e}");
+                    return Err(e);
+                }
+            }
+            
         }
     };
         writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3,mgr0,mgr1,mgr2,mgr3,sgr0,sgr1,sgr2,sgr3")?;
