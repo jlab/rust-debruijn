@@ -1955,8 +1955,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
-                    let new_path = path.as_ref().parent().unwrap_or(Path::new(".")).with_file_name(file_name);
-                    debug!("path bubble dot: {:?}", new_path);
+                    let new_path = path.as_ref().with_file_name(file_name);
+                    //debug!("path bubble dot: {:?}", new_path);
                     self.to_dot_partial(
                         new_path, 
                         &|node| node.node_dot_default(colormap, config, translator, false, false), 
