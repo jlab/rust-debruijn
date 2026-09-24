@@ -1953,7 +1953,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
-                    let new_path = format!("{:?}/bubble-{bubbles_written}.dot", path.as_ref().parent());
+                    let new_path = format!("{:?}/bubble-{bubbles_written}.dot", path.as_ref().parent().unwrap_or(Path::new(".")));
                     self.to_dot_partial(
                         new_path, 
                         &|node| node.node_dot_default(colormap, config, translator, false, false), 
