@@ -1716,6 +1716,36 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    /// find the closest set of neighbors to the given hash set
+    pub fn find_neighbors(&self, starting_nodes: &HashSet<usize>) -> HashSet<usize> {
+        let mut neighbors = HashSet::new();
+        for node_id in starting_nodes.iter() {
+            let node = self.get_node(*node_id);
+            for (_, nb, _, _) in node.l_edges().iter().chain(&node.r_edges()) {
+                if !starting_nodes.contains(nb) {
+                    neighbors.insert(*nb);
+                }
+                
+            }
+        }
+        neighbors
+    }
+
+    /// extend the given set of nodes with their neighbors by the given number of degrees
+    /// 
+    /// be aware this can be up to around `starting_nodes.len() * 8^degrees` nodes
+    pub fn extend_by_neighbors(&self, starting_nodes: &HashSet<usize>, degrees: usize) -> HashSet<usize> {
+        let mut set = starting_nodes.clone();
+
+        // extend `degrees` times
+        for _i in 0..degrees {
+            let nb = self.find_neighbors(&set);
+            set.extend(nb);
+        }
+
+        set
+    }
+
     /// if a node has a connection to a high quality node and low quality nodes 
     /// in the same direction, remove the connections to the low quality nodes
     pub fn remove_lq_splits<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
