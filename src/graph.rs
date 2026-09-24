@@ -20,6 +20,7 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
+use std::fmt::format;
 use std::fmt::{self, Debug, Display};
 use std::fs::create_dir;
 use std::fs::{remove_file, File};
@@ -1953,7 +1954,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
-                    let new_path = format!("{:?}/bubble-{bubbles_written}.dot", path.as_ref().parent().unwrap_or(Path::new(".")));
+                    let file_name = format!("bubble-{bubbles_written}.dot");
+                    let new_path = path.as_ref().parent().unwrap_or(Path::new(".")).with_file_name(file_name);
                     debug!("path bubble dot: {:?}", new_path);
                     self.to_dot_partial(
                         new_path, 
