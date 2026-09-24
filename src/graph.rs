@@ -21,6 +21,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
 use std::fmt::{self, Debug, Display};
+use std::fs::create_dir;
 use std::fs::{remove_file, File};
 use std::hash::Hash;
 use std::io::BufWriter;
@@ -1799,7 +1800,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     /// find basic bubbles in the graph and record the average quality and coverage of both paths
     /// only considering bubbles of length exactly 2k-1 (one substitution)
     /// !!! only use for uncompressed path
-    pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, path: P) -> Result<(), std::io::Error> 
+    pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
+        path: P, 
+        write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
+    ) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
     {
         if self.get_node(0).data().quality().is_none() { return Err(std::io::Error::other("no quality scores available")); }
@@ -1807,9 +1811,18 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
         let mut writer = BufWriter::new(File::create(&path)?);
+        match create_dir(format!("{:?}_repeat_comps", &path)) {
+        Ok(_) => (),
+        Err(e) => {
+            warn!("error in creating dir for nodes with genes, skipping step, error: {e}");
+            return Err(e);
+        }
+    };
         writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3,mgr0,mgr1,mgr2,mgr3,sgr0,sgr1,sgr2,sgr3")?;
 
         let mut visited = BitSet::new();
+
+        let mut bubbles_written = 0;
 
         for (start_node_id, start_out_dir) in (0..(self.len())).flat_map(|node_id| [(node_id, Dir::Right), (node_id, Dir::Left)]) {
             let mut paths = Vec::new();
@@ -1942,6 +1955,17 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut avg_mgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
                 let mut avg_sgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
 
+                // write interesting bubbles (with repeats)
+                if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
+                    let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
+                    self.to_dot_partial(
+                        format!("{:?}_repeat_comps/bubble-{bubbles_written}.dot", &path), 
+                        &|node| node.node_dot_default(colormap, config, translator, false, false), 
+                        &|node, base, dir, flip| node.edge_dot_default(colormap, base, dir, flip),
+                        &nodes
+                    );
+                }
+
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov},")?; } else {  write!(writer, ",")?; } }
                 for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual},")?; } else {  write!(writer, ",")?; } }
                 for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s},")?; } else {  write!(writer, ",")?; } }
@@ -1949,6 +1973,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 for _i in 0..3 { if let Some(sgr) = avg_sgr.next() {  write!(writer, "{sgr},")?; } else {  write!(writer, ",")?; } }
 
                 if let Some(sgr) = avg_sgr.next() { writeln!(writer, "{sgr}")?; } else {  writeln!(writer)?; } // last one with \n instead of ,
+                bubbles_written += 1;
+
 
             }
 
@@ -3746,7 +3772,7 @@ mod test {
         }
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        unc_graph.find_basic_bubbles("bubbles.csv").unwrap();
+        unc_graph.find_basic_bubbles("bubbles.csv", None).unwrap();
     }
 
     #[test]
