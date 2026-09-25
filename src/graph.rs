@@ -1964,27 +1964,28 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut avg_mgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
                 let mut avg_sgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
 
-                // write interesting bubbles (with repeats)
-                if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
-                    // create subdir in case we have lots and lots of bubbles
-                    if bubbles_written % 1000000 == 0 {
-                        current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
-                        debug!("creating dir {:?}", current_subdir);
-                        match create_dir(&current_subdir) {
-                            Ok(_) => (),
-                            Err(e) => {
-                                match e.kind() {
-                                    AlreadyExists => (),
-                                    _ => return Err(e),
-                                }
+
+                // create subdir in case we have lots and lots of bubbles with repeats
+                if bubbles_written % 1000000 == 0 {
+                    current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
+                    debug!("creating dir {:?}", current_subdir);
+                    match create_dir(&current_subdir) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            match e.kind() {
+                                AlreadyExists => (),
+                                _ => return Err(e),
                             }
                         }
                     }
-                    
+                }
+                
+                // write interesting bubbles (with repeats)
+                if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {                   
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
-                    debug!("path bubble dot: {:?}", new_path);
+                    //debug!("path bubble dot: {:?}", new_path);
                     self.to_dot_partial(
                         new_path, 
                         &|node| node.node_dot_default(colormap, config, translator, false, false), 
@@ -1993,6 +1994,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     );
                 }
 
+                // write bubble values to csv
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov},")?; } else {  write!(writer, ",")?; } }
                 for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual},")?; } else {  write!(writer, ",")?; } }
                 for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s},")?; } else {  write!(writer, ",")?; } }
