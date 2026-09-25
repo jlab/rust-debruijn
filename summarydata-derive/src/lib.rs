@@ -394,7 +394,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
             // is quality valid?
             let summary_valid_q = if has_quality {
                 quote! {
-                    let quality = summary.highest_quality.expect("missing quality score - required for summarizer");
+                    let quality = if config.random_quality {
+                        BaseQuality::from_u64(rand::thread_rng().gen_range(1, 4))
+                    } else {
+                        summary.highest_quality.expect("missing quality score - required for summarizer")
+                    };
                     let valid_q = quality >= config.min_quality;
                 }
             } else {
