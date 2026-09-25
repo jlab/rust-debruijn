@@ -894,7 +894,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
-        debug!("large to dot loop: {}", self.len());
     }
 
     /// Write the graph to a dot file, highlight the nodes which form the 
@@ -936,7 +935,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
-        debug!("large to dot loop: {}", self.len());
     }
 
     /// Write the graph to a dot file in parallel
@@ -1056,8 +1054,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
 
         f.flush().unwrap();
-
-        debug!("large to dot loop: {}", self.len());
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(
@@ -1973,6 +1969,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // create subdir in case we have lots and lots of bubbles
                     if bubbles_written % 1000000 == 0 {
                         current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
+                        debug!("creating dir {:?}", current_subdir);
                         match create_dir(&current_subdir) {
                             Ok(_) => (),
                             Err(e) => {
@@ -1987,7 +1984,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
-                    //debug!("path bubble dot: {:?}", new_path);
+                    debug!("path bubble dot: {:?}", new_path);
                     self.to_dot_partial(
                         new_path, 
                         &|node| node.node_dot_default(colormap, config, translator, false, false), 
