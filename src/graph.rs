@@ -32,6 +32,7 @@ use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::path::PathBuf;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -1802,6 +1803,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     /// find basic bubbles in the graph and record the average quality and coverage of both paths
     /// only considering bubbles of length exactly 2k-1 (one substitution)
     /// !!! only use for uncompressed path
+    /// supply path to folder in which the output should be stored with a file prefix
+    /// will produce a file called path/prefix-bubbles.csv and a folder called path/prefix-repeat_bubbles
+    /// with dot files, split in folders themselves
     pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
         path: P, 
         write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
@@ -1816,8 +1820,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         writeln!(writer, "cov0,cov1,cov2,cov3,qual0,qual1,qual2,qual3,sup0,sup1,sup2,sup3,mgr0,mgr1,mgr2,mgr3,sgr0,sgr1,sgr2,sgr3")?;
 
-        let dir = path.as_ref().with_file_name("repeat_bubbles");
-        match create_dir(dir) {
+        let dir = path.as_ref().with_extension("repeat_bubbles");
+        match create_dir(&dir) {
             Ok(_) => (),
             Err(e) => {
                 match e.kind() {
@@ -1826,6 +1830,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
             }
         }
+        // subdir for repeat bubble dot
+        let mut current_subdir = PathBuf::new();
+
         let mut visited = BitSet::new();
 
         let mut bubbles_written = 0;
@@ -1850,7 +1857,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let sorted_len = mapped_ids.len();
                 mapped_ids.dedup();
                 let deduped_len = mapped_ids.len();
-                let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
+                let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                 let single_gene_repeat = sorted_len - deduped_len;
                 paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]);
             }
@@ -1887,7 +1894,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let sorted_len = mapped_ids.len();
                         mapped_ids.dedup();
                         let deduped_len = mapped_ids.len();
-                        let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
+                        let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                         let single_gene_repeat = sorted_len - deduped_len;
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
@@ -1905,7 +1912,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let sorted_len = mapped_ids.len();
                     mapped_ids.dedup();
                     let deduped_len = mapped_ids.len();
-                    let multi_gene_repeat = if sorted_len > 0 { sorted_len - 1 } else { 0 };
+                    let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
                     path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
 
@@ -1963,9 +1970,23 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {
+                    // create subdir in case we have lots and lots of bubbles
+                    if bubbles_written % 1000000 == 0 {
+                        current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
+                        match create_dir(&current_subdir) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                match e.kind() {
+                                    AlreadyExists => (),
+                                    _ => return Err(e),
+                                }
+                            }
+                        }
+                    }
+                    
                     let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
-                    let file_name = format!("repeat_bubbles/bubble-{bubbles_written}.dot");
-                    let new_path = path.as_ref().with_file_name(file_name);
+                    let file_name = format!("bubble-{bubbles_written}.dot");
+                    let new_path = current_subdir.join(file_name);
                     //debug!("path bubble dot: {:?}", new_path);
                     self.to_dot_partial(
                         new_path, 
