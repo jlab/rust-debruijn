@@ -1814,7 +1814,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         let mut writer = BufWriter::new(File::create(&path)?);
 
-        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3")?;
+        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
 
         let dir = path.as_ref().with_extension("repeat_bubbles");
         match create_dir(&dir) {
