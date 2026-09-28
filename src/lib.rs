@@ -30,6 +30,8 @@
 
 use bimap::BiMap;
 use clap::ValueEnum;
+use rand::Rng;
+use rand::rngs::ThreadRng;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
