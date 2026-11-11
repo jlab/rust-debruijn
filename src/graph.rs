@@ -1936,6 +1936,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     group_nodes.sort();
                     group_nodes.dedup();
                     let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", tsv_path);
+                    debug!("writing group with more than 4 paths to: {:?}", dot_path);
                     problem_groups_counter += 1;
                     self.to_dot_partial(
                         &dot_path, 
