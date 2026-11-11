@@ -1803,7 +1803,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     /// will produce a file called path/prefix-bubbles.tsv and a folder called path/prefix-repeat_bubbles
     /// with dot files, split in folders themselves
     pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
-        path: P, 
+        tsv_path: P, 
         write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
     ) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
@@ -1812,11 +1812,11 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().edge_mults().is_none() { return Err(std::io::Error::other("no edge coverage available")); }
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
-        let mut writer = BufWriter::new(File::create(&path)?);
+        let mut writer = BufWriter::new(File::create(&tsv_path)?);
 
         writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
 
-        let dir = path.as_ref().with_extension("repeat_bubbles");
+        let dir = tsv_path.as_ref().with_extension("repeat_bubbles");
         match create_dir(&dir) {
             Ok(_) => (),
             Err(e) => {
@@ -1930,12 +1930,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             for bubble_group in paths.chunk_by(|path_a, path_b| path_a.last().unwrap().0 == path_b.last().unwrap().0 ) {
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { continue; }
-                // and a maximum of four (more than four should not happen anyways)
+                // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
                 if bubble_group.len() > 4 {
                     let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id).collect::<Vec<_>>();
                     group_nodes.sort();
                     group_nodes.dedup();
-                    let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", path);
+                    let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", tsv_path);
                     problem_groups_counter += 1;
                     self.to_dot_partial(
                         &dot_path, 
