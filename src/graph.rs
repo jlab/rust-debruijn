@@ -1935,7 +1935,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id).collect::<Vec<_>>();
                     group_nodes.sort();
                     group_nodes.dedup();
-                    let dot_path = format!("{:?}-problem_group-{problem_groups_counter}.dot", tsv_path);
+                    let extension = format!("problem_group-{problem_groups_counter}.dot");
+                    let dot_path = tsv_path.as_ref().with_extension(extension);
                     debug!("writing group with more than 4 paths to: {:?}", dot_path);
                     problem_groups_counter += 1;
                     self.to_dot_partial(
@@ -1944,7 +1945,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         &|_, _, _, _| String::new(), 
                         &group_nodes
                     );
-                    warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {dot_path}, paths: {:?}", bubble_group);
+                    warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {:?}, paths: {:?}", dot_path, bubble_group);
                     continue;
                 }
 
