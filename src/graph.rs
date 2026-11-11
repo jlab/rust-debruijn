@@ -41,6 +41,7 @@ type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::BaseQuality;
 use crate::EdgeMap;
+use crate::base_to_bits;
 use crate::bits_to_base;
 use crate::colors::ColorMode;
 use crate::colors::Colors;
@@ -1814,7 +1815,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         let mut writer = BufWriter::new(File::create(&tsv_path)?);
 
-        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
+        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tb0\tb1\tb2\tb3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
 
         let dir = tsv_path.as_ref().with_extension("repeat_bubbles");
         match create_dir(&dir) {
@@ -1855,7 +1856,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let deduped_len = mapped_ids.len();
                 let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                 let single_gene_repeat = sorted_len - deduped_len;
-                paths.push(vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]);
+                paths.push((out_base, vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
             }
 
             // container for temp new paths (should get emptied each iteration)
@@ -1868,7 +1869,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut remove_paths = Vec::new();
 
                 for (i, path) in paths.iter_mut().enumerate() {
-                    let (last_node_id, last_in_dir, _, _, _, _, _) = path.last().unwrap();
+                    let (last_node_id, last_in_dir, _, _, _, _, _) = path.1.last().unwrap();
                     let last_node = self.get_node(*last_node_id);
                     let out_edges = self.get_node(*last_node_id).edges(last_in_dir.flip());
 
@@ -1894,7 +1895,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let single_gene_repeat = sorted_len - deduped_len;
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
-                        new_path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                        new_path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1910,7 +1911,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let deduped_len = mapped_ids.len();
                     let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
-                    path.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                    path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
 
 
                 }
@@ -1927,12 +1928,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // we have collected all paths in the radius 2*k
             // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
             let mut problem_groups_counter = 0;
-            for bubble_group in paths.chunk_by(|path_a, path_b| path_a.last().unwrap().0 == path_b.last().unwrap().0 ) {
+            for bubble_group in paths.chunk_by(|path_a, path_b| path_a.1.last().unwrap().0 == path_b.1.last().unwrap().0 ) {
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { continue; }
                 // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
                 if bubble_group.len() > 4 {
-                    let mut group_nodes = bubble_group.iter().flatten().map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id).collect::<Vec<_>>();
+                    let mut group_nodes = bubble_group
+                        .iter()
+                        .flat_map(|(_, vec)| vec)
+                        .map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id)
+                        .collect::<Vec<_>>();
                     group_nodes.sort();
                     group_nodes.dedup();
                     let extension = format!("problem_group-{problem_groups_counter}.dot");
@@ -1950,25 +1955,26 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
-                let final_id = bubble_group[0].last().unwrap().0;
+                let final_id = bubble_group[0].1.last().unwrap().0;
                 if visited.contains(final_id) { continue; }
 
                 // remove final node element from paths
                 let mut paths = bubble_group.to_owned();
-                for path in paths.iter_mut() {
+                for (_, path) in paths.iter_mut() {
                     let _ = path.pop();
                 }
 
                 // for each bubble member, calculate the average coverage and quality, check if it has any supported nodes
-                let mut avg_coverages = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.2) as f32 / K::k() as f32);
-                let mut avg_qualities = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
-                let mut avg_support = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
-                let mut avg_mgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
-                let mut avg_sgr = paths.iter().map(|path| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
+                let mut mutated_bases = paths.iter().map(|(base, _path)| *base);
+                let mut avg_coverages = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.2) as f32 / K::k() as f32);
+                let mut avg_qualities = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
+                let mut avg_support = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
+                let mut avg_mgr = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
+                let mut avg_sgr = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
 
                 // if available, get the mapped IDs from all paths
                 let mut mapped_ids = Vec::new(); // most likely not enough IDs to hash
-                for &(node_id, _, _, _, _, _, _) in paths.iter().flatten() {
+                for &(node_id, _, _, _, _, _, _) in paths.iter().flat_map(|(_, vec)| vec) {
                     let mids = self.get_node(node_id).data().mapped_ids().expect("should have mapped IDs");
                     mapped_ids.extend_from_slice(mids);
                 }
@@ -1992,7 +1998,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {                   
-                    let nodes = paths.iter().flat_map(|vec| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
+                    let nodes = paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
                     //debug!("path bubble dot: {:?}", new_path);
@@ -2008,6 +2014,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov}\t")?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual}\t")?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s}\t")?; } else {  write!(writer, "\t")?; } }
+                for _i in 0..4 { if let Some(base) = mutated_bases.next() { write!(writer, "{}\t", bits_to_base(base))?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(mgr) = avg_mgr.next() {  write!(writer, "{mgr}\t")?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(sgr) = avg_sgr.next() {  write!(writer, "{sgr}\t")?; } else {  write!(writer, "\t")?; } }
 
