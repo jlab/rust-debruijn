@@ -1942,7 +1942,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 if bubble_group.len() <= 1 { debug!("not enough paths"); continue; }
                 // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
                 if bubble_group.len() > 4 {
-                    debug!("too many paths")
+                    debug!("too many paths");
                     let mut group_nodes = bubble_group
                         .iter()
                         .flat_map(|(_, vec)| vec)
