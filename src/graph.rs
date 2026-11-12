@@ -1842,6 +1842,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let out_edges = start_node.edges(start_out_dir);
 
             if out_edges.len() <= 1 { continue; }
+            debug!("found potential bubble group with out edges: {:?}", out_edges);
 
             // for each out edge, start a path
             for (out_base, next_node_id, next_in_dir, _) in out_edges {
@@ -1858,6 +1859,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let single_gene_repeat = sorted_len - deduped_len;
                 paths.push((out_base, vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
             }
+
+            debug!("started paths: {:?}", paths);
 
             // container for temp new paths (should get emptied each iteration)
             let mut new_paths = Vec::new();
@@ -1876,6 +1879,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // if we do not have any out edges, path is invalid, remove from paths and move to next path
                     if out_edges.is_empty() {
                         remove_paths.push(i);
+                        debug!("removed path {i} because it ended too early");
                         continue;
                     }
 
@@ -1896,6 +1900,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
                         new_path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                        debug!("multiple out edges, adding new path: {:?}", new_path);
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1912,6 +1917,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
                     path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                    debug!("extended path: {:?}", path);
 
 
                 }
@@ -1953,6 +1959,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {:?}, paths: {:?}", dot_path, bubble_group);
                     continue;
                 }
+
+                debug!("bubble group qualified: {:?}", bubble_group);
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].1.last().unwrap().0;
