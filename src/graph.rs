@@ -1900,7 +1900,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
                         new_path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
-                        debug!("multiple out edges, adding new path: {:?}", new_path);
+                        debug!("multiple out edges, adding new path to back: {:?}", new_path);
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1917,7 +1917,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
                     path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
-                    debug!("extended path: {:?}", path);
+                    debug!("extended path {i}: {:?}", path);
 
 
                 }
@@ -1926,6 +1926,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     paths.remove(*i);
                 }
                 paths.append(&mut new_paths);
+
+                debug!("next iteration");
                 
 
                 path_length += 1;
@@ -1935,10 +1937,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
             let mut problem_groups_counter = 0;
             for bubble_group in paths.chunk_by(|path_a, path_b| path_a.1.last().unwrap().0 == path_b.1.last().unwrap().0 ) {
+                debug!("bubble group: {:?}", bubble_group);
                 // we need at least two paths for a bubble
-                if bubble_group.len() <= 1 { continue; }
+                if bubble_group.len() <= 1 { debug!("not enough paths"); continue; }
                 // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
                 if bubble_group.len() > 4 {
+                    debug!("too many paths")
                     let mut group_nodes = bubble_group
                         .iter()
                         .flat_map(|(_, vec)| vec)
@@ -1960,11 +1964,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     continue;
                 }
 
-                debug!("bubble group qualified: {:?}", bubble_group);
+                
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].1.last().unwrap().0;
-                if visited.contains(final_id) { continue; }
+                if visited.contains(final_id) { debug!("node already visited"); continue; }
+                debug!("bubble group qualified");
 
                 // remove final node element from paths
                 let mut paths = bubble_group.to_owned();
