@@ -1843,7 +1843,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             let out_edges = start_node.edges(start_out_dir);
 
             if out_edges.len() <= 1 { continue; }
-            debug!("found potential bubble group with out edges: {:?}", out_edges);
 
             // for each out edge, start a path
             for (out_base, next_node_id, next_in_dir, _) in out_edges {
@@ -1860,8 +1859,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let single_gene_repeat = sorted_len - deduped_len;
                 paths.push((out_base, vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
             }
-
-            debug!("started paths: {:?}", paths);
 
             // container for temp new paths (should get emptied each iteration)
             let mut new_paths = Vec::new();
@@ -1880,7 +1877,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     // if we do not have any out edges, path is invalid, remove from paths and move to next path
                     if out_edges.is_empty() {
                         remove_paths.push(i);
-                        debug!("removed path {i} because it ended too early");
                         continue;
                     }
 
@@ -1901,7 +1897,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
                         new_path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
-                        debug!("multiple out edges, adding new path to back: {:?}", new_path);
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1918,17 +1913,14 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
                     path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
-                    debug!("extended path {i}: {:?}", path);
-
-
                 }
+
                 // add new paths into paths and remove ones that were too short
                 for i in remove_paths.iter().rev() {
                     paths.remove(*i);
                 }
                 paths.append(&mut new_paths);
 
-                debug!("next iteration");
                 
 
                 path_length += 1;
@@ -1940,12 +1932,10 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             paths.sort_by_key(|p| p.1.last().unwrap().0);
             for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().0 ).into_iter() {
                 let bubble_group = bubble_group.collect::<Vec<_>>();
-                debug!("bubble group: {:?}", bubble_group);
                 // we need at least two paths for a bubble
-                if bubble_group.len() <= 1 { debug!("not enough paths"); continue; }
+                if bubble_group.len() <= 1 { continue; }
                 // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
                 if bubble_group.len() > 4 {
-                    debug!("too many paths");
                     let mut group_nodes = bubble_group
                         .iter()
                         .flat_map(|(_, vec)| vec)
@@ -1971,8 +1961,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 // if we have already visited the final node, where the bubble paths reconvene, skip
                 let final_id = bubble_group[0].1.last().unwrap().0;
-                if visited.contains(final_id) { debug!("node already visited"); continue; }
-                debug!("bubble group qualified");
+                if visited.contains(final_id) { continue; }
 
                 // remove final node element from paths
                 let mut paths = bubble_group.to_owned();
@@ -3637,7 +3626,9 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 mod test {
     use std::fs::remove_file;
 
-    use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use itertools::Itertools;
+
+use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
