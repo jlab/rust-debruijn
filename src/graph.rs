@@ -1929,6 +1929,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // we have collected all paths in the radius 2*k
             // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
             let mut problem_groups_counter = 0;
+            // sort by mutated base to avoid having diverged paths at the back
+            paths.sort_by_key(|p| p.0);
+            // then, sort by last node ID to group converging paths
             paths.sort_by_key(|p| p.1.last().unwrap().0);
             for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().0 ).into_iter() {
                 let bubble_group = bubble_group.collect::<Vec<_>>();
