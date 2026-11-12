@@ -8,6 +8,7 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
+use itertools::Itertools;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -1936,7 +1937,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // we have collected all paths in the radius 2*k
             // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
             let mut problem_groups_counter = 0;
-            for bubble_group in paths.chunk_by(|path_a, path_b| path_a.1.last().unwrap().0 == path_b.1.last().unwrap().0 ) {
+            for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().0 ).into_iter() {
+                let bubble_group = bubble_group.collect::<Vec<_>>();
                 debug!("bubble group: {:?}", bubble_group);
                 // we need at least two paths for a bubble
                 if bubble_group.len() <= 1 { debug!("not enough paths"); continue; }
