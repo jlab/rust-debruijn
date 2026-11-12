@@ -1989,7 +1989,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 mapped_ids.sort();
                 mapped_ids.dedup();
 
-                // create subdir in case we have lots and lots of bubbles with repeats
+                // create subdir in case we have lots and lots of bubbles 
                 if bubbles_written % 1000000 == 0 {
                     current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
                     debug!("creating dir {:?}", current_subdir);
@@ -2003,7 +2003,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         }
                     }
                 }
-                
+                /* 
                 // write interesting bubbles (with repeats)
                 if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {                   
                     let nodes = paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
@@ -2016,7 +2016,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         &|node, base, dir, flip| node.edge_dot_default(colormap, base, dir, flip),
                         &nodes
                     );
-                }
+                } */
 
                 // write bubble values to csv
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov}\t")?; } else {  write!(writer, "\t")?; } }
