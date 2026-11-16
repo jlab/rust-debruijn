@@ -1807,6 +1807,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
         tsv_path: P, 
         write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
+        write_bubbles_to_dot: bool,
     ) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
     {
@@ -2003,9 +2004,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         }
                     }
                 }
-                /* 
-                // write interesting bubbles (with repeats)
-                if let (Some((colormap, config, translator)), true) = (write_info, ((avg_mgr.clone().sum::<f32>() > 0.) | (avg_sgr.clone().sum::<f32>() > 0.))) {                   
+                
+                // write bubbles
+                if let (Some((colormap, config, translator)), true) = (write_info, write_bubbles_to_dot) {                   
                     let nodes = paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
@@ -2016,7 +2017,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         &|node, base, dir, flip| node.edge_dot_default(colormap, base, dir, flip),
                         &nodes
                     );
-                } */
+                }
 
                 // write bubble values to csv
                 for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov}\t")?; } else {  write!(writer, "\t")?; } }
@@ -3828,7 +3829,7 @@ use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compre
         }
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        unc_graph.find_basic_bubbles("bubbles.tsv", None).unwrap();
+        unc_graph.find_basic_bubbles("bubbles.tsv", None, false).unwrap();
     }
 
     #[test]
