@@ -1667,6 +1667,31 @@ impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BubblePathItem {
+    node_id: usize, 
+    in_dir: Dir, 
+    in_cov: u32, 
+    node_quality: BaseQuality, 
+    supported: bool, 
+    multi_gene_repeat: usize, 
+    single_gene_repeat: usize
+}
+
+impl BubblePathItem {
+    fn new(
+        node_id: usize, 
+        in_dir: Dir, 
+        in_cov: u32, 
+        node_quality: BaseQuality, 
+        supported: bool, 
+        multi_gene_repeat: usize, 
+        single_gene_repeat: usize
+    ) -> Self {
+        BubblePathItem { node_id, in_dir, in_cov, node_quality, supported, multi_gene_repeat, single_gene_repeat }
+    }
+}
+
 /// add the alignment buffer to a structure
 /// - `size_heap`: contents of boxes/vectors -> are stored separately and do not go into alignment calculation
 pub fn size_aligned(size_stack: usize, size_heap: usize, align: usize) -> usize {

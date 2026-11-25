@@ -41,6 +41,7 @@ type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::BaseQuality;
+use crate::BubblePathItem;
 use crate::EdgeMap;
 use crate::base_to_bits;
 use crate::bits_to_base;
@@ -1798,16 +1799,59 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    fn bubble_group_valid<P>(
+        &self,
+        bubble_group: &Vec<(u8, Vec<BubblePathItem>)>,
+        problem_groups_counter: &mut u32,
+        tsv_path: P,
+        processed_bubble_starts: &BitSet
+    ) -> bool 
+    where P: AsRef<Path>
+    {
+        // we need at least two paths for a bubble
+        if bubble_group.len() <= 1 { return false; }
+        // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
+        if bubble_group.len() > 4 {
+            let mut group_nodes = bubble_group
+                .iter()
+                .flat_map(|(_, vec)| vec)
+                .map(|b| b.node_id)
+                .collect::<Vec<_>>();
+            group_nodes.sort();
+            group_nodes.dedup();
+            let extension = format!("problem_group-{problem_groups_counter}.dot");
+            let dot_path = tsv_path.as_ref().with_extension(extension);
+            debug!("writing group with more than 4 paths to: {:?}", dot_path);
+            *problem_groups_counter += 1;
+            self.to_dot_partial(
+                &dot_path, 
+                &|node| format!("[label=\"{}\"]", format!("{:?}", node.data()).replace("\"", "\'")),
+                &|_, _, _, _| String::new(), 
+                &group_nodes
+            );
+            warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {:?}, paths: {:?}", dot_path, bubble_group);
+            return false;
+        }
+
+        // if we have already visited the final node, where the bubble paths reconvene, skip
+        let final_id = bubble_group[0].1.last().unwrap().node_id;
+        if processed_bubble_starts.contains(final_id) { return false; }
+
+        true
+    }
+
     /// find basic bubbles in the graph and record the average quality and coverage of both paths
-    /// only considering bubbles of length exactly 2k-1 (one substitution)
+    /// only considering bubbles of sequence length exactly 2k-1 (one substitution) (k nodes)
     /// !!! only use for uncompressed path
     /// supply path to folder in which the output should be stored with a file prefix
-    /// will produce a file called path/prefix-bubbles.tsv and a folder called path/prefix-repeat_bubbles
-    /// with dot files, split in folders themselves
+    /// will produce a file called path/prefix-bubbles.tsv
+    /// if `write_info` is supplied, it will create an additional dir called path/prefix-bubbles
+    /// with dot files, split in folders themselves for each 100k files
+    /// 
+    /// currently only available for stranded graphs
     pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
         tsv_path: P, 
         write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
-        write_bubbles_to_dot: bool,
     ) -> Result<(), std::io::Error> 
     where SD: SummaryData<DI>
     {
@@ -1815,11 +1859,21 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         if self.get_node(0).data().edge_mults().is_none() { return Err(std::io::Error::other("no edge coverage available")); }
         if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
 
+        // for now, deactivate method for unstranded graphs, would cause minor issues
+        if !self.base.stranded {return Err(std::io::Error::other("graph has to be stranded to find basic bubbles"))}
+
+        // graph cannot be compressed, go over all node lengths to make sure
+        for l in self.base.sequences.length.iter() {
+            if *l as usize > K::k() {
+                return Err(std::io::Error::other("graph has to be compressed to find basic bubbles (it is not)"));
+            }
+        }
+
         let mut writer = BufWriter::new(File::create(&tsv_path)?);
 
         writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tb0\tb1\tb2\tb3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
 
-        let dir = tsv_path.as_ref().with_extension("repeat_bubbles");
+        let dir = tsv_path.as_ref().with_extension("bubbles");
         match create_dir(&dir) {
             Ok(_) => (),
             Err(e) => {
@@ -1832,7 +1886,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         // subdir for repeat bubble dot
         let mut current_subdir = PathBuf::new();
 
-        let mut visited = BitSet::new();
+        let mut processed_bubble_starts = BitSet::new();
 
         let mut bubbles_written = 0;
 
@@ -1858,7 +1912,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let deduped_len = mapped_ids.len();
                 let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                 let single_gene_repeat = sorted_len - deduped_len;
-                paths.push((out_base, vec![(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
+                paths.push((out_base, vec![BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
             }
 
             // container for temp new paths (should get emptied each iteration)
@@ -1871,9 +1925,11 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut remove_paths = Vec::new();
 
                 for (i, path) in paths.iter_mut().enumerate() {
-                    let (last_node_id, last_in_dir, _, _, _, _, _) = path.1.last().unwrap();
-                    let last_node = self.get_node(*last_node_id);
-                    let out_edges = self.get_node(*last_node_id).edges(last_in_dir.flip());
+                    let last_bubble_item = path.1.last().unwrap();
+                    let last_node_id = last_bubble_item.node_id;
+                    let last_in_dir = last_bubble_item.in_dir;
+                    let last_node = self.get_node(last_node_id);
+                    let out_edges = self.get_node(last_node_id).edges(last_in_dir.flip());
 
                     // if we do not have any out edges, path is invalid, remove from paths and move to next path
                     if out_edges.is_empty() {
@@ -1897,7 +1953,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let single_gene_repeat = sorted_len - deduped_len;
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
-                        new_path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                        new_path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1913,7 +1969,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let deduped_len = mapped_ids.len();
                     let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
                     let single_gene_repeat = sorted_len - deduped_len;
-                    path.1.push((next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                    path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
                 }
 
                 // add new paths into paths and remove ones that were too short
@@ -1921,8 +1977,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     paths.remove(*i);
                 }
                 paths.append(&mut new_paths);
-
-                
 
                 path_length += 1;
             }
@@ -1933,58 +1987,35 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // sort by mutated base to avoid having diverged paths at the back
             paths.sort_by_key(|p| p.0);
             // then, sort by last node ID to group converging paths
-            paths.sort_by_key(|p| p.1.last().unwrap().0);
-            for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().0 ).into_iter() {
+            paths.sort_by_key(|p| p.1.last().unwrap().node_id);
+            for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().node_id ).into_iter() {
                 let bubble_group = bubble_group.collect::<Vec<_>>();
-                // we need at least two paths for a bubble
-                if bubble_group.len() <= 1 { continue; }
-                // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
-                if bubble_group.len() > 4 {
-                    let mut group_nodes = bubble_group
-                        .iter()
-                        .flat_map(|(_, vec)| vec)
-                        .map(|&(id, _d, _c, _q, _s, _mgr, _sgr)| id)
-                        .collect::<Vec<_>>();
-                    group_nodes.sort();
-                    group_nodes.dedup();
-                    let extension = format!("problem_group-{problem_groups_counter}.dot");
-                    let dot_path = tsv_path.as_ref().with_extension(extension);
-                    debug!("writing group with more than 4 paths to: {:?}", dot_path);
-                    problem_groups_counter += 1;
-                    self.to_dot_partial(
-                        &dot_path, 
-                        &|node| format!("[label=\"{}\"]", format!("{:?}", node.data()).replace("\"", "\'")),
-                        &|_, _, _, _| String::new(), 
-                        &group_nodes
-                    );
-                    warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {:?}, paths: {:?}", dot_path, bubble_group);
+
+                if !self.bubble_group_valid(&bubble_group, &mut problem_groups_counter, &tsv_path, &processed_bubble_starts) {
                     continue;
                 }
 
-                
-
-                // if we have already visited the final node, where the bubble paths reconvene, skip
-                let final_id = bubble_group[0].1.last().unwrap().0;
-                if visited.contains(final_id) { continue; }
+                // calculate coverage before removing final node and divide by k+1 since it is edge based
+                let mut bubble_group_paths = bubble_group.to_owned();
+                let avg_coverages_vec = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.in_cov) as f32 / (K::k()+1) as f32).collect::<Vec<_>>();
 
                 // remove final node element from paths
-                let mut paths = bubble_group.to_owned();
-                for (_, path) in paths.iter_mut() {
+                for (_, path) in bubble_group_paths.iter_mut() {
                     let _ = path.pop();
                 }
 
                 // for each bubble member, calculate the average coverage and quality, check if it has any supported nodes
-                let mut mutated_bases = paths.iter().map(|(base, _path)| *base);
-                let mut avg_coverages = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.2) as f32 / K::k() as f32);
-                let mut avg_qualities = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.3 as usize) as f32 / K::k() as f32);
-                let mut avg_support = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.4 as usize) as f32 / K::k() as f32);
-                let mut avg_mgr = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.5) as f32 / K::k() as f32);
-                let mut avg_sgr = paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.6) as f32 / K::k() as f32);
+                let mut avg_coverages = avg_coverages_vec.iter();
+                let mut mutated_bases = bubble_group_paths.iter().map(|(base, _path)| *base);
+                let mut avg_qualities = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.node_quality as usize) as f32 / K::k() as f32);
+                let mut avg_support = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.supported as usize) as f32 / K::k() as f32);
+                let mut avg_mgr = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.multi_gene_repeat) as f32 / K::k() as f32);
+                let mut avg_sgr = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.single_gene_repeat) as f32 / K::k() as f32);
 
                 // if available, get the mapped IDs from all paths
                 let mut mapped_ids = Vec::new(); // most likely not enough IDs to hash
-                for &(node_id, _, _, _, _, _, _) in paths.iter().flat_map(|(_, vec)| vec) {
-                    let mids = self.get_node(node_id).data().mapped_ids().expect("should have mapped IDs");
+                for b in bubble_group_paths.iter().flat_map(|(_, vec)| vec) {
+                    let mids = self.get_node(b.node_id).data().mapped_ids().expect("should have mapped IDs");
                     mapped_ids.extend_from_slice(mids);
                 }
                 mapped_ids.sort();
@@ -1992,7 +2023,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
                 // create subdir in case we have lots and lots of bubbles 
                 if bubbles_written % 1000000 == 0 {
-                    current_subdir = dir.join(format!("bubbles-{}M", bubbles_written / 1000000));
+                    current_subdir = dir.join(format!("bubbles-{}00k", bubbles_written / 100000));
                     debug!("creating dir {:?}", current_subdir);
                     match create_dir(&current_subdir) {
                         Ok(_) => (),
@@ -2006,8 +2037,8 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
                 
                 // write bubbles
-                if let (Some((colormap, config, translator)), true) = (write_info, write_bubbles_to_dot) {                   
-                    let nodes = paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.0)).collect::<Vec<_>>();
+                if let (Some((colormap, config, translator)), true) = (write_info, write_bubbles_to_dot) {
+                    let nodes = bubble_group_paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.node_id)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
                     //debug!("path bubble dot: {:?}", new_path);
@@ -2033,7 +2064,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
             }
 
-            visited.insert(start_node_id);
+            processed_bubble_starts.insert(start_node_id);
         }
 
         writer.flush()?;
@@ -3827,9 +3858,11 @@ use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compre
                 }
             }
         }
+
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        let write_info = (&colors, &summary_config, &Translator::empty());
         if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        unc_graph.find_basic_bubbles("bubbles.tsv", None, false).unwrap();
+        unc_graph.find_basic_bubbles("bubbles.tsv", Some(write_info), true).unwrap();
     }
 
     #[test]
