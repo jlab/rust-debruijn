@@ -2037,7 +2037,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 }
                 
                 // write bubbles
-                if let (Some((colormap, config, translator)), true) = (write_info, write_bubbles_to_dot) {
+                if let Some((colormap, config, translator)) = write_info {
                     let nodes = bubble_group_paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.node_id)).collect::<Vec<_>>();
                     let file_name = format!("bubble-{bubbles_written}.dot");
                     let new_path = current_subdir.join(file_name);
@@ -3826,11 +3826,6 @@ use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compre
     fn test_find_bubbles_s() {
         test_find_bubbles(true);
     }
-
-    #[test]
-    fn test_find_bubbles_us() {
-        test_find_bubbles(false);
-    }
     
     fn test_find_bubbles(stranded: bool) {
         let print = true;
@@ -3858,11 +3853,11 @@ use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compre
                 }
             }
         }
-
+        let tsv_path = format!("bubbles-stranded_{stranded}");
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         let write_info = (&colors, &summary_config, &Translator::empty());
         if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
-        unc_graph.find_basic_bubbles("bubbles.tsv", Some(write_info), true).unwrap();
+        unc_graph.find_basic_bubbles(&tsv_path, Some(write_info)).unwrap();
     }
 
     #[test]
