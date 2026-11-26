@@ -1808,20 +1808,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     ) -> bool 
     where P: AsRef<Path>
     {
-        // check if any of the bubble paths contain repeats
-        let mut remove = Vec::new();
-        for (bubble_path_i, (_, bubble_path)) in bubble_group.iter().enumerate() {
-            for i in 0..(bubble_path.len() -1) {
-                let current_id = bubble_path[i].node_id;
-                if bubble_path[i+1..].iter().map(|b| b.node_id).contains(&current_id) {
-                    remove.push(bubble_path_i);
-                    break;
-                }
-            }
-        }
-        // remove all bubble paths where nodes occur multiple times
-        remove.into_iter().rev().for_each(|i| { bubble_group.remove(i); } );
-
         // we need at least two paths for a bubble
         if bubble_group.len() <= 1 { return false; }
 
