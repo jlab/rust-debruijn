@@ -1674,8 +1674,6 @@ struct BubblePathItem {
     in_cov: u32, 
     node_quality: BaseQuality, 
     supported: bool, 
-    multi_gene_repeat: usize, 
-    single_gene_repeat: usize
 }
 
 impl BubblePathItem {
@@ -1685,10 +1683,8 @@ impl BubblePathItem {
         in_cov: u32, 
         node_quality: BaseQuality, 
         supported: bool, 
-        multi_gene_repeat: usize, 
-        single_gene_repeat: usize
     ) -> Self {
-        BubblePathItem { node_id, in_dir, in_cov, node_quality, supported, multi_gene_repeat, single_gene_repeat }
+        BubblePathItem { node_id, in_dir, in_cov, node_quality, supported}
     }
 }
 

@@ -1801,15 +1801,30 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
     fn bubble_group_valid<P>(
         &self,
-        bubble_group: &Vec<(u8, Vec<BubblePathItem>)>,
+        bubble_group: &mut Vec<(u8, Vec<BubblePathItem>)>,
         problem_groups_counter: &mut u32,
         tsv_path: P,
         processed_bubble_starts: &BitSet
     ) -> bool 
     where P: AsRef<Path>
     {
+        // check if any of the bubble paths contain repeats
+        let mut remove = Vec::new();
+        for (bubble_path_i, (_, bubble_path)) in bubble_group.iter().enumerate() {
+            for i in 0..(bubble_path.len() -1) {
+                let current_id = bubble_path[i].node_id;
+                if bubble_path[i+1..].iter().map(|b| b.node_id).contains(&current_id) {
+                    remove.push(bubble_path_i);
+                    break;
+                }
+            }
+        }
+        // remove all bubble paths where nodes occur multiple times
+        remove.into_iter().rev().for_each(|i| { bubble_group.remove(i); } );
+
         // we need at least two paths for a bubble
         if bubble_group.len() <= 1 { return false; }
+
         // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
         if bubble_group.len() > 4 {
             let mut group_nodes = bubble_group
@@ -1871,7 +1886,7 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
 
         let mut writer = BufWriter::new(File::create(&tsv_path)?);
 
-        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tb0\tb1\tb2\tb3\tmgr0\tmgr1\tmgr2\tmgr3\tsgr0\tsgr1\tsgr2\tsgr3\tmapIDs")?;
+        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tb0\tb1\tb2\tb3\tmapIDs")?;
 
         let dir = tsv_path.as_ref().with_extension("bubbles");
         match create_dir(&dir) {
@@ -1904,15 +1919,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let next_node_data = self.get_node(next_node_id).data();
                 let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_out_dir);
                 let node_quality = next_node_data.quality().expect("should have edge quality");
-                let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
                 let supported = !mapped_ids.is_empty();
-                mapped_ids.sort();
-                let sorted_len = mapped_ids.len();
-                mapped_ids.dedup();
-                let deduped_len = mapped_ids.len();
-                let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
-                let single_gene_repeat = sorted_len - deduped_len;
-                paths.push((out_base, vec![BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat)]));
+                paths.push((out_base, vec![BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported)]));
             }
 
             // container for temp new paths (should get emptied each iteration)
@@ -1943,17 +1952,12 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                         let next_node_data = self.get_node(next_node_id).data();
                         let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                         let node_quality = next_node_data.quality().expect("should have edge quality");
-                        let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                        let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
                         let supported = !mapped_ids.is_empty();
-                        mapped_ids.sort();
-                        let sorted_len = mapped_ids.len();
-                        mapped_ids.dedup();
-                        let deduped_len = mapped_ids.len();
-                        let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
-                        let single_gene_repeat = sorted_len - deduped_len;
+
                         // clone path for all edges except first, store in new_paths to be added to paths later
                         let mut new_path = path.clone();
-                        new_path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                        new_path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported));
                         new_paths.push(new_path);
                     }
                     // push first edge into original path
@@ -1961,15 +1965,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                     let next_node_data = self.get_node(next_node_id).data();
                     let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
                     let node_quality = next_node_data.quality().expect("should have edge quality");
-                    let mut mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                    let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
                     let supported = !mapped_ids.is_empty();
-                    mapped_ids.sort();
-                    let sorted_len = mapped_ids.len();
-                    mapped_ids.dedup();
-                    let deduped_len = mapped_ids.len();
-                    let multi_gene_repeat = if deduped_len > 0 { deduped_len - 1 } else { 0 };
-                    let single_gene_repeat = sorted_len - deduped_len;
-                    path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported, multi_gene_repeat, single_gene_repeat));
+                    path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported));
                 }
 
                 // add new paths into paths and remove ones that were too short
@@ -1989,9 +1987,9 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
             // then, sort by last node ID to group converging paths
             paths.sort_by_key(|p| p.1.last().unwrap().node_id);
             for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().node_id ).into_iter() {
-                let bubble_group = bubble_group.collect::<Vec<_>>();
+                let mut bubble_group = bubble_group.collect::<Vec<_>>();
 
-                if !self.bubble_group_valid(&bubble_group, &mut problem_groups_counter, &tsv_path, &processed_bubble_starts) {
+                if !self.bubble_group_valid(&mut bubble_group, &mut problem_groups_counter, &tsv_path, &processed_bubble_starts) {
                     continue;
                 }
 
@@ -2009,8 +2007,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 let mut mutated_bases = bubble_group_paths.iter().map(|(base, _path)| *base);
                 let mut avg_qualities = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.node_quality as usize) as f32 / K::k() as f32);
                 let mut avg_support = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.supported as usize) as f32 / K::k() as f32);
-                let mut avg_mgr = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.multi_gene_repeat) as f32 / K::k() as f32);
-                let mut avg_sgr = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.single_gene_repeat) as f32 / K::k() as f32);
 
                 // if available, get the mapped IDs from all paths
                 let mut mapped_ids = Vec::new(); // most likely not enough IDs to hash
@@ -2055,8 +2051,6 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
                 for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual}\t")?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s}\t")?; } else {  write!(writer, "\t")?; } }
                 for _i in 0..4 { if let Some(base) = mutated_bases.next() { write!(writer, "{}\t", bits_to_base(base))?; } else {  write!(writer, "\t")?; } }
-                for _i in 0..4 { if let Some(mgr) = avg_mgr.next() {  write!(writer, "{mgr}\t")?; } else {  write!(writer, "\t")?; } }
-                for _i in 0..4 { if let Some(sgr) = avg_sgr.next() {  write!(writer, "{sgr}\t")?; } else {  write!(writer, "\t")?; } }
 
                 writeln!(writer, "{:?}", mapped_ids)?;
                 bubbles_written += 1;
@@ -3659,11 +3653,11 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::fs::remove_file;
+    use std::{fs::{File, read_dir, read_to_string, remove_dir_all, remove_file}, io::{BufRead, BufReader, Read}};
 
     use itertools::Itertools;
 
-use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+use crate::{BaseQuality, EdgeMap, Exts, Kmer, Vmer, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer6, Kmer16, Kmer22}, reads::{ReadData, Reads, ReadsPaired, Strandedness}, serde::SerGraph, summarizer::{ID, IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SumMapEMQualityData, SummaryConfig, Tag, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -3829,35 +3823,121 @@ use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compre
     
     fn test_find_bubbles(stranded: bool) {
         let print = true;
-        let strandedness = if stranded { Strandedness::Forward } else { Strandedness::Unstranded };
-        type K = Kmer16;
+        let (unc_graph, _, summary_config) = build_test_graph_basic_bubbles::<SumMapEMQualityData, Tag, Kmer16>().dissolve();
 
-        let seqs = build_reads_quality_test(strandedness);
-        let sample_info = SampleInfo::new(1, 0b111110, vec![1000, 10, 20, 20, 20, 20]);
-        let summary_config = SummaryConfig::new(sample_info);
-        let (kmers, _) = filter_kmers::<IDMapEMQualityData, K, IDTag>(&seqs, &summary_config, false, 1., false);
-
-
-        // make uncompressed graph
-        let mut unc_graph = uncompressed_graph(kmers.clone(), stranded).finish();
-
-        // add "mapped" ids to graph
-        for i in 0..unc_graph.len() {
-            let data = unc_graph.mut_data(i);
-            if let Some(ids) = data.ids() {
-                if ids.contains(&1) {
-                    data.set_mapped_ids(vec![1].into());
-                }
-                else if ids.contains(&2) {
-                    data.set_mapped_ids(vec![2].into());
-                }
-            }
-        }
-        let tsv_path = format!("bubbles-stranded_{stranded}");
+        let tsv_path = format!("bubbles-stranded_{stranded}.tsv");
         let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
         let write_info = (&colors, &summary_config, &Translator::empty());
         if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
         unc_graph.find_basic_bubbles(&tsv_path, Some(write_info)).unwrap();
+
+        let reader = BufReader::new(File::open(&tsv_path).unwrap());
+        let mut tsv: Vec<[String; 17]> = Vec::new();
+        for result in reader.lines() {
+            let line = result.unwrap().clone();
+            tsv.push(line.split("\t").map(String::from).collect_array().unwrap());
+        }
+
+        println!("{:?}", tsv);
+
+        let expected_tsv_content = vec![
+            ["cov0",      "cov1",      "cov2",      "cov3",      "qual0", "qual1", "qual2", "qual3", "sup0", "sup1", "sup2", "sup3", "b0", "b1", "b2", "b3", "mapIDs"],
+            ["1",         "152.47058", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"],
+            ["152.23529", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
+            ["1",         "1",         "143.47058", "1.0588236", "1",     "1",     "3",     "1.125", "0",    "0",    "1",    "0",    "A",  "C",  "G",  "T",  "[0, 1]"],
+            ["1",         "1",         "1",         "",          "1",     "1",     "1",     "",      "0",    "0",    "0",    "",     "A",  "C",  "G",  "",   "[]"], 
+            ["1",         "153.29411", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
+            ["1",         "146.23529", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "C",  "G",  "",   "",   "[0, 1]"], 
+            ["149.17647", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"], 
+            ["1",         "152.82353", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "C",  "G",  "",   "",   "[0, 1]"]
+        ];
+
+        assert_eq!(tsv, expected_tsv_content);
+        let bubble_dir = read_dir(format!("bubbles-stranded_{stranded}.bubbles/bubbles-000k")).unwrap().collect::<Vec<_>>();
+        assert_eq!(bubble_dir.len(), expected_tsv_content.len()-1);
+        println!("{:?}", bubble_dir);
+
+        remove_dir_all(format!("bubbles-stranded_{stranded}.bubbles/")).unwrap();
+        remove_file(tsv_path).unwrap();
+
+    }
+
+    fn build_test_graph_basic_bubbles<SD: SummaryData<DI>, DI: ReadData, K: Kmer>() -> SerGraph<K, SD> {
+        let r1 = "GAGCAGGACGGGGATTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGACGAAAGAATTCGATCATCGCGACATTTCGGGATCGAG";
+        let q1 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r2 =                                 "GCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGACGAAAGAATTCGATCATCGCGACATTTCGGGATCGAGGTACTTGGACTTTGCGGGGTTATTTGCGGGAGTTCTG";
+        let q2 =                                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r3 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGGTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q3 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r4 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGCTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q4 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r5 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGAGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q5 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r6 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGATGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q6 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r7 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGGGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q7 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r8 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGCAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q8 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r9 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCTGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with four paths
+        let q9 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r10 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCAGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // .
+        let r11 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCCGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // . this bubble path with high q
+        let r12 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGTGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGAC"; // insertion + deletion -> no bubble
+        let r13 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGTGCAGCGGAC"; // should form tip -> no bubble
+        let q12 =              "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+
+        let r14 = "ACGTAGCTACGATCACGTACGTACGTACGTACGTACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q14 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r15 = "ACGTAGCTACGATCACGTACGTACGTACGTACGTAAGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q15 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r16 = "ACGTAGCTACGATCACGTACGTACGTACGTACGGACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q16 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r17 = "ACGTAGCTACGATCACGTACGTACGTACGTACGAACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let r18 = "ACGTAGCTACGATCACGTACGTACGTACGTACGCACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+
+
+        let mut reads = Reads::new_with_quality(Strandedness::Forward);
+
+        for _i in 0..100 { reads.add_read(DnaString::from_acgt_bytes(r1.as_bytes()), None, DI::new(0, 0), Some(q1.as_bytes())); }
+        for _i in 0..50 { reads.add_read(DnaString::from_acgt_bytes(r2.as_bytes()), None, DI::new(0, 0), Some(q2.as_bytes())); }
+        reads.add_read(DnaString::from_acgt_bytes(r3.as_bytes()), None, DI::new(0, 0), Some(q3.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r4.as_bytes()), None, DI::new(0, 0), Some(q4.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r5.as_bytes()), None, DI::new(0, 0), Some(q5.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r6.as_bytes()), None, DI::new(0, 0), Some(q6.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r7.as_bytes()), None, DI::new(0, 0), Some(q7.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r8.as_bytes()), None, DI::new(0, 0), Some(q8.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r9.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r10.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r11.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r12.as_bytes()), None, DI::new(0, 0), Some(q12.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r13.as_bytes()), None, DI::new(0, 0), Some(q12.as_bytes()));
+        
+        for _i in 0..50 { reads.add_read(DnaString::from_acgt_bytes(r14.as_bytes()), None, DI::new(1, 0), Some(q14.as_bytes())); }
+        reads.add_read(DnaString::from_acgt_bytes(r15.as_bytes()), None, DI::new(1, 0), Some(q15.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r16.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r17.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r18.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+
+        let reads = ReadsPaired::Unpaired { reads };
+
+        let sample_info = SampleInfo::new(0, 1, vec![10000]);
+        let summary_config = SummaryConfig::new(sample_info);
+        let (kmers, _) = filter_kmers::<SD, K, DI>(&reads, &summary_config, false, 1., false);
+        let mut graph = uncompressed_graph(kmers, true).finish_serial();
+
+        // map id to simulate supported paths
+        for (i,seq) in [r1, r2, r14].iter().enumerate() {
+            for kmer in DnaString::from_acgt_bytes(seq.as_bytes()).iter_kmers() {
+                if let Some(node_id) = graph.search_kmer(kmer, Dir::Left) {
+                    let mut mids: Vec<_> = graph.mut_data(node_id).mapped_ids().unwrap().into();
+                    mids.push(i as u16);
+                    graph.mut_data(node_id).set_mapped_ids(mids.into());
+                }
+            }
+        }
+
+        SerGraph::new(graph, Translator::empty(), summary_config)
     }
 
     #[test]
