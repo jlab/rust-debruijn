@@ -1808,6 +1808,16 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
     ) -> bool 
     where P: AsRef<Path>
     {
+        // check if any of the bubble paths contain repeated nodes
+        for (_, bubble_path) in bubble_group.iter() {
+            for i in 0..(bubble_path.len() -1) {
+                let current_id = bubble_path[i].node_id;
+                if bubble_path[i+1..].iter().map(|b| b.node_id).contains(&current_id) {
+                    return false;
+                }
+            }
+        }
+
         // we need at least two paths for a bubble
         if bubble_group.len() <= 1 { return false; }
 
@@ -3831,7 +3841,6 @@ use crate::{BaseQuality, EdgeMap, Exts, Kmer, Vmer, build_test_graph, colors::Co
             ["1",         "152.47058", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"],
             ["152.23529", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
             ["1",         "1",         "143.47058", "1.0588236", "1",     "1",     "3",     "1.125", "0",    "0",    "1",    "0",    "A",  "C",  "G",  "T",  "[0, 1]"],
-            ["1",         "1",         "1",         "",          "1",     "1",     "1",     "",      "0",    "0",    "0",    "",     "A",  "C",  "G",  "",   "[]"], 
             ["1",         "153.29411", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
             ["1",         "146.23529", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "C",  "G",  "",   "",   "[0, 1]"], 
             ["149.17647", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"], 
