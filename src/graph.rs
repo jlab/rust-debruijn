@@ -8,6 +8,7 @@ use bit_set::BitSet;
 use indicatif::ProgressBar;
 use indicatif::ProgressIterator;
 use indicatif::ProgressStyle;
+use itertools::Itertools;
 use itertools::enumerate;
 use log::warn;
 use log::{debug, trace};
@@ -20,15 +21,19 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::f32;
+use std::fmt::format;
 use std::fmt::{self, Debug, Display};
+use std::fs::create_dir;
 use std::fs::{remove_file, File};
 use std::hash::Hash;
 use std::io::BufWriter;
+use std::io::ErrorKind::AlreadyExists;
 use std::io::{BufReader, Error, Read};
 use std::io::Write;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::path::PathBuf;
 
 use boomphf::hashmap::BoomHashMap;
 
@@ -36,7 +41,9 @@ type SmallVec4<T> = SmallVec<[T; 4]>;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 use crate::BaseQuality;
+use crate::BubblePathItem;
 use crate::EdgeMap;
+use crate::base_to_bits;
 use crate::bits_to_base;
 use crate::colors::ColorMode;
 use crate::colors::Colors;
@@ -890,7 +897,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
-        debug!("large to dot loop: {}", self.len());
     }
 
     /// Write the graph to a dot file, highlight the nodes which form the 
@@ -932,7 +938,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
         
         f.flush().unwrap();
-        debug!("large to dot loop: {}", self.len());
     }
 
     /// Write the graph to a dot file in parallel
@@ -1052,8 +1057,6 @@ impl<K: Kmer, D: Debug> DebruijnGraph<K, D> {
         writeln!(&mut f, "}}").unwrap();
 
         f.flush().unwrap();
-
-        debug!("large to dot loop: {}", self.len());
     }
 
     fn node_to_gfa<F: Fn(&Node<'_, K, D>) -> String>(
@@ -1716,6 +1719,36 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    /// find the closest set of neighbors to the given hash set
+    pub fn find_neighbors(&self, starting_nodes: &HashSet<usize>) -> HashSet<usize> {
+        let mut neighbors = HashSet::new();
+        for node_id in starting_nodes.iter() {
+            let node = self.get_node(*node_id);
+            for (_, nb, _, _) in node.l_edges().iter().chain(&node.r_edges()) {
+                if !starting_nodes.contains(nb) {
+                    neighbors.insert(*nb);
+                }
+                
+            }
+        }
+        neighbors
+    }
+
+    /// extend the given set of nodes with their neighbors by the given number of degrees
+    /// 
+    /// be aware this can be up to around `starting_nodes.len() * 8^degrees` nodes
+    pub fn extend_by_neighbors(&self, starting_nodes: &HashSet<usize>, degrees: usize) -> HashSet<usize> {
+        let mut set = starting_nodes.clone();
+
+        // extend `degrees` times
+        for _i in 0..degrees {
+            let nb = self.find_neighbors(&set);
+            set.extend(nb);
+        }
+
+        set
+    }
+
     /// if a node has a connection to a high quality node and low quality nodes 
     /// in the same direction, remove the connections to the low quality nodes
     pub fn remove_lq_splits<DI>(&mut self, min_quality: BaseQuality) -> Result<(), String>
@@ -1766,13 +1799,277 @@ impl<K: Kmer, SD: Debug> DebruijnGraph<K, SD> {
         Ok(())
     }
 
+    fn bubble_group_valid<P>(
+        &self,
+        bubble_group: &mut Vec<(u8, Vec<BubblePathItem>)>,
+        problem_groups_counter: &mut u32,
+        tsv_path: P,
+        processed_bubble_starts: &BitSet
+    ) -> bool 
+    where P: AsRef<Path>
+    {
+        // check if any of the bubble paths contain repeated nodes
+        for (_, bubble_path) in bubble_group.iter() {
+            for i in 0..(bubble_path.len() -1) {
+                let current_id = bubble_path[i].node_id;
+                if bubble_path[i+1..].iter().map(|b| b.node_id).contains(&current_id) {
+                    return false;
+                }
+            }
+        }
+
+        // we need at least two paths for a bubble
+        if bubble_group.len() <= 1 { return false; }
+
+        // and a maximum of four - more than four only happens if repeats inside the bubble, would not qualify as "simple bubble"
+        if bubble_group.len() > 4 {
+            let mut group_nodes = bubble_group
+                .iter()
+                .flat_map(|(_, vec)| vec)
+                .map(|b| b.node_id)
+                .collect::<Vec<_>>();
+            group_nodes.sort();
+            group_nodes.dedup();
+            let extension = format!("problem_group-{problem_groups_counter}.dot");
+            let dot_path = tsv_path.as_ref().with_extension(extension);
+            debug!("writing group with more than 4 paths to: {:?}", dot_path);
+            *problem_groups_counter += 1;
+            self.to_dot_partial(
+                &dot_path, 
+                &|node| format!("[label=\"{}\"]", format!("{:?}", node.data()).replace("\"", "\'")),
+                &|_, _, _, _| String::new(), 
+                &group_nodes
+            );
+            warn!("more than four paths in bubble group, group will be skipped. section written as dot file at {:?}, paths: {:?}", dot_path, bubble_group);
+            return false;
+        }
+
+        // if we have already visited the final node, where the bubble paths reconvene, skip
+        let final_id = bubble_group[0].1.last().unwrap().node_id;
+        if processed_bubble_starts.contains(final_id) { return false; }
+
+        true
+    }
+
+    /// find basic bubbles in the graph and record the average quality and coverage of both paths
+    /// only considering bubbles of sequence length exactly 2k-1 (one substitution) (k nodes)
+    /// !!! only use for uncompressed path
+    /// supply path to folder in which the output should be stored with a file prefix
+    /// will produce a file called path/prefix-bubbles.tsv
+    /// if `write_info` is supplied, it will create an additional dir called path/prefix-bubbles
+    /// with dot files, split in folders themselves for each 100k files
+    /// 
+    /// currently only available for stranded graphs
+    pub fn find_basic_bubbles<P: AsRef<Path> + Debug, DI>(&self, 
+        tsv_path: P, 
+        write_info: Option<(&Colors<SD, DI>, &SummaryConfig,  &Translator)>,
+    ) -> Result<(), std::io::Error> 
+    where SD: SummaryData<DI>
+    {
+        if self.get_node(0).data().quality().is_none() { return Err(std::io::Error::other("no quality scores available")); }
+        if self.get_node(0).data().edge_mults().is_none() { return Err(std::io::Error::other("no edge coverage available")); }
+        if self.get_node(0).data().mapped_ids().is_none() { return Err(std::io::Error::other("no mapped reference IDs available")); }
+
+        // for now, deactivate method for unstranded graphs, would cause minor issues
+        if !self.base.stranded {return Err(std::io::Error::other("graph has to be stranded to find basic bubbles"))}
+
+        // graph cannot be compressed, go over all node lengths to make sure
+        for l in self.base.sequences.length.iter() {
+            if *l as usize > K::k() {
+                return Err(std::io::Error::other("graph has to be compressed to find basic bubbles (it is not)"));
+            }
+        }
+
+        let mut writer = BufWriter::new(File::create(&tsv_path)?);
+
+        writeln!(writer, "cov0\tcov1\tcov2\tcov3\tqual0\tqual1\tqual2\tqual3\tsup0\tsup1\tsup2\tsup3\tb0\tb1\tb2\tb3\tmapIDs")?;
+
+        let dir = tsv_path.as_ref().with_extension("bubbles");
+        match create_dir(&dir) {
+            Ok(_) => (),
+            Err(e) => {
+                match e.kind() {
+                    AlreadyExists => (),
+                    _ => return Err(e),
+                }
+            }
+        }
+        // subdir for repeat bubble dot
+        let mut current_subdir = PathBuf::new();
+
+        let mut processed_bubble_starts = BitSet::new();
+
+        let mut bubbles_written = 0;
+
+        for (start_node_id, start_out_dir) in (0..(self.len())).flat_map(|node_id| [(node_id, Dir::Right), (node_id, Dir::Left)]) {
+            let mut paths = Vec::new();
+
+            let start_node = self.get_node(start_node_id);
+
+            let out_edges = start_node.edges(start_out_dir);
+
+            if out_edges.len() <= 1 { continue; }
+
+            // for each out edge, start a path
+            for (out_base, next_node_id, next_in_dir, _) in out_edges {
+                let next_node_data = self.get_node(next_node_id).data();
+                let edge_coverage = start_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, start_out_dir);
+                let node_quality = next_node_data.quality().expect("should have edge quality");
+                let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                let supported = !mapped_ids.is_empty();
+                paths.push((out_base, vec![BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported)]));
+            }
+
+            // container for temp new paths (should get emptied each iteration)
+            let mut new_paths = Vec::new();
+
+            // then, extend each path by one
+            // we expect k nodes in the bubble path, plus the final node where the paths should reconvene
+            let mut path_length = 1;
+            while path_length <= K::k() {
+                let mut remove_paths = Vec::new();
+
+                for (i, path) in paths.iter_mut().enumerate() {
+                    let last_bubble_item = path.1.last().unwrap();
+                    let last_node_id = last_bubble_item.node_id;
+                    let last_in_dir = last_bubble_item.in_dir;
+                    let last_node = self.get_node(last_node_id);
+                    let out_edges = self.get_node(last_node_id).edges(last_in_dir.flip());
+
+                    // if we do not have any out edges, path is invalid, remove from paths and move to next path
+                    if out_edges.is_empty() {
+                        remove_paths.push(i);
+                        continue;
+                    }
+
+                    // if we have multiple out edges, split (duplicate) the path with for edge
+                    for edge_i in 1..out_edges.len() {
+                        let (out_base, next_node_id, next_in_dir, _) = out_edges[edge_i];
+                        let next_node_data = self.get_node(next_node_id).data();
+                        let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
+                        let node_quality = next_node_data.quality().expect("should have edge quality");
+                        let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                        let supported = !mapped_ids.is_empty();
+
+                        // clone path for all edges except first, store in new_paths to be added to paths later
+                        let mut new_path = path.clone();
+                        new_path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+                        new_paths.push(new_path);
+                    }
+                    // push first edge into original path
+                    let (out_base, next_node_id, next_in_dir, _) = out_edges[0];
+                    let next_node_data = self.get_node(next_node_id).data();
+                    let edge_coverage = last_node.data().edge_mults().expect("should have edge coverage").edge_mult(out_base, last_in_dir.flip());
+                    let node_quality = next_node_data.quality().expect("should have edge quality");
+                    let mapped_ids = next_node_data.mapped_ids().expect("should have  mapped IDs").iter().collect::<Vec<_>>();
+                    let supported = !mapped_ids.is_empty();
+                    path.1.push(BubblePathItem::new(next_node_id, next_in_dir, edge_coverage, node_quality, supported));
+                }
+
+                // add new paths into paths and remove ones that were too short
+                for i in remove_paths.iter().rev() {
+                    paths.remove(*i);
+                }
+                paths.append(&mut new_paths);
+
+                path_length += 1;
+            }
+
+            // we have collected all paths in the radius 2*k
+            // group the path by their final node ID -> a simple bubble will reconvene at the same node at this point
+            let mut problem_groups_counter = 0;
+            // sort by mutated base to avoid having diverged paths at the back
+            paths.sort_by_key(|p| p.0);
+            // then, sort by last node ID to group converging paths
+            paths.sort_by_key(|p| p.1.last().unwrap().node_id);
+            for (_key, bubble_group) in paths.into_iter().chunk_by(|p| p.1.last().unwrap().node_id ).into_iter() {
+                let mut bubble_group = bubble_group.collect::<Vec<_>>();
+
+                if !self.bubble_group_valid(&mut bubble_group, &mut problem_groups_counter, &tsv_path, &processed_bubble_starts) {
+                    continue;
+                }
+
+                // calculate coverage before removing final node and divide by k+1 since it is edge based
+                let mut bubble_group_paths = bubble_group.to_owned();
+                let avg_coverages_vec = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.in_cov) as f32 / (K::k()+1) as f32).collect::<Vec<_>>();
+
+                // remove final node element from paths
+                for (_, path) in bubble_group_paths.iter_mut() {
+                    let _ = path.pop();
+                }
+
+                // for each bubble member, calculate the average coverage and quality, check if it has any supported nodes
+                let mut avg_coverages = avg_coverages_vec.iter();
+                let mut mutated_bases = bubble_group_paths.iter().map(|(base, _path)| *base);
+                let mut avg_qualities = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.node_quality as usize) as f32 / K::k() as f32);
+                let mut avg_support = bubble_group_paths.iter().map(|(_, path)| path.iter().fold(0, |prev, next| prev + next.supported as usize) as f32 / K::k() as f32);
+
+                // if available, get the mapped IDs from all paths
+                let mut mapped_ids = Vec::new(); // most likely not enough IDs to hash
+                for b in bubble_group_paths.iter().flat_map(|(_, vec)| vec) {
+                    let mids = self.get_node(b.node_id).data().mapped_ids().expect("should have mapped IDs");
+                    mapped_ids.extend_from_slice(mids);
+                }
+                mapped_ids.sort();
+                mapped_ids.dedup();
+
+                // create subdir in case we have lots and lots of bubbles 
+                if bubbles_written % 1000000 == 0 {
+                    current_subdir = dir.join(format!("bubbles-{}00k", bubbles_written / 100000));
+                    debug!("creating dir {:?}", current_subdir);
+                    match create_dir(&current_subdir) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            match e.kind() {
+                                AlreadyExists => (),
+                                _ => return Err(e),
+                            }
+                        }
+                    }
+                }
+                
+                // write bubbles
+                if let Some((colormap, config, translator)) = write_info {
+                    let nodes = bubble_group_paths.iter().flat_map(|(_, vec)| vec.iter().map(|a| a.node_id)).collect::<Vec<_>>();
+                    let file_name = format!("bubble-{bubbles_written}.dot");
+                    let new_path = current_subdir.join(file_name);
+                    //debug!("path bubble dot: {:?}", new_path);
+                    self.to_dot_partial(
+                        new_path, 
+                        &|node| node.node_dot_default(colormap, config, translator, false, false), 
+                        &|node, base, dir, flip| node.edge_dot_default(colormap, base, dir, flip),
+                        &nodes
+                    );
+                }
+
+                // write bubble values to csv
+                for _i in 0..4 { if let Some(cov) = avg_coverages.next() { write!(writer, "{cov}\t")?; } else {  write!(writer, "\t")?; } }
+                for _i in 0..4 { if let Some(qual) = avg_qualities.next() {  write!(writer, "{qual}\t")?; } else {  write!(writer, "\t")?; } }
+                for _i in 0..4 { if let Some(s) = avg_support.next() {  write!(writer, "{s}\t")?; } else {  write!(writer, "\t")?; } }
+                for _i in 0..4 { if let Some(base) = mutated_bases.next() { write!(writer, "{}\t", bits_to_base(base))?; } else {  write!(writer, "\t")?; } }
+
+                writeln!(writer, "{:?}", mapped_ids)?;
+                bubbles_written += 1;
+
+
+            }
+
+            processed_bubble_starts.insert(start_node_id);
+        }
+
+        writer.flush()?;
+
+        Ok(())
+    }
+
+
     /// remove bubbles/ladders and tips in which one path has a quality lower than the given `min_quality`. 
     /// The method continues searching on a path for a maximum of (`max_path_fac`` * k - 1).
     pub fn remove_lq_paths<DI>(&mut self, min_quality: BaseQuality, max_path_fac: usize) -> Result<(), String>
     where
         SD: SummaryData<DI>
     {
-        // check we do indeed have quality and graph is stranded
+        // check we do indeed have quality
         if self.get_node(0).data().quality().is_none() { return Err(String::from("no quality scores available")); }
 
         let min_path = 2 * K::k() - 1;
@@ -3352,9 +3649,11 @@ impl<K: Kmer, D: Debug> Iterator for EdgeIter<'_, K, D> {
 
 #[cfg(test)]
 mod test {
-    use std::fs::remove_file;
+    use std::{fs::{File, read_dir, read_to_string, remove_dir_all, remove_file}, io::{BufRead, BufReader, Read}};
 
-    use crate::{BaseQuality, EdgeMap, Exts, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, kmer::{Kmer6, Kmer16, Kmer22}, reads::{Reads, ReadsPaired, Strandedness}, summarizer::{IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SummaryConfig, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
+    use itertools::Itertools;
+
+use crate::{BaseQuality, EdgeMap, Exts, Kmer, Vmer, build_test_graph, colors::Colors, compression::{CheckCompress, ScmapCompress, compress_kmers_with_hash, uncompressed_graph}, dna_string::DnaString, filter::filter_kmers, graph::DebruijnGraph, kmer::{Kmer6, Kmer16, Kmer22}, reads::{ReadData, Reads, ReadsPaired, Strandedness}, serde::SerGraph, summarizer::{ID, IDMapEMData, IDMapEMQualityData, IDTag, MapEMEmapQualityData, SampleInfo, SumMapEMQualityData, SummaryConfig, Tag, TagsCountsData, TagsCountsSumData, Translator}, test::random_dna};
 
     use crate::{summarizer::SummaryData, Dir};
 
@@ -3511,6 +3810,129 @@ mod test {
 
 
         ReadsPaired::Unpaired { reads }
+    }
+
+    #[test]
+    fn test_find_bubbles_s() {
+        test_find_bubbles(true);
+    }
+    
+    fn test_find_bubbles(stranded: bool) {
+        let print = true;
+        let (unc_graph, _, summary_config) = build_test_graph_basic_bubbles::<SumMapEMQualityData, Tag, Kmer16>().dissolve();
+
+        let tsv_path = format!("bubbles-stranded_{stranded}.tsv");
+        let colors = Colors::new(&unc_graph, &summary_config, crate::colors::ColorMode::IDS { n_ids: 5 });
+        let write_info = (&colors, &summary_config, &Translator::empty());
+        if print { unc_graph.to_dot("uncompressed_bubbles.dot", &|node| node.node_dot_default(&colors, &summary_config, &Translator::empty(), false, false), &|node, base, dir, flip| node.edge_dot_default(&colors, base, dir, flip)); }
+        unc_graph.find_basic_bubbles(&tsv_path, Some(write_info)).unwrap();
+
+        let reader = BufReader::new(File::open(&tsv_path).unwrap());
+        let mut tsv: Vec<[String; 17]> = Vec::new();
+        for result in reader.lines() {
+            let line = result.unwrap().clone();
+            tsv.push(line.split("\t").map(String::from).collect_array().unwrap());
+        }
+
+        println!("{:?}", tsv);
+
+        let expected_tsv_content = vec![
+            ["cov0",      "cov1",      "cov2",      "cov3",      "qual0", "qual1", "qual2", "qual3", "sup0", "sup1", "sup2", "sup3", "b0", "b1", "b2", "b3", "mapIDs"],
+            ["1",         "152.47058", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"],
+            ["152.23529", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
+            ["1",         "1",         "143.47058", "1.0588236", "1",     "1",     "3",     "1.125", "0",    "0",    "1",    "0",    "A",  "C",  "G",  "T",  "[0, 1]"],
+            ["1",         "153.29411", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "G",  "T",  "",   "",   "[0, 1]"], 
+            ["1",         "146.23529", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "C",  "G",  "",   "",   "[0, 1]"], 
+            ["149.17647", "1",         "",          "",          "3",     "1",     "",      "",      "1",    "0",    "",     "",     "A",  "G",  "",   "",   "[0, 1]"], 
+            ["1",         "152.82353", "",          "",          "1",     "3",     "",      "",      "0",    "1",    "",     "",     "C",  "G",  "",   "",   "[0, 1]"]
+        ];
+
+        assert_eq!(tsv, expected_tsv_content);
+        let bubble_dir = read_dir(format!("bubbles-stranded_{stranded}.bubbles/bubbles-000k")).unwrap().collect::<Vec<_>>();
+        assert_eq!(bubble_dir.len(), expected_tsv_content.len()-1);
+        println!("{:?}", bubble_dir);
+
+        remove_dir_all(format!("bubbles-stranded_{stranded}.bubbles/")).unwrap();
+        remove_file(tsv_path).unwrap();
+
+    }
+
+    fn build_test_graph_basic_bubbles<SD: SummaryData<DI>, DI: ReadData, K: Kmer>() -> SerGraph<K, SD> {
+        let r1 = "GAGCAGGACGGGGATTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGACGAAAGAATTCGATCATCGCGACATTTCGGGATCGAG";
+        let q1 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r2 =                                 "GCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGACGAAAGAATTCGATCATCGCGACATTTCGGGATCGAGGTACTTGGACTTTGCGGGGTTATTTGCGGGAGTTCTG";
+        let q2 =                                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r3 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGGTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q3 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r4 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGCTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q4 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r5 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGAGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q5 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r6 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGATGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q6 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r7 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGGGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q7 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r8 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGCAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with two paths
+        let q8 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r9 =               "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCTGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // should form one bubble with four paths
+        let q9 =               "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r10 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCAGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // .
+        let r11 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCCGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGGAC"; // . this bubble path with high q
+        let r12 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGTGAGGGTTCGAGCGAGGGGGCAGGCGAGCAGCGAC"; // insertion + deletion -> no bubble
+        let r13 =              "TTTTCGAGCGGATATCTTGCGAGGTTTCGGCGGAGGGTTCGAGCGAGGGGGCAGGCGTGCAGCGGAC"; // should form tip -> no bubble
+        let q12 =              "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+
+        let r14 = "ACGTAGCTACGATCACGTACGTACGTACGTACGTACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q14 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r15 = "ACGTAGCTACGATCACGTACGTACGTACGTACGTAAGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q15 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r16 = "ACGTAGCTACGATCACGTACGTACGTACGTACGGACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let q16 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC*CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        let r17 = "ACGTAGCTACGATCACGTACGTACGTACGTACGAACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+        let r18 = "ACGTAGCTACGATCACGTACGTACGTACGTACGCACGTACGTACGTGCTAGCGACGATGCTACGATC"; // contains repeat ACGT
+
+
+        let mut reads = Reads::new_with_quality(Strandedness::Forward);
+
+        for _i in 0..100 { reads.add_read(DnaString::from_acgt_bytes(r1.as_bytes()), None, DI::new(0, 0), Some(q1.as_bytes())); }
+        for _i in 0..50 { reads.add_read(DnaString::from_acgt_bytes(r2.as_bytes()), None, DI::new(0, 0), Some(q2.as_bytes())); }
+        reads.add_read(DnaString::from_acgt_bytes(r3.as_bytes()), None, DI::new(0, 0), Some(q3.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r4.as_bytes()), None, DI::new(0, 0), Some(q4.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r5.as_bytes()), None, DI::new(0, 0), Some(q5.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r6.as_bytes()), None, DI::new(0, 0), Some(q6.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r7.as_bytes()), None, DI::new(0, 0), Some(q7.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r8.as_bytes()), None, DI::new(0, 0), Some(q8.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r9.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r10.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r11.as_bytes()), None, DI::new(0, 0), Some(q9.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r12.as_bytes()), None, DI::new(0, 0), Some(q12.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r13.as_bytes()), None, DI::new(0, 0), Some(q12.as_bytes()));
+        
+        for _i in 0..50 { reads.add_read(DnaString::from_acgt_bytes(r14.as_bytes()), None, DI::new(1, 0), Some(q14.as_bytes())); }
+        reads.add_read(DnaString::from_acgt_bytes(r15.as_bytes()), None, DI::new(1, 0), Some(q15.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r16.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r17.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+        reads.add_read(DnaString::from_acgt_bytes(r18.as_bytes()), None, DI::new(1, 0), Some(q16.as_bytes()));
+
+        let reads = ReadsPaired::Unpaired { reads };
+
+        let sample_info = SampleInfo::new(0, 1, vec![10000]);
+        let summary_config = SummaryConfig::new(sample_info);
+        let (kmers, _) = filter_kmers::<SD, K, DI>(&reads, &summary_config, false, 1., false);
+        let mut graph = uncompressed_graph(kmers, true).finish_serial();
+
+        // map id to simulate supported paths
+        for (i,seq) in [r1, r2, r14].iter().enumerate() {
+            for kmer in DnaString::from_acgt_bytes(seq.as_bytes()).iter_kmers() {
+                if let Some(node_id) = graph.search_kmer(kmer, Dir::Left) {
+                    let mut mids: Vec<_> = graph.mut_data(node_id).mapped_ids().unwrap().into();
+                    mids.push(i as ID);
+                    graph.mut_data(node_id).set_mapped_ids(mids.into());
+                }
+            }
+        }
+
+        SerGraph::new(graph, Translator::empty(), summary_config)
     }
 
     #[test]

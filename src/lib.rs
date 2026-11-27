@@ -30,6 +30,8 @@
 
 use bimap::BiMap;
 use clap::ValueEnum;
+use rand::Rng;
+use rand::rngs::ThreadRng;
 use serde_derive::{Deserialize, Serialize};
 use summarizer::Marker;
 use std::fmt::{self, Debug, Display};
@@ -1662,6 +1664,27 @@ impl<K: Kmer> Iterator for KLowestQualityIter<'_, K> {
         } else {
             None
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BubblePathItem {
+    node_id: usize, 
+    in_dir: Dir, 
+    in_cov: u32, 
+    node_quality: BaseQuality, 
+    supported: bool, 
+}
+
+impl BubblePathItem {
+    fn new(
+        node_id: usize, 
+        in_dir: Dir, 
+        in_cov: u32, 
+        node_quality: BaseQuality, 
+        supported: bool, 
+    ) -> Self {
+        BubblePathItem { node_id, in_dir, in_cov, node_quality, supported}
     }
 }
 
