@@ -3926,7 +3926,7 @@ use crate::{BaseQuality, EdgeMap, Exts, Kmer, Vmer, build_test_graph, colors::Co
             for kmer in DnaString::from_acgt_bytes(seq.as_bytes()).iter_kmers() {
                 if let Some(node_id) = graph.search_kmer(kmer, Dir::Left) {
                     let mut mids: Vec<_> = graph.mut_data(node_id).mapped_ids().unwrap().into();
-                    mids.push(i as u16);
+                    mids.push(i as ID);
                     graph.mut_data(node_id).set_mapped_ids(mids.into());
                 }
             }
